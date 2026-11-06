@@ -1,0 +1,35 @@
+{
+  "features": { "haproxy": true, "nginx": true },
+  "instances": [
+    {
+      "name": "edge-haproxy",
+      "type": "haproxy",
+      "statsUrl": "http://10.0.0.5:8404/stats",
+      "username": "viewer",
+      "password": "${HAPROXY_STATS_PASS}",
+      "configPath": "/app/config/haproxy.cfg",
+      "tags": ["prod", "eu"]
+    },
+    {
+      "name": "edge-haproxy-runtime-api",
+      "type": "haproxy",
+      "socket": "10.0.0.5:9999",
+      "configPath": "/app/config/haproxy.cfg",
+      "enabled": false
+    },
+    {
+      "name": "web-gateway",
+      "type": "nginx",
+      "statsUrl": "http://10.0.0.6/nginx_status",
+      "configPath": "/app/config/nginx/nginx.conf",
+      "probe": true
+    },
+    {
+      "name": "nginx-plus",
+      "type": "nginx",
+      "plusApiUrl": "http://10.0.0.7:8080",
+      "configPath": "/app/config/nginx-plus/nginx.conf",
+      "enabled": false
+    }
+  ]
+}

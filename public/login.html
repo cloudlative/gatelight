@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex">
+  <title>Sign in — GateLight</title>
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="login-body">
+  <section class="login-card" aria-labelledby="lg-h">
+    <img class="login-logo" src="logo.svg" alt="" width="48" height="48">
+    <h1 id="lg-h">GateLight</h1>
+    <p class="tagline">Light up your gateways.</p>
+    <p class="muted">Sign in to see your proxies as a map.</p>
+    <form id="lg-form" autocomplete="on" novalidate>
+      <label class="fld">Username<input id="lg-user" name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required autofocus></label>
+      <label class="fld">Password
+        <span class="pw-wrap"><input id="lg-pass" name="password" type="password" autocomplete="current-password" required maxlength="512"><button type="button" class="btn ghost pw-toggle" id="lg-show" aria-label="Show password" aria-pressed="false">Show</button></span>
+      </label>
+      <div id="lg-err" class="login-err" role="alert" aria-live="assertive" hidden></div>
+      <button type="submit" class="btn primary login-btn" id="lg-go">Sign in</button>
+    </form>
+  </section>
+  <footer class="sitefoot login-sitefoot"><div class="foot-cap"><a href="https://cloudlative.com" target="_blank" rel="noopener noreferrer">More from Cloudlative</a></div><div class="foot-pills"><a class="foot-pill" href="https://braintally.com" target="_blank" rel="noopener noreferrer" title="BrainTally: cognitive assessment platform (braintally.com)" aria-label="BrainTally (braintally.com)"><img src="brands/braintally.svg" alt="" width="22" height="22"><span>BrainTally</span></a><a class="foot-pill" href="https://cyferio.com" target="_blank" rel="noopener noreferrer" title="Cyferio: self-hosted OpenVPN management with RBAC, MAC binding and audit logging (cyferio.com)" aria-label="Cyferio (cyferio.com)"><img src="brands/cyferio.svg" alt="" width="22" height="22"><span>Cyferio</span></a><a class="foot-pill" href="https://invisibly.dev" target="_blank" rel="noopener noreferrer" title="Invisibly Inc: Zero Trust networking, infrastructure access and endpoint control (invisibly.dev)" aria-label="Invisibly Inc (invisibly.dev)"><img src="brands/invisibly.svg" alt="" width="22" height="22"><span>Invisibly Inc</span></a></div><div class="foot-copy">GateLight · open source (MIT)</div></footer>
+  <script src="login.js"></script>
+</body>
+</html>

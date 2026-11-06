@@ -1,0 +1,9 @@
+# Picked up automatically when you clone the repo: build the image from source instead of pulling it.
+# (Someone who only downloads docker-compose.yml gets the published image.)
+services:
+  gatelight:
+    build: .
+    image: gatelight:local
+    volumes:
+      # Optional: instances.json to pre-define servers (read-only).
+      - ./config:/app/config:ro

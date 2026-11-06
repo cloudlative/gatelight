@@ -1,0 +1,17 @@
+node_modules/
+.env
+.env.*
+!.env.example
+config/
+instances.json
+*.pem
+*.key
+*.log
+.DS_Store
+coverage/
+data/
+.auth-secret
+.initial-password
+*.db
+*.db-wal
+*.db-shm

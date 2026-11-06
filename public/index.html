@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark light">
+  <title>GateLight — see your HAProxy &amp; NGINX as a map</title>
+  <meta name="description" content="GateLight: open-source portal for HAProxy and NGINX. Relationship maps, live health, config audit.">
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div id="landing" class="landing" hidden>
+    <button class="btn ghost lp-signout" type="button" data-logout hidden>Sign out</button>
+    <div class="lp-wrap">
+      <header class="lp-hero">
+        <img class="lp-mark" src="logo.svg" alt="" width="84" height="84">
+        <div class="lp-eyebrow">GateLight <span class="lp-tag-line">· light up your proxies</span></div>
+        <h1>See your proxies as a map</h1>
+        <p>One portal for <b>HAProxy</b> and <b>NGINX</b>: how frontends, routes and backends relate, live health, and a config audit.<br>Connect a running server, or just review a config file.</p>
+      </header>
+
+      <div class="lp-grid">
+        <section class="lp-card" aria-labelledby="lp-live-h">
+          <div class="lp-tag live">Live</div>
+          <h2 id="lp-live-h">Connect to a server</h2>
+          <p class="muted lp-lead">Sign in to your stats endpoint to see real health and traffic, with the full portal.</p>
+          <div id="lp-saved" class="lp-saved"></div>
+          <div id="lp-form-slot"></div>
+          <p id="lp-nomanage" class="muted small" hidden>Adding servers from the browser is off. Define them in <code>config/instances.json</code> or start GateLight with <code>ALLOW_UI_INSTANCES=true</code>.</p>
+        </section>
+
+        <section class="lp-card" aria-labelledby="lp-rev-h">
+          <div class="lp-tag offline">Offline</div>
+          <h2 id="lp-rev-h">Review a config</h2>
+          <p class="muted lp-lead">No server needed and <b>nothing is saved</b>: the config is analysed in memory and gone when you press Clear or leave. You get the relationship map, audit and a searchable config view.</p>
+          <div id="az-drop" class="dropzone" tabindex="0" role="button" aria-label="Drop configuration files here or press Enter to choose">
+            <div class="dz-icon" aria-hidden="true">
+              <svg width="38" height="38" viewBox="0 0 46 46" fill="none"><circle cx="9" cy="23" r="5" fill="#22d3ee"/><circle cx="37" cy="10" r="5" fill="#818cf8"/><circle cx="37" cy="36" r="5" fill="#34d399"/><path d="M14 21l18-9M14 25l18 9" stroke="currentColor" stroke-width="2" opacity=".5"/></svg>
+            </div>
+            <h3>Drop a <code>haproxy.cfg</code>, <code>nginx.conf</code> or a whole folder</h3>
+            <p class="muted small">Folders with <code>conf.d/</code> includes work too.</p>
+            <div class="row center">
+              <label class="btn primary">Choose files<input type="file" id="az-files" multiple hidden></label>
+              <label class="btn">Choose folder<input type="file" id="az-folder" webkitdirectory hidden></label>
+              <button class="btn" id="az-paste-toggle" type="button">Paste text</button>
+            </div>
+            <div class="row center small muted">Try an example:
+              <button class="link" id="az-ex-haproxy" type="button">HAProxy</button>·<button class="link" id="az-ex-nginx" type="button">NGINX</button>
+              <span>· Type: <select id="az-type" aria-label="Config type"><option value="auto">auto-detect</option><option value="haproxy">HAProxy</option><option value="nginx">NGINX</option></select></span>
+            </div>
+            <div id="az-paste" hidden>
+              <textarea id="az-text" spellcheck="false" placeholder="Paste haproxy.cfg or nginx.conf here"></textarea>
+              <div class="row"><button class="btn primary" id="az-run" type="button">Analyze</button></div>
+            </div>
+          </div>
+          <div id="az-status" class="az-status" role="status"></div>
+          <p class="small muted privacy">Analysed in memory by this server only, never stored. Passwords, tokens and <code>stats auth</code> values are redacted. A <code>show stat</code> <code>.csv</code> dropped with a HAProxy config adds live state.</p>
+        </section>
+      </div>
+      <footer class="sitefoot"><div class="foot-cap"><a href="https://cloudlative.com" target="_blank" rel="noopener noreferrer">More from Cloudlative</a></div><div class="foot-pills"><a class="foot-pill" href="https://braintally.com" target="_blank" rel="noopener noreferrer" title="BrainTally: cognitive assessment platform (braintally.com)" aria-label="BrainTally (braintally.com)"><img src="brands/braintally.svg" alt="" width="22" height="22"><span>BrainTally</span></a><a class="foot-pill" href="https://cyferio.com" target="_blank" rel="noopener noreferrer" title="Cyferio: self-hosted OpenVPN management with RBAC, MAC binding and audit logging (cyferio.com)" aria-label="Cyferio (cyferio.com)"><img src="brands/cyferio.svg" alt="" width="22" height="22"><span>Cyferio</span></a><a class="foot-pill" href="https://invisibly.dev" target="_blank" rel="noopener noreferrer" title="Invisibly Inc: Zero Trust networking, infrastructure access and endpoint control (invisibly.dev)" aria-label="Invisibly Inc (invisibly.dev)"><img src="brands/invisibly.svg" alt="" width="22" height="22"><span>Invisibly Inc</span></a></div><div class="foot-copy">GateLight · open source (MIT)</div></footer>
+    </div>
+  </div>
+
+  <div id="dropveil" class="dropveil" aria-hidden="true"><div>Drop to review this config</div></div>
+
+  <div id="app" hidden>
+    <header class="topbar">
+      <button class="brand" id="btn-home" type="button" title="Back to the Overview"><img class="logo" src="logo.svg" alt="" width="20" height="20">GateLight</button>
+      <span class="tagline" aria-hidden="true">Light up your gateways.</span>
+      <button id="btn-start" class="btn ghost" type="button">← Start over</button>
+      <button id="btn-save-review" class="btn primary review-only" type="button" title="Keep this config as a named instance in your dashboard">Save as instance…</button>
+      <div class="isel live-only" id="isel"><select id="instance-select" class="isel-native" aria-label="Instance" tabindex="-1" aria-hidden="true"></select><button type="button" id="isel-btn" class="isel-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="isel-pop" title="Switch instance"></button><div id="isel-pop" class="isel-pop" role="listbox" aria-label="Instances" hidden></div></div>
+      <button id="btn-connect" class="btn primary live-only" type="button" hidden title="Connect a HAProxy or NGINX server">+ Connect</button>
+      <span id="conn-pill" class="pill pill-muted" role="status">connecting…</span>
+      <span class="spacer"></span>
+      <button id="btn-palette" class="btn ghost" title="Search everything (Ctrl/⌘+K)"><span class="muted">Search</span> <kbd>Ctrl K</kbd></button>
+      <span id="last-update" class="muted small live-only"></span>
+      <select id="refresh-every" class="live-only" aria-label="Auto-refresh interval" title="How often this page reloads data">
+        <option value="auto">Auto</option><option value="5000">Every 5s</option><option value="10000">Every 10s</option><option value="30000">Every 30s</option><option value="60000">Every 1m</option><option value="off">Paused</option>
+      </select>
+      <button id="btn-cfgup" class="btn live-only" type="button" hidden title="Upload a new version of this config (replaces the old one)">Update config</button>
+      <button id="btn-refresh" class="btn live-only" title="Poll the server right now (R)">Refresh</button>
+      <button class="btn ghost" type="button" data-logout hidden title="Sign out of GateLight">Sign out</button>
+      <button id="btn-theme" class="btn icon" title="Toggle theme (T)" aria-label="Toggle theme"><svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 000 17z" fill="currentColor"/></svg></button>
+      <button id="btn-help" class="btn icon" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
+    </header>
+
+    <nav class="sidenav" id="nav" aria-label="Views">
+      <button data-live data-view="fleet" hidden><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span>Fleet</span></button>
+      <button data-live data-view="overview" class="active"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Overview</span></button>
+      <div class="nav-lbl">Explore</div>
+      <button data-view="topology"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="5" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M7.2 11l9.6-5M7.2 13l9.6 5"/></svg><span>Topology</span></button>
+      <button data-live data-view="lbinfra"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></svg><span>LB Infra</span></button>
+      <button data-live data-view="services"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Services</span><span class="badge" id="nav-down" hidden></span></button>
+      <div class="nav-lbl" data-live>Monitor</div>
+      <button data-live data-view="graphs"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg><span>Graphs</span></button>
+      <button data-live data-view="events"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Events</span></button>
+      <div class="nav-lbl">Configuration</div>
+      <button data-view="audit"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Config audit</span><span class="badge warn" id="nav-audit" hidden></span></button>
+      <button data-view="config"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg><span>Config</span></button>
+      <div class="nav-lbl nav-push" data-live>Manage</div>
+      <button data-live data-view="connect"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span>Add instance</span></button>
+      <button data-live data-view="settings"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h8M18 6h2M4 12h2M12 12h8M4 18h10M20 18h0"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/></svg><span>Settings</span></button>
+      <div class="navuser" id="navuser" hidden><button type="button" class="nu-main" data-view="profile" title="Your profile"><span class="avatar" id="nu-av" aria-hidden="true"></span><span class="nu-t"><b id="nu-name"></b><span class="muted small">View profile</span></span></button><button type="button" class="nu-out" data-logout title="Sign out" aria-label="Sign out"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg></button></div>
+    </nav>
+
+    <div id="banner" class="banner" hidden role="status"></div>
+
+    <main id="main" tabindex="-1">
+      <section class="view" id="view-fleet"></section>
+      <section class="view active" id="view-overview"><div class="skeleton-cards"><i></i><i></i><i></i><i></i><i></i></div></section>
+      <section class="view" id="view-settings"></section>
+      <section class="view" id="view-profile"></section>
+
+      <section class="view" id="view-detail">
+        <nav class="crumbs" aria-label="Breadcrumb"><button class="link" type="button" id="detail-back">← Back</button><span aria-hidden="true">›</span><span id="detail-crumb">Details</span></nav>
+        <header class="detail-head"><div><div class="eyebrow" id="insp-kind"></div><h1 id="insp-title"></h1></div></header>
+        <div id="insp-body" class="detail-grid"></div>
+      </section>
+      <section class="view" id="view-connect">
+        <nav class="crumbs" aria-label="Breadcrumb"><button class="link" type="button" data-goto="overview">Overview</button><span aria-hidden="true">›</span><span aria-current="page">Add instance</span></nav>
+        <header class="connect-head">
+          <h2>Add an instance</h2>
+          <p class="muted">Connect a running HAProxy or NGINX, or upload a config to review it offline or keep it as a named, config-only instance.</p>
+          <button class="btn" type="button" data-goto="overview">← Back to Overview</button>
+        </header>
+        <div id="connect-slot"></div>
+        <div class="connect-foot"><button class="btn" type="button" data-goto="overview">← Back to Overview</button><button class="link" type="button" data-goto="settings">Manage existing instances in Settings</button></div>
+      </section>
+
+      <section class="view" id="view-topology">
+        <div class="toolbar">
+          <input id="topo-search" type="search" placeholder="Filter nodes…" aria-label="Filter nodes">
+          <select id="topo-layout" aria-label="Layout">
+            <option value="layers" selected>Layout: Layers (stray on left)</option>
+            <option value="flow">Layout: Flow (tiers)</option>
+            <option value="mindmap">Layout: Mind map (radial)</option>
+            <option value="tree">Layout: Tree (outline)</option>
+          </select>
+          <label class="check"><input type="checkbox" id="topo-problems"> Problems only</label>
+          <label class="check" data-graph-only><input type="checkbox" id="topo-servers" checked> Members</label>
+          <label class="check" data-graph-only title="Show the URL / host each route matches on the connecting lines"><input type="checkbox" id="topo-urls" checked> URL labels</label>
+          <button class="btn" id="topo-urlmap" type="button" title="Table of every host / path → target mapping">URL map</button>
+          <button class="btn" data-graph-only id="topo-fit">Fit</button>
+          <button class="btn" id="topo-fs" type="button" title="Fill the whole screen with the topology (F)">Full screen</button>
+          <button class="btn" data-graph-only id="topo-png" title="Save the diagram as an image">Export PNG</button>
+          <span class="spacer"></span>
+          <span class="legend">
+            <i class="dot c-fe"></i><span id="topo-legend-fe">Frontend</span> <i class="dot c-be"></i><span id="topo-legend-be">Backend</span> <i class="dot c-up"></i>Up
+            <i class="dot c-warn"></i>Degraded <i class="dot c-down"></i>Down <i class="dot c-idle"></i>Idle / unchecked
+          </span>
+        </div>
+        <div id="graph-wrap"><div id="graph"></div><div id="topo-sel" class="topo-sel" hidden></div><div id="graph-hint" class="graph-hint">Click a node to focus its path · double-click it for full details · click empty space to reset · scroll to zoom</div></div>
+        <div id="tree" class="treemap" hidden></div>
+        <div id="urlmap" class="urlmap" hidden></div>
+      </section>
+
+      <section class="view" id="view-graphs">
+        <div class="toolbar gr-toolbar">
+          <span class="gr-time" role="group" aria-label="Time range controls">
+            <button type="button" class="btn icon" id="gr-back" title="Move back in time (half a window)" aria-label="Back in time">◀</button>
+            <select id="gr-range" aria-label="Time range"></select>
+            <button type="button" class="btn icon" id="gr-fwd" title="Move forward in time" aria-label="Forward in time">▶</button>
+            <button type="button" class="btn icon" id="gr-zout" title="Zoom out (twice the time span)" aria-label="Zoom out">−</button>
+            <button type="button" class="btn icon" id="gr-hand" aria-pressed="false" title="Hand tool: drag any chart left or right to move through time. Off: drag to zoom into a span.">✋</button>
+            <button type="button" class="btn primary" id="gr-live" hidden title="Back to the live view">Live</button>
+            <span class="gr-win" id="gr-win"></span>
+          </span>
+          <label class="gr-ctl">Per-server metric <select id="gr-metric" aria-label="Metric for the per-server charts"></select></label>
+          <label class="gr-ctl">Pool <select id="gr-pool" aria-label="Filter by backend"><option value="">All pools</option></select></label>
+          <input id="gr-search" type="search" placeholder="Filter by name…" aria-label="Filter charts">
+          <span class="spacer"></span><span class="muted small" id="gr-updated"></span>
+          <label class="gr-ctl">Refresh <select id="gr-refresh-every" aria-label="Auto-refresh interval" title="How often the charts reload"><option value="auto">Auto</option><option value="5000">Every 5s</option><option value="10000">Every 10s</option><option value="30000">Every 30s</option><option value="60000">Every 1m</option><option value="off">Paused</option></select></label>
+          <button id="gr-refresh" class="btn" type="button" title="Poll the server and reload the charts now (R)">Refresh</button>
+          <button id="gr-fs" class="btn" type="button" title="Fill the whole window with the charts (Esc to exit)" aria-pressed="false">⛶ Full screen</button>
+        </div>
+        <div id="gr-body" class="gr-body"></div>
+      </section>
+
+      <section class="view" id="view-lbinfra"></section>
+
+      <section class="view" id="view-services">
+        <div id="svc-charts" class="svc-charts"></div>
+        <div class="toolbar">
+          <input id="svc-search" type="search" placeholder="Filter by name or IP…" aria-label="Filter services">
+          <select id="svc-kind" aria-label="Kind"><option value="">All types</option><option value="frontend">Entry points</option><option value="backend">Pools</option><option value="server">Members</option></select>
+          <select id="svc-state" aria-label="State"><option value="">Any state</option><option value="problem">Problems</option><option value="up">Up</option><option value="down">Down</option><option value="maint">Maintenance</option><option value="nocheck">No check</option></select>
+          <span class="spacer"></span>
+          <button class="btn" id="svc-export">Export CSV</button>
+        </div>
+        <div class="table-wrap"><table id="svc-table" class="grid"></table></div>
+      </section>
+
+      <section class="view" id="view-audit"></section>
+      <section class="view" id="view-events"></section>
+
+      <section class="view" id="view-config">
+        <div class="toolbar">
+          <input id="cfg-search" type="search" placeholder="Search config…" aria-label="Search config">
+          <select id="cfg-file" aria-label="Config file" hidden></select>
+          <select id="cfg-jump" aria-label="Jump to section"></select>
+          <span class="spacer"></span>
+          <span class="muted small" id="cfg-path"></span>
+          <button class="btn" id="cfg-download">Download (redacted)</button>
+          <button class="btn primary" type="button" data-cfgup>Update config</button>
+        </div>
+        <pre id="cfg-code" class="code"></pre>
+      </section>
+
+    </main>
+    <footer class="appfoot"><span class="foot-brand"><img src="logo.svg" alt="" width="22" height="22"><b>GateLight</b><span class="foot-copy">open source · MIT</span></span><span class="foot-more"><a class="foot-cap" href="https://cloudlative.com" target="_blank" rel="noopener noreferrer">More from Cloudlative</a><a class="foot-pill" href="https://braintally.com" target="_blank" rel="noopener noreferrer" title="BrainTally: cognitive assessment platform (braintally.com)" aria-label="BrainTally (braintally.com)"><img src="brands/braintally.svg" alt="" width="22" height="22"><span>BrainTally</span></a><a class="foot-pill" href="https://cyferio.com" target="_blank" rel="noopener noreferrer" title="Cyferio: self-hosted OpenVPN management with RBAC, MAC binding and audit logging (cyferio.com)" aria-label="Cyferio (cyferio.com)"><img src="brands/cyferio.svg" alt="" width="22" height="22"><span>Cyferio</span></a><a class="foot-pill" href="https://invisibly.dev" target="_blank" rel="noopener noreferrer" title="Invisibly Inc: Zero Trust networking, infrastructure access and endpoint control (invisibly.dev)" aria-label="Invisibly Inc (invisibly.dev)"><img src="brands/invisibly.svg" alt="" width="22" height="22"><span>Invisibly Inc</span></a></span></footer>
+
+  </div>
+
+  <div id="connect" class="overlay" hidden>
+    <form class="palette connect" id="cx-form" role="dialog" aria-modal="true" aria-labelledby="cx-title" autocomplete="off" novalidate>
+      <div class="cx-head"><h3 id="cx-title">Connect a server</h3><button type="button" class="btn icon" id="cx-close" aria-label="Close">✕</button></div>
+      <div class="cx-body">
+        <div class="seg" role="radiogroup" aria-label="Server type">
+          <label><input type="radio" name="cx-type" value="haproxy" checked><span>HAProxy</span></label>
+          <label><input type="radio" name="cx-type" value="nginx"><span>NGINX</span></label>
+        </div>
+        <label class="fld">Name<input id="cx-name" maxlength="60" placeholder="e.g. Production edge" autocomplete="off"></label>
+        <label class="fld"><span><span id="cx-url-label">Stats URL</span> <span class="muted" id="cx-url-opt">(optional if you upload a config)</span></span><input id="cx-url" inputmode="url" spellcheck="false" placeholder="http://host:8404/stats" autocomplete="off"></label>
+        <div class="muted small cx-hint" data-cx-for="haproxy">The page behind your <code>stats uri</code>. GateLight appends <code>;csv</code> itself. Running GateLight in Docker and HAProxy on this machine? Use <code>host.docker.internal</code> instead of <code>localhost</code>.</div>
+        <div class="muted small cx-hint" data-cx-for="nginx" hidden>The <code>stub_status</code> location (e.g. <code>/nginx_status</code>). Per-upstream health comes from probing the servers in your config.</div>
+        <div class="cx-row">
+          <label class="fld">Username <span class="muted">(optional)</span><input id="cx-user" maxlength="256" autocomplete="off" spellcheck="false"></label>
+          <label class="fld">Password <span class="muted">(optional)</span><input id="cx-pass" type="password" maxlength="512" autocomplete="new-password"></label>
+        </div>
+        <div class="fld cfg-block">
+          <span class="cfg-callout"><b>Config</b> (upload to get the relationship map and audit; with no URL above it is saved as a <b>config-only instance</b>)</span>
+          <div class="row"><label class="btn small-btn">Choose files<input type="file" id="cx-cfgfiles" multiple hidden></label><label class="btn small-btn">Choose folder<input type="file" id="cx-cfgfolder" webkitdirectory hidden></label><button type="button" class="btn small-btn" id="cx-cfgclear" hidden>Clear</button></div>
+          <textarea id="cx-cfgtext" spellcheck="false" rows="4" placeholder="…or paste haproxy.cfg / nginx.conf (a folder with conf.d/ includes works too)"></textarea>
+          <span class="muted small" id="cx-cfgnote"></span>
+        </div>
+        <label class="check"><input type="checkbox" id="cx-insecure"> Skip TLS certificate verification (self-signed)</label>
+        <details class="adv">
+          <summary>Advanced</summary>
+          <div class="cx-adv">
+            <label class="fld" data-cx-for="haproxy">Runtime API <span class="muted">(host:port, instead of the stats page)</span><input id="cx-socket" placeholder="10.0.0.5:9999" spellcheck="false"></label>
+            <label class="fld" data-cx-for="nginx" hidden>NGINX Plus API URL <span class="muted">(optional)</span><input id="cx-plus" placeholder="http://host:8080" spellcheck="false"></label>
+            <label class="check" data-cx-for="nginx" hidden><input type="checkbox" id="cx-probe" checked> TCP-probe every upstream server for health</label>
+          </div>
+        </details>
+        <div id="cx-warn" class="cx-warn small" hidden></div>
+        <div id="cx-result" class="cx-result" role="status" aria-live="polite"></div>
+      </div>
+      <div class="cx-foot">
+        <span class="muted small">Private to this browser. Stored on the server, never sent back.</span>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="cx-test">Test connection</button>
+        <button type="submit" class="btn primary" id="cx-save">Save &amp; connect</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="chartview" class="overlay" hidden>
+    <div class="palette chartview" role="dialog" aria-modal="true" aria-labelledby="cv-title">
+      <div class="cx-head"><h3 id="cv-title">Traffic</h3><span class="spacer"></span>
+        <label class="cv-win">Range <select id="cv-win" aria-label="Time range"></select></label>
+        <button type="button" class="btn" id="cv-csv">Export CSV</button>
+        <button type="button" class="btn icon" id="cv-close" aria-label="Close">✕</button></div>
+      <div class="cv-body">
+        <div class="cv-tools">
+          <div id="cv-legend" class="cv-legend" aria-label="Series"></div>
+          <span class="spacer"></span>
+          <span class="cv-hint muted small">Scroll to zoom · drag with the hand to pan · double-click to reset</span>
+          <button type="button" class="btn icon on" id="cv-hand" aria-pressed="true" title="Hand tool: drag the chart to move through the history">✋</button>
+          <button type="button" class="btn icon" id="cv-zout" title="Zoom out" aria-label="Zoom out">−</button>
+          <button type="button" class="btn icon" id="cv-zin" title="Zoom in" aria-label="Zoom in">+</button>
+          <button type="button" class="btn" id="cv-reset" title="Show all available history">Reset</button>
+        </div>
+        <canvas id="cv-canvas" class="chart cv-canvas" aria-label="Traffic chart"></canvas>
+        <canvas id="cv-mini" class="cv-mini" aria-label="All available history; the highlighted part is what the chart shows" title="All available history. Click or drag to move the window."></canvas>
+        <div id="cv-stats" class="cv-stats"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="cfgup" class="overlay" hidden>
+    <form class="palette connect" id="cu-form" role="dialog" aria-modal="true" aria-labelledby="cu-title" autocomplete="off">
+      <div class="cx-head"><h3 id="cu-title">Update config</h3><button type="button" class="btn icon" id="cu-close" aria-label="Close">✕</button></div>
+      <div class="cx-body">
+        <p class="muted small" id="cu-lead">Upload the new version. It replaces the stored config: the map, URL map, audit and config view are rebuilt from it, and anything that no longer exists is dropped.</p>
+        <div id="cu-drop" class="dropzone cu-drop" tabindex="0" role="button" aria-label="Drop the updated config here or press Enter to choose">
+          <h3>Drop the updated <code>haproxy.cfg</code> / <code>nginx.conf</code> or folder</h3>
+          <div class="row center">
+            <label class="btn primary">Choose files<input type="file" id="cu-files" multiple hidden></label>
+            <label class="btn">Choose folder<input type="file" id="cu-folder" webkitdirectory hidden></label>
+          </div>
+        </div>
+        <textarea id="cu-text" spellcheck="false" rows="5" placeholder="…or paste the updated config here"></textarea>
+        <div class="muted small" id="cu-note"></div>
+        <div id="cu-result" class="cx-result" role="status" aria-live="polite"></div>
+      </div>
+      <div class="cx-foot">
+        <span class="muted small">Replaces the previous upload. Live connection details are kept.</span>
+        <span class="spacer"></span>
+        <button type="button" class="btn" id="cu-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="cu-save" disabled>Update config</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="palette" class="overlay" hidden>
+    <div class="palette" role="dialog" aria-label="Search">
+      <input id="pal-input" type="text" placeholder="Jump to a view, server, backend or finding…" autocomplete="off" aria-label="Search everything">
+      <div id="pal-list" class="pal-list" role="listbox"></div>
+      <div class="pal-foot muted small"><kbd>↑</kbd><kbd>↓</kbd> navigate · <kbd>Enter</kbd> open · <kbd>Esc</kbd> close</div>
+    </div>
+  </div>
+
+  <div id="help" class="overlay" hidden>
+    <div class="palette help" role="dialog" aria-label="Keyboard shortcuts">
+      <h3>Keyboard shortcuts</h3>
+      <div class="kv2">
+        <span><kbd>Ctrl</kbd>/<kbd>⌘</kbd> <kbd>K</kbd> or <kbd>/</kbd></span><span>Search everything</span>
+        <span><kbd>1</kbd>–<kbd>9</kbd></span><span>Switch view (in sidebar order)</span>
+        <span><kbd>R</kbd></span><span>Refresh now</span>
+        <span><kbd>T</kbd></span><span>Toggle theme</span>
+        <span><kbd>Esc</kbd></span><span>Close panel / dialog</span>
+        <span><kbd>?</kbd></span><span>This help</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="vendor/vis-network.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

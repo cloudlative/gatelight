@@ -1,0 +1,39 @@
+# GateLight: see your HAProxy and NGINX as a map.
+#
+#   curl -fsSL https://raw.githubusercontent.com/Cloudlative/gatelight/main/docker-compose.yml -o docker-compose.yml
+#   docker compose up -d                  ->  http://localhost:3000
+#   docker compose logs gatelight         ->  first-run sign-in password (or set AUTH_PASS yourself)
+#
+# Optional: put overrides in a .env file next to this one (GATELIGHT_PORT, AUTH_USER, AUTH_PASS, GATELIGHT_VERSION, ...).
+name: gatelight
+services:
+  gatelight:
+    image: ghcr.io/cloudlative/gatelight:${GATELIGHT_VERSION:-latest}
+    container_name: gatelight
+    ports:
+      # Loopback by default: GateLight holds the stats credentials you enter. Set GATELIGHT_BIND=0.0.0.0 to expose it
+      # (put HTTPS in front first).
+      - "${GATELIGHT_BIND:-127.0.0.1}:${GATELIGHT_PORT:-3000}:3000"
+    extra_hosts:
+      # Lets the container reach a HAProxy/NGINX running on this machine: use http://host.docker.internal:PORT/stats
+      - "host.docker.internal:host-gateway"
+    environment:
+      AUTH_USER: ${AUTH_USER:-admin}
+      AUTH_PASS: ${AUTH_PASS:-}          # empty: a random password is generated on first run and printed in the logs
+      AUTH_AUTOGEN: "true"
+      ALLOW_UI_INSTANCES: ${ALLOW_UI_INSTANCES:-true}   # add servers from the browser; saved in the data volume
+      DEMO_MODE: ${DEMO_MODE:-false}
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      # Saved connections, the sign-in secret, chart history and events (SQLite) live here.
+      - gatelight-data:/app/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+volumes:
+  gatelight-data:
