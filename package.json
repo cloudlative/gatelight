@@ -6,7 +6,7 @@
   "bin": { "gatelight": "src/cli.js" },
   "engines": { "node": ">=22.5" },
   "repository": { "type": "git", "url": "git+https://github.com/Cloudlative/gatelight.git" },
-  "homepage": "https://github.com/Cloudlative/gatelight#readme",
+  "homepage": "https://cloudlative.github.io/gatelight/",
   "bugs": { "url": "https://github.com/Cloudlative/gatelight/issues" },
   "keywords": ["haproxy", "nginx", "load-balancer", "monitoring", "dashboard", "config-audit", "topology"],
   "scripts": {
