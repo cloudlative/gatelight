@@ -941,3 +941,11 @@ ul.tree, .tree ul { list-style: none; margin: 0; padding: 0; } .tree ul { margin
 .af-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--cyan) 45%, var(--line)); border-left-width: 3px; border-radius: 10px; background: color-mix(in srgb, var(--cyan) 8%, var(--bg-2)); }
 .af-bar b { color: var(--cyan); } .af-bar .btn { margin-left: auto; }
 .bc-list li[aria-pressed="true"] { background: var(--bg-3); box-shadow: inset 3px 0 0 var(--cyan); }
+
+/* ---------- process information panel ---------- */
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.pcell { display: grid; gap: 3px; align-content: start; padding: 10px 14px; background: var(--bg); border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); border-radius: 10px; }
+.pcell .pl { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.pcell b { font-size: 19px; font-variant-numeric: tabular-nums; }
+.pbar { display: block; height: 6px; margin-top: 4px; background: var(--bg-3); border-radius: 99px; overflow: hidden; } .pbar i { display: block; height: 100%; background: var(--green); border-radius: 99px; }
+.pbar.warn i { background: var(--amber); } .pbar.bad i { background: var(--red); }

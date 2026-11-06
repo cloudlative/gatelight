@@ -93,7 +93,7 @@ class DemoSource {
     return { csv: `# ${HEADER}\n${rows.join('\n')}\n`, info: [
       'Version: 2.8.5-demo', `Pid: 1`, `Uptime: ${Math.floor((now - this.start) / 1000)}s`, `Uptime_sec: ${Math.floor((now - this.start) / 1000)}`,
       'Nbthread: 4', 'Maxconn: 500000', `CurrConns: ${Math.round(40 + Math.random() * 30)}`, `ConnRate: ${Math.round(20 + Math.random() * 15)}`,
-      'Idle_pct: 96',
+      'Idle_pct: 96', 'Nbproc: 1', 'Memmax: unlimited', 'Ulimit-n: 1000062', 'Maxsock: 1000062', 'Maxpipes: 0', 'CurrPipes: 0', 'Tasks: 992', 'Run_queue: 1',
     ].join('\n') };
   }
 }

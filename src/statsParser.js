@@ -88,7 +88,7 @@ function parseInfo(text) {
   const info = {};
   if (typeof text !== 'string') return info;
   for (const line of text.split(/\r?\n/)) {
-    const m = line.match(/^([A-Za-z_]+):\s*(.*)$/);
+    const m = line.match(/^([A-Za-z_][A-Za-z0-9_-]*):\s*(.*)$/);
     if (m) info[m[1]] = m[2].trim();
   }
   return {
@@ -105,6 +105,14 @@ function parseInfo(text) {
     sessRate: toInt(info.SessRate),
     idlePct: toInt(info.Idle_pct),
     memMaxMB: toInt(info.Memmax_MB),
+    memMax: info.Memmax || (info.Memmax_MB && info.Memmax_MB !== '0' ? `${info.Memmax_MB} MB` : null),
+    nbproc: toInt(info.Nbproc),
+    ulimitN: toInt(info['Ulimit-n']),
+    maxsock: toInt(info.Maxsock),
+    maxpipes: toInt(info.Maxpipes),
+    currPipes: toInt(info.CurrPipes),
+    tasks: toInt(info.Tasks),
+    runQueue: toInt(info.Run_queue),
     raw: info,
   };
 }

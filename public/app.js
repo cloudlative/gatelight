@@ -387,6 +387,29 @@ function paintChart(canvas) {
   lines.forEach((l, n) => { const ly = by + 5 + 14 * (n + 1); ctx.fillStyle = l.c; ctx.fillRect(bx + 8, ly + 3, 6, 6); ctx.fillStyle = cssVar('--text') || '#e5eaf3'; ctx.fillText(l.t, bx + 20, ly); });
 }
 
+// ---------- process information (HAProxy "General process information" / show info) ----------
+function processPanel(info) {
+  if (!info || (info.pid == null && info.maxconn == null && info.currConns == null && info.idlePct == null)) return '';
+  const pct = (a, b) => (a != null && b ? Math.min(100, (a / b) * 100) : null);
+  const connPct = pct(info.currConns, info.maxconn);
+  const bar = (v, tone) => (v == null ? '' : `<span class="pbar ${tone || ''}" aria-hidden="true"><i style="width:${Math.max(v > 0 ? 2 : 0, v).toFixed(1)}%"></i></span>`);
+  const cell = (label, value, sub, extra) => (value == null || value === '' ? '' : `<div class="pcell"><span class="pl">${esc(label)}</span><b>${value}</b>${sub ? `<span class="muted small">${sub}</span>` : ''}${extra || ''}</div>`);
+  const threads = info.nbproc != null && info.nbthread != null ? `${info.nbproc} process · ${info.nbthread} thread${info.nbthread === 1 ? '' : 's'}` : (info.nbthread != null ? `${info.nbthread} thread${info.nbthread === 1 ? '' : 's'}` : null);
+  const busy = info.idlePct != null ? 100 - info.idlePct : null;
+  return `<div class="panel proc" style="margin-bottom:16px"><h2>Process <span class="muted small">${esc(TYPE_NAME[snapshotType()] || '')}${info.version ? ` ${esc(info.version)}` : ''}</span></h2>
+    <div class="pgrid">
+      ${cell('Process ID', info.pid != null ? esc(info.pid) : null, threads)}
+      ${cell('Uptime', info.uptimeSec != null ? esc(fmtDur(info.uptimeSec)) : null, info.uptime && info.uptimeSec == null ? esc(info.uptime) : null)}
+      ${cell('Connections', info.currConns != null ? `${fmtInt(info.currConns)}${info.maxconn ? ` <span class="muted small">/ ${fmtInt(info.maxconn)}</span>` : ''}` : null, connPct != null ? `${connPct < 0.1 ? '<0.1' : connPct.toFixed(1)}% of the connection limit` : 'current connections', bar(connPct, connPct > 80 ? 'bad' : connPct > 60 ? 'warn' : ''))}
+      ${cell('Connection rate', info.connRate != null ? `${fmtInt(info.connRate)}<span class="muted small"> /s</span>` : null, info.maxConnRate ? `peak ${fmtInt(info.maxConnRate)}/s` : (info.sessRate != null ? `${fmtInt(info.sessRate)} sessions/s` : null))}
+      ${cell('Idle', info.idlePct != null ? `${info.idlePct}<span class="muted small"> %</span>` : null, busy != null ? `${busy}% busy` : null, bar(busy, busy > 80 ? 'bad' : busy > 60 ? 'warn' : ''))}
+      ${cell('Tasks', info.tasks != null ? `${info.runQueue != null ? `${fmtInt(info.runQueue)} <span class="muted small">running /</span> ` : ''}${fmtInt(info.tasks)}` : null, 'scheduler queue')}
+      ${cell('Sockets', info.maxsock != null ? fmtInt(info.maxsock) : null, info.ulimitN != null ? `file-descriptor limit ${fmtInt(info.ulimitN)}` : 'maximum sockets')}
+      ${cell('Pipes', info.maxpipes != null ? `${fmtInt(info.currPipes || 0)} <span class="muted small">/ ${fmtInt(info.maxpipes)}</span>` : null, 'kernel splicing')}
+      ${cell('Memory limit', info.memMax ? esc(info.memMax) : null, 'memmax')}
+    </div></div>`;
+}
+
 // ---------- OVERVIEW ----------
 /** KPI card: value + live detail + a plain-language "what is this" line; a button that jumps to the matching, pre-filtered view. */
 function card(label, value, sub, tone, o = {}) {
@@ -434,6 +457,7 @@ function renderOverview() {
       ${hasStats ? card('Throughput', `${fmtBytes(sum.bytesIn + sum.bytesOut)}`, 'total in+out since start', '', { go: 'bytes', help: 'Bytes received plus sent since the proxy last restarted (a counter, not a rate).', cta: 'Backends by traffic' }) : ''}
       ${card('Config findings', f.error + f.warning, `${f.error} errors · ${f.warning} warnings · ${f.info} info`, f.error ? 'bad' : f.warning ? 'warn' : 'ok', { go: 'findings', help: 'Problems the static audit found in the configuration: errors will break or endanger the proxy, warnings are risky settings, info is advice.', cta: 'Review findings' })}
     </div>
+    ${processPanel(info)}
     ${hasStats || info.activeConns != null ? `<div class="panel" style="margin-bottom:16px"><h2>Traffic <span class="muted small">${esc(info.version ? `${TYPE_NAME[snapshotType()] || ''} ${info.version}` : '')}${info.uptimeSec != null ? ` · up ${fmtDur(info.uptimeSec)}` : ''}${info.idlePct != null ? ` · idle ${info.idlePct}%` : ''}${info.reading != null ? ` · reading/writing/waiting ${info.reading}/${info.writing}/${info.waiting}` : ''}</span><button class="btn icon chart-expand" type="button" data-cv-expand="overview" title="Pop out: bigger chart, time range, series and stats" aria-label="Pop out traffic chart">⤢</button></h2><canvas id="ov-chart" class="chart" title="Click to pop out"></canvas></div>` : ''}
     <div class="cols">
       <div class="panel"><h2>Needs attention <span class="tag">${problems.length + hot.length}</span></h2><div class="list">

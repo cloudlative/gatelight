@@ -78,6 +78,11 @@ function htmlToInfo(html) {
   const idle = html.match(/idle\s*=\s*(\d+)\s*%/i);
   const mc = html.match(/maxconn\s*=\s*(?:<[^>]*>|\s)*(\d+)/i);
   const cc = html.match(/current conns\s*=\s*(\d+)/i);
+  const nbproc = html.match(/nbproc\s*=\s*(\d+)/i); const nbthread = html.match(/nbthread\s*=\s*(\d+)/i);
+  const memmax = html.match(/memmax\s*=\s*([A-Za-z0-9.]+)/i); const ulim = html.match(/ulimit-n\s*=\s*(\d+)/i);
+  const maxsock = html.match(/maxsock\s*=\s*(\d+)/i); const maxpipes = html.match(/maxpipes\s*=\s*(\d+)/i);
+  const pipes = html.match(/current pipes\s*=\s*(\d+)\s*\/\s*(\d+)/i); const crate = html.match(/conn rate\s*=\s*(\d+)\s*\/\s*sec/i);
+  const tasks = html.match(/running tasks:?\s*(\d+)\s*\/\s*(\d+)/i);
   const lines = [];
   if (v) lines.push(`Version: ${v[1]}`);
   if (pid) lines.push(`Pid: ${pid[1]}`);
@@ -85,6 +90,15 @@ function htmlToInfo(html) {
   if (idle) lines.push(`Idle_pct: ${idle[1]}`);
   if (mc) lines.push(`Maxconn: ${mc[1]}`);
   if (cc) lines.push(`CurrConns: ${cc[1]}`);
+  if (nbproc) lines.push(`Nbproc: ${nbproc[1]}`);
+  if (nbthread) lines.push(`Nbthread: ${nbthread[1]}`);
+  if (memmax) lines.push(`Memmax: ${memmax[1]}`);
+  if (ulim) lines.push(`Ulimit-n: ${ulim[1]}`);
+  if (maxsock) lines.push(`Maxsock: ${maxsock[1]}`);
+  if (maxpipes) lines.push(`Maxpipes: ${maxpipes[1]}`);
+  if (pipes) lines.push(`CurrPipes: ${pipes[1]}`);
+  if (crate) lines.push(`ConnRate: ${crate[1]}`);
+  if (tasks) { lines.push(`Run_queue: ${tasks[1]}`); lines.push(`Tasks: ${tasks[2]}`); }
   return lines.join('\n');
 }
 

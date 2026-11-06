@@ -156,3 +156,17 @@ test('stats HTML page (real HAProxy 2.9 markup) yields version, pid, uptime, idl
   assert.equal(info.uptimeSec, 3 * 86400 + 15 * 3600 + 53 * 60 + 12);
   assert.equal(info.idlePct, 100); assert.equal(info.maxconn, 524256);
 });
+
+test('process info: the stats page "General process information" and show info are both understood', () => {
+  const { htmlToInfo } = require('../src/transport');
+  const { parseInfo } = require('../src/statsParser');
+  const html = `<div>pid = 1147 (process #1, nbproc = 1, nbthread = 1)<br>uptime = 5d 15h25m33s<br>system limits: memmax = unlimited; ulimit-n = 1000062<br>
+    maxsock = 1000062; maxconn = 500000; maxpipes = 0<br>current conns = 972; current pipes = 0/0; conn rate = 24/sec<br>Running tasks: 1/992; idle = 96 %</div>`;
+  const i = parseInfo(htmlToInfo(html));
+  assert.equal(i.pid, '1147'); assert.equal(i.nbproc, 1); assert.equal(i.nbthread, 1);
+  assert.equal(i.uptimeSec, 5 * 86400 + 15 * 3600 + 25 * 60 + 33);
+  assert.equal(i.memMax, 'unlimited'); assert.equal(i.ulimitN, 1000062); assert.equal(i.maxsock, 1000062); assert.equal(i.maxconn, 500000); assert.equal(i.maxpipes, 0);
+  assert.equal(i.currConns, 972); assert.equal(i.currPipes, 0); assert.equal(i.connRate, 24); assert.equal(i.runQueue, 1); assert.equal(i.tasks, 992); assert.equal(i.idlePct, 96);
+  const rt = parseInfo('Version: 2.8.5\nUlimit-n: 4096\nMaxsock: 4096\nNbproc: 1\nNbthread: 4\nTasks: 20\nRun_queue: 2\nMemmax_MB: 0');
+  assert.equal(rt.ulimitN, 4096); assert.equal(rt.nbthread, 4); assert.equal(rt.tasks, 20);
+});
