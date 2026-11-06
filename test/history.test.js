@@ -90,3 +90,20 @@ test('events are stored and come back newest first, and a restart keeps the time
   assert.equal(s.recentEvents('b', 10).length, 1);
   s.close();
 });
+
+test('history-all serves an absolute from/to window (zoom and pan) from the store', async () => {
+  const stats = await startStub((req, res) => { res.setHeader('Content-Type', 'text/csv'); res.end('# pxname,svname,qcur,qmax,scur,smax,slim,stot,bin,bout,status,type,rate,hrsp_5xx\nweb,FRONTEND,0,0,1,1,100,10,0,0,OPEN,0,1,0\napp,s1,0,0,0,0,10,5,0,0,UP,2,0,0\napp,BACKEND,0,0,0,0,10,10,0,0,UP,1,0,0\n'); });
+  const dir = tmp(); const inst = path.join(dir, 'instances.json');
+  fs.writeFileSync(inst, JSON.stringify([{ name: 'lb', type: 'haproxy', statsUrl: `${stats.url}/stats` }]));
+  const t = await startApp({ INSTANCES_FILE: inst, DATA_DIR: dir, HISTORY_DB: path.join(dir, 'h.db') });
+  try {
+    const p = t.registry.get('lb'); await p.poll(); await p.poll(); await p.poll();
+    const now = Date.now();
+    const inside = await get(t.base, `/api/instances/lb/history-all?from=${now - 60000}&to=${now + 1000}`);
+    assert.equal(inside.status, 200); assert.equal(inside.json.persisted, true); assert.ok(inside.json.summary.length >= 1, 'samples inside the window');
+    const past = await get(t.base, `/api/instances/lb/history-all?from=${now - 7200000}&to=${now - 3600000}`);
+    assert.equal(past.json.summary.length, 0, 'a window in the past holds no samples');
+    const bad = await get(t.base, `/api/instances/lb/history-all?from=${now}&to=${now - 1000}`);
+    assert.equal(bad.status, 200, 'an invalid window falls back instead of erroring');
+  } finally { t.registry.store.close(); await t.close(); await stats.close(); }
+});

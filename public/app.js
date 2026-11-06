@@ -71,7 +71,9 @@ const beLike = (s) => s.type === 'backend' || s.type === 'listen';
 let navReady = false; let navFromHistory = false; // push history entries only after start-up, and never while replaying one
 const REVIEW_VIEWS = ['topology', 'audit', 'config'];
 const visibleNav = () => $$('#nav button').filter((b) => !b.hidden && b.offsetParent !== null);
+const VIEW_ALIAS = { lbinfra: 'infrastructure' }; // old links keep working
 function switchView(view) {
+  view = VIEW_ALIAS[view] || view;
   if (state.mode === 'review' && !REVIEW_VIEWS.includes(view)) view = 'topology';
   if (state.mode === 'live' && !state.snapshot && !state.current && !['overview', 'connect', 'settings'].includes(view)) view = 'overview';
   if (state.view === 'connect' && view !== 'connect') mountConnect(false);
@@ -121,7 +123,7 @@ function renderView(view) {
     if (view === 'overview') { if (state.current) $('#view-overview').innerHTML = '<div class="skeleton-cards"><i></i><i></i><i></i><i></i><i></i></div>'; else renderWelcome(); }
     return;
   }
-  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, lbinfra: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, events: renderEvents, config: renderConfig }[view] || (() => {}))();
+  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, events: renderEvents, config: renderConfig }[view] || (() => {}))();
 }
 
 // ---------- data loading ----------
@@ -1223,8 +1225,53 @@ function renderConfig() {
     return `<span class="ln${f ? ` f-${f.severity}` : ''}" id="L${n}"><span class="no">${n}</span>${text}${f ? `<span class="fnote sev-${f.severity}">⚠ ${esc(f.title)}</span>` : ''}</span>`;
   }).join('');
   $('#cfg-code').innerHTML = html || '<span class="empty">No configuration file loaded.</span>';
-  const secs = s.config.sections.filter((x) => x.type !== 'global' && (!x.file || !file || x.file === file.name));
-  $('#cfg-jump').innerHTML = '<option value="">Jump to section…</option>' + secs.map((x) => `<option value="${x.line}">${esc(x.type)} ${esc(x.name)} (line ${x.line})</option>`).join('');
+  renderCfgTree(file);
+  cfgFindUpdate(Boolean(filter));
+}
+
+// ---- search: count, next / previous, scroll to the match ----
+let cfgMatch = -1;
+function cfgMarks() { return [...document.querySelectorAll('#cfg-code mark')]; }
+function cfgFindUpdate(scrollToFirst) {
+  const marks = cfgMarks(); const c = $('#cfg-count'); const q = $('#cfg-search').value;
+  cfgMatch = marks.length ? (scrollToFirst ? 0 : Math.min(Math.max(cfgMatch, 0), marks.length - 1)) : -1;
+  c.textContent = !q ? '' : marks.length ? `${cfgMatch + 1} of ${marks.length}` : 'no matches';
+  c.classList.toggle('none', Boolean(q) && !marks.length);
+  marks.forEach((m, i) => m.classList.toggle('cur', i === cfgMatch));
+  if (scrollToFirst && marks[0]) marks[0].scrollIntoView({ block: 'center' });
+}
+function cfgFindStep(d) {
+  const marks = cfgMarks(); if (!marks.length) return;
+  cfgMatch = (cfgMatch + d + marks.length) % marks.length;
+  marks.forEach((m, i) => m.classList.toggle('cur', i === cfgMatch));
+  marks[cfgMatch].scrollIntoView({ block: 'center' });
+  $('#cfg-count').textContent = `${cfgMatch + 1} of ${marks.length}`;
+}
+
+// ---- section tree (replaces the "Jump to section" dropdown) ----
+const cfgOpen = new Set(); let cfgOpenInit = false;
+const CFG_ORDER = ['defaults', 'frontend', 'listen', 'server', 'backend', 'upstream', 'userlist', 'http', 'stream'];
+function renderCfgTree(file) {
+  const secs = state.snapshot.config.sections.filter((x) => x.type !== 'global' && (!x.file || !file || x.file === file.name));
+  const plural = { frontend: 'Frontends', backend: 'Backends', listen: 'Listen sections', defaults: 'Defaults', userlist: 'User lists', server: 'Server blocks', upstream: 'Upstreams', http: 'HTTP', stream: 'Stream' };
+  const groups = new Map(); for (const x of secs) { if (!groups.has(x.type)) groups.set(x.type, []); groups.get(x.type).push(x); }
+  const order = [...groups.keys()].sort((a, b) => (CFG_ORDER.indexOf(a) + 100) % 100 - (CFG_ORDER.indexOf(b) + 100) % 100 || a.localeCompare(b));
+  if (!cfgOpenInit) { order.forEach((t) => cfgOpen.add(`g:${t}`)); cfgOpenInit = true; }
+  const leaf = (label, line, sub, cls = '') => `<li class="tn leaf ${cls}" role="treeitem"><span class="tw"></span><button type="button" class="tl" data-cfg-line="${line}" title="Line ${line}"><span>${label}</span>${sub ? `<span class="ts">${sub}</span>` : ''}</button></li>`;
+  const node = (id, label, count, line, kids, cls = '') => {
+    const open = cfgOpen.has(id);
+    return `<li class="tn ${cls}" role="treeitem" aria-expanded="${open}"><span class="tw"><button type="button" class="tt" data-cfg-toggle="${esc(id)}" aria-label="${open ? 'Collapse' : 'Expand'} ${esc(label)}"></button></span>${line ? `<button type="button" class="tl" data-cfg-line="${line}" title="Line ${line}"><b>${label}</b>${count != null ? `<span class="tc">${count}</span>` : ''}</button>` : `<span class="tl static"><b>${label}</b>${count != null ? `<span class="tc">${count}</span>` : ''}</span>`}<ul role="group"${open ? '' : ' hidden'}>${kids}</ul></li>`;
+  };
+  const child = (x) => {
+    const kids = [];
+    for (const sv of x.servers || []) kids.push(leaf(esc(sv.name), sv.line, esc(sv.address || ''), sv.commented ? 'dim' : ''));
+    for (const l of x.locations || []) kids.push(leaf(esc(`${l.modifier ? `${l.modifier} ` : ''}${l.path || l.kind}`), l.line, l.target ? `→ ${esc(l.target)}` : ''));
+    for (const rt of x.routes || []) if (rt.line && rt.target) kids.push(leaf(`→ ${esc(rt.target)}`, rt.line, rt.type === 'default' ? 'default' : '', rt.commented ? 'dim' : ''));
+    return kids.length ? node(`s:${x.type}:${x.name}:${x.line}`, esc(x.name), kids.length, x.line, kids.join(''), 'sec') : leaf(`<b>${esc(x.name)}</b>`, x.line, `L${x.line}`, 'sec');
+  };
+  const g = state.snapshot.config.sections.find((x) => x.type === 'global' && (!x.file || !file || x.file === file.name));
+  const html = (g ? leaf('<b>global</b>', g.line, `L${g.line}`) : '') + order.map((t) => node(`g:${t}`, esc(plural[t] || t), groups.get(t).length, 0, groups.get(t).map(child).join(''), 'grp')).join('');
+  $('#cfg-tree').innerHTML = html ? `<div class="tree-head"><span>Sections</span><span class="tree-ctl"><button type="button" data-cfg-all="open" title="Expand all" aria-label="Expand all">+</button><button type="button" data-cfg-all="close" title="Collapse all" aria-label="Collapse all">−</button></span></div><ul class="tree" role="tree">${html}</ul>` : '<div class="muted small tree-empty">No sections found.</div>';
 }
 function gotoLine(line, file) {
   if (file) state.cfgFile = file;
@@ -1876,7 +1923,7 @@ function auditCharts(list) {
 }
 
 // ---------- LB INFRA: what sits behind the load balancer, and is it alive ----------
-const lbi = { by: 'pool', problems: false, alive: false };
+const lbi = { by: 'tree', problems: false, alive: false, open: new Set(), init: false };
 const LBI_WORD = { up: 'alive', down: 'down', degraded: 'degraded', drain: 'draining', maint: 'maintenance', nocheck: 'unchecked', unknown: 'unknown' };
 function lbiRows() { // live server rows, or the servers from the config when nothing is monitored yet
   const s = state.snapshot; const live = s.rows.filter((r) => r.kind === 'server');
@@ -1901,8 +1948,40 @@ function lbiMeter(list) {
   return `<span class="lbi-meter" aria-hidden="true">${part('up', 's-up')}${part(['degraded', 'drain'], 's-degraded')}${part('down', 's-down')}${part('maint', 's-maint')}${part(['nocheck', 'unknown'], 's-unknown')}</span>`;
 }
 function lbiPoolState(list) { return list.some((r) => r.state === 'down') ? (list.every((r) => r.state === 'down') ? 'down' : 'degraded') : list.some((r) => r.state === 'degraded' || r.state === 'drain') ? 'degraded' : list.length && list.every((r) => r.state === 'up') ? 'up' : 'unknown'; }
+
+// ---- hierarchy: load balancer → frontends → networks → hosts → services (with +/- folding) ----
+const lbiIpv4 = (h) => /^\d{1,3}(\.\d{1,3}){3}$/.test(h);
+function lbiTree(s, vis, rows, lbState, type, info, fes, binds) {
+  const addrOf = (r) => (rowEndpoints(r).addrs[0]) || r.addr || '';
+  const hostOf = (r) => ipOf(addrOf(r)) || 'unknown host';
+  const nets = new Map();
+  for (const r of vis) {
+    const h = hostOf(r); const net = lbiIpv4(h) ? `${h.split('.').slice(0, 3).join('.')}.0/24` : (h === 'unknown host' ? 'Unknown' : 'Named hosts');
+    if (!nets.has(net)) nets.set(net, new Map()); const hm = nets.get(net); if (!hm.has(h)) hm.set(h, []); hm.get(h).push(r);
+  }
+  const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+  const netKeys = [...nets.keys()].sort(natural);
+  if (!lbi.init) { lbi.init = true; lbi.open.add('lb'); netKeys.forEach((n) => { lbi.open.add(`n:${n}`); nets.get(n).forEach((_l, h) => lbi.open.add(`h:${h}`)); }); }
+  const allRows = (hm) => [...hm.values()].flat();
+  const word = (st) => `<span class="st st-${esc(st)}">${esc(LBI_WORD[st] || st)}</span>`;
+  const tog = (id, open) => `<button type="button" class="tt" data-lbt-toggle="${esc(id)}" aria-label="${open ? 'Collapse' : 'Expand'}"></button>`;
+  const node = (id, cls, head, kids) => { const open = lbi.open.has(id); return `<li class="lbt-n ${cls}" aria-expanded="${open}"><div class="lbt-row">${tog(id, open)}${head}</div><ul${open ? '' : ' hidden'}>${kids}</ul></li>`; };
+  const svc = (r) => { const port = portOf(addrOf(r)); const d = [r.check_status ? `check ${r.check_status}${r.check_code ? ` ${r.check_code}` : ''}` : '', r.lastchg != null ? `${r.state === 'up' ? 'up' : 'since'} ${fmtDur(r.lastchg)}` : ''].filter(Boolean).join(' · ');
+    return `<li class="lbt-n svc s-${esc(r.state)}"><button type="button" class="lbt-row lbt-leaf" data-inspect="${esc(r.proxy)}/${esc(r.name)}"><span class="lbi-dot s-${esc(r.state)}" aria-hidden="true"></span><span class="lbt-port mono">${port ? `:${esc(port)}` : '–'}</span><b>${esc(r.name)}</b><span class="chip">${esc(r.proxy)}</span>${word(r.state)}${d ? `<span class="muted small">${esc(d)}</span>` : ''}</button></li>`; };
+  const host = (net, h, list) => { const st = lbiPoolState(list); const names = uniq(list.map((r) => r.name)); const pools = uniq(list.map((r) => r.proxy));
+    return node(`h:${h}`, `host s-${st}`, `<span class="lbi-dot s-${st}" aria-hidden="true"></span><b class="mono">${esc(h)}</b>${word(st)}<span class="muted small">${esc(lbiAliveText(list))} · ${list.length} service${list.length === 1 ? '' : 's'}</span><span class="lbt-ids muted small" title="${esc(names.join(', '))}">${esc(names.slice(0, 3).join(', '))}${names.length > 3 ? ` +${names.length - 3}` : ''}</span>${lbiMeter(list)}`,
+      list.sort((a, b) => natural(portOf(addrOf(a)), portOf(addrOf(b)))).map(svc).join('')); };
+  const net = (n) => { const hm = nets.get(n); const list = allRows(hm); const st = lbiPoolState(list);
+    return node(`n:${n}`, `net s-${st}`, `<span class="lbt-ico" aria-hidden="true">⌗</span><b class="mono">${esc(n)}</b><span class="muted small">${hm.size} host${hm.size === 1 ? '' : 's'} · ${esc(lbiAliveText(list))}</span>${lbiMeter(list)}`,
+      [...hm.keys()].sort(natural).map((h) => host(n, h, hm.get(h))).join('')); };
+  const allList = vis; const lbSt = lbState === 'up' ? lbiPoolState(rows) : 'unknown';
+  const ports = binds.slice(0, 6).map((b) => `<span class="chip mono">${esc(b)}</span>`).join(' ');
+  const root = node('lb', `lb s-${lbSt}`, `<span class="lbi-dot s-${lbState}" aria-hidden="true"></span><b>${esc(s.instance.name || state.current)}</b><span class="muted small">${esc(type)}${info.version ? ` ${esc(info.version)}` : ''}${info.uptimeSec != null ? ` · up ${esc(fmtDur(info.uptimeSec))}` : ''}</span>${word(lbState === 'up' ? lbSt : lbState === 'down' ? 'down' : 'unknown')}<span class="muted small">${nets.size} network${nets.size === 1 ? '' : 's'} · ${new Set(allList.map(hostOf)).size} hosts · ${esc(lbiAliveText(rows))}</span>`,
+    `${fes.length || ports ? `<li class="lbt-n front"><div class="lbt-row"><span class="lbt-ico" aria-hidden="true">⇥</span><span class="muted small">Entry points</span>${fes.map((f) => `<button type="button" class="chip" data-inspect="${esc(f.proxy)}/${esc(f.name)}">${esc(f.proxy)}${rowEndpoints(f).ports.length ? ` :${esc(rowEndpoints(f).ports.slice(0, 3).join(', :'))}` : ''}</button>`).join(' ') || ports}</div></li>` : ''}${netKeys.map(net).join('') || '<li class="empty">Nothing to show for this filter</li>'}`);
+  return `<div class="lbt"><div class="lbt-ctl"><button type="button" class="btn" data-lbt-all="open">＋ Expand all</button><button type="button" class="btn" data-lbt-all="close">－ Collapse all</button></div><ul class="lbt-root">${root}</ul></div>`;
+}
 function renderLbInfra() {
-  const s = state.snapshot; const el = $('#view-lbinfra'); if (!s || !el) return;
+  const s = state.snapshot; const el = $('#view-infrastructure'); if (!s || !el) return;
   const { rows, monitored } = lbiRows();
   const vis = lbi.problems ? rows.filter((r) => r.state !== 'up') : lbi.alive ? rows.filter((r) => r.state === 'up') : rows;
   const count = (st) => rows.filter((r) => r.state === st).length;
@@ -1937,12 +2016,12 @@ function renderLbInfra() {
         <div class="lbi-srvs">${list.map((r) => lbiServer(r)).join('')}</div></section>`;
     }).join('');
   }
-  el.innerHTML = `<div class="lbi-bar"><div class="seg" role="group" aria-label="Group by"><button type="button" class="${lbi.by === 'pool' ? 'on' : ''}" data-lbi-by="pool">By pool</button><button type="button" class="${lbi.by === 'host' ? 'on' : ''}" data-lbi-by="host">By host</button></div>
+  el.innerHTML = `<div class="lbi-bar"><div class="seg" role="group" aria-label="Group by"><button type="button" class="${lbi.by === 'tree' ? 'on' : ''}" data-lbi-by="tree">Hierarchy</button><button type="button" class="${lbi.by === 'pool' ? 'on' : ''}" data-lbi-by="pool">By pool</button><button type="button" class="${lbi.by === 'host' ? 'on' : ''}" data-lbi-by="host">By host</button></div>
     <label class="gr-ctl"><input type="checkbox" id="lbi-alive"${lbi.alive ? ' checked' : ''}> Only show what is alive</label>
     <label class="gr-ctl"><input type="checkbox" id="lbi-problems"${lbi.problems ? ' checked' : ''}> Only show what is not alive</label><span class="spacer"></span>
     <span class="muted small lbi-key"><i class="lbi-dot s-up"></i>alive <i class="lbi-dot s-degraded"></i>degraded <i class="lbi-dot s-down"></i>down <i class="lbi-dot s-maint"></i>maintenance <i class="lbi-dot s-unknown"></i>unchecked</span></div>
     ${monitored ? '' : '<div class="banner info lbi-note">No live statistics for this instance, so aliveness is unknown. Connect the stats endpoint to see live status; the layout below comes from the config.</div>'}
-    ${rows.length ? `<div class="lbi-layout">${lb}<div class="lbi-pools">${body || (lbi.alive ? '<div class="empty">Nothing is alive right now</div>' : '<div class="empty">✓ Everything is alive</div>')}</div></div>` : '<div class="empty">Nothing behind this load balancer yet. Attach a config or connect the stats endpoint.</div>'}`;
+    ${rows.length && lbi.by === 'tree' ? lbiTree(s, vis, rows, lbState, type, info, fes, binds) : rows.length ? `<div class="lbi-layout">${lb}<div class="lbi-pools">${body || (lbi.alive ? '<div class="empty">Nothing is alive right now</div>' : '<div class="empty">✓ Everything is alive</div>')}</div></div>` : '<div class="empty">Nothing behind this load balancer yet. Attach a config or connect the stats endpoint.</div>'}`;
 }
 // ---------- CHART POP-OUT ----------
 const cv = { source: null, span: 0, end: null, hidden: new Set(), hand: true }; // span 0 = all history; end null = follow the newest sample
@@ -2351,8 +2430,14 @@ function wire() {
   grWire();
   iselWire();
   $('#view-profile').addEventListener('click', (e) => { if (e.target.closest('[data-prof-theme]')) { $('#btn-theme').click(); renderProfile(); } });
-  $('#view-lbinfra').addEventListener('click', (e) => { const b = e.target.closest('[data-lbi-by]'); if (b) { lbi.by = b.dataset.lbiBy; renderLbInfra(); } });
-  $('#view-lbinfra').addEventListener('change', (e) => { // the two filters exclude each other
+  $('#view-infrastructure').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-lbi-by]'); if (b) { lbi.by = b.dataset.lbiBy; renderLbInfra(); return; }
+    const t = e.target.closest('[data-lbt-toggle]');
+    if (t) { const id = t.dataset.lbtToggle; if (lbi.open.has(id)) lbi.open.delete(id); else lbi.open.add(id); const li = t.closest('li'); const open = lbi.open.has(id); li.setAttribute('aria-expanded', String(open)); li.querySelector(':scope > ul').hidden = !open; return; }
+    const a = e.target.closest('[data-lbt-all]');
+    if (a) { const open = a.dataset.lbtAll === 'open'; $$('#view-infrastructure [data-lbt-toggle]').forEach((x) => { const id = x.dataset.lbtToggle; if (open) lbi.open.add(id); else if (id !== 'lb') lbi.open.delete(id); const li = x.closest('li'); const o = lbi.open.has(id); li.setAttribute('aria-expanded', String(o)); li.querySelector(':scope > ul').hidden = !o; }); }
+  });
+  $('#view-infrastructure').addEventListener('change', (e) => { // the two filters exclude each other
     if (e.target.id === 'lbi-problems') { lbi.problems = e.target.checked; if (lbi.problems) lbi.alive = false; renderLbInfra(); }
     else if (e.target.id === 'lbi-alive') { lbi.alive = e.target.checked; if (lbi.alive) lbi.problems = false; renderLbInfra(); }
   });
@@ -2480,7 +2565,21 @@ function wire() {
   ['svc-search', 'svc-kind', 'svc-state'].forEach((id) => $(`#${id}`).addEventListener('input', renderServices));
   $('#svc-export').addEventListener('click', exportCsv);
   $('#cfg-search').addEventListener('input', renderConfig);
-  $('#cfg-jump').addEventListener('change', (e) => { if (e.target.value) gotoLine(e.target.value); e.target.value = ''; });
+  $('#cfg-search').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); cfgFindStep(e.shiftKey ? -1 : 1); }
+    else if (e.key === 'Escape' && e.target.value) { e.target.value = ''; renderConfig(); e.stopPropagation(); }
+  });
+  $('#cfg-next').addEventListener('click', () => cfgFindStep(1));
+  $('#cfg-prev').addEventListener('click', () => cfgFindStep(-1));
+  $('#cfg-tree-toggle').addEventListener('click', () => { const b = $('#cfg-tree-toggle'); const on = b.getAttribute('aria-pressed') !== 'true'; b.setAttribute('aria-pressed', String(on)); $('#view-config').classList.toggle('no-tree', !on); });
+  $('#cfg-tree').addEventListener('click', (e) => {
+    const t = e.target.closest('[data-cfg-toggle]');
+    if (t) { const id = t.dataset.cfgToggle; if (cfgOpen.has(id)) cfgOpen.delete(id); else cfgOpen.add(id); const li = t.closest('li'); const open = cfgOpen.has(id); li.setAttribute('aria-expanded', String(open)); li.querySelector(':scope > ul').hidden = !open; t.setAttribute('aria-label', `${open ? 'Collapse' : 'Expand'}`); return; }
+    const a = e.target.closest('[data-cfg-all]');
+    if (a) { const open = a.dataset.cfgAll === 'open'; $$('#cfg-tree [data-cfg-toggle]').forEach((b) => { const id = b.dataset.cfgToggle; if (open) cfgOpen.add(id); else cfgOpen.delete(id); const li = b.closest('li'); li.setAttribute('aria-expanded', String(open)); li.querySelector(':scope > ul').hidden = !open; }); return; }
+    const l = e.target.closest('[data-cfg-line]');
+    if (l) { const el = document.getElementById(`L${l.dataset.cfgLine}`); if (el) { el.scrollIntoView({ block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); } $$('#cfg-tree .tl.cur').forEach((x) => x.classList.remove('cur')); l.classList.add('cur'); }
+  });
   $('#cfg-download').addEventListener('click', () => { const f = currentFile(); if (f) download(`${f.name.replace(/[\\/]/g, '_')}.redacted`, f.raw); });
   $('#cfg-file').addEventListener('change', (e) => { state.cfgFile = e.target.value; cfgRendered = null; renderConfig(); });
 
@@ -2557,7 +2656,7 @@ async function init() {
   wire();
   const hash = location.hash.slice(1);
   const [hInst, hViewRaw, hKey] = hash.includes('/') ? hash.split('/') : [null, hash];
-  const hView = hViewRaw === 'detail' ? 'overview' : hViewRaw; // a deep link to details restores below once data is loaded
+  const hView = hViewRaw === 'detail' ? 'overview' : (VIEW_ALIAS[hViewRaw] || hViewRaw); // a deep link to details restores below once data is loaded
   if (hInst) state.current = decodeURIComponent(hInst);
   const params = new URLSearchParams(location.search);
   const ex = params.get('example');
@@ -2581,7 +2680,7 @@ window.addEventListener('popstate', async () => { // Back / Forward / edited add
     if (state.mode === 'review') { if (REVIEW_VIEWS.includes(view)) switchView(view); return; }
     const id = inst ? decodeURIComponent(inst) : null;
     if (id && id !== state.current && state.instances.some((i) => i.id === id)) await enterLive(id);
-    const vparts = (view || '').split('/'); const vname = vparts[0];
+    const vparts = (view || '').split('/'); const vname = VIEW_ALIAS[vparts[0]] || vparts[0];
     if (vname === 'detail' && vparts[1] && state.snapshot) { const k = decodeURIComponent(vparts[1]); const r0 = indexRows(state.snapshot.rows).get(k); inspect(k, r0 && r0.kind); }
     else if (vname && vname !== 'detail' && $(`#view-${vname}`)) switchView(vname); else if (!vname || vname === 'detail') switchView(state.detailFrom && state.view === 'detail' ? state.detailFrom : 'overview');
   } finally { navFromHistory = false; }

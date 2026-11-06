@@ -2,7 +2,7 @@
 
 ## 3.0.0 — first open-source release
 - **One-file setup**: `curl` the compose file, `docker compose up -d`. Multi-arch image on GHCR, first-run sign-in password generated and printed in the logs.
-- **Graphs** page (zoom, pan, shared crosshair, clickable legends, donut charts for HTTP errors), **LB Infra** page (what is behind the load balancer and whether it is alive), charts on Services and Config audit, details pages instead of a side panel, profile page.
+- **Graphs** page (zoom, pan, shared crosshair, clickable legends, donut charts for HTTP errors), **Infrastructure** page (what is behind the load balancer and whether it is alive), charts on Services and Config audit, details pages instead of a side panel, profile page.
 - **History in SQLite**: chart samples and events survive restarts; ranges up to 7 days.
 - **NGINX support** alongside HAProxy (config parser with `include` resolution, 17 audit rules, `stub_status`, NGINX Plus API, TCP probing); either technology can be disabled.
 - **Upload & preview**: drop a config file or a whole folder to get the relationship map, audit and searchable config — no live server needed.

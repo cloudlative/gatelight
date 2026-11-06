@@ -47,7 +47,7 @@ Open **http://localhost:3000**, then:
    The user is `admin`. Prefer your own? Put `AUTH_PASS=...` in a `.env` file next to the compose file (see [Environment](#environment)).
 2. **Add an instance** (Overview → *Add an instance*). Pick HAProxy or NGINX, enter the stats URL, username and password, press *Test connection*, then *Save & connect*.
    Running on the same machine as Docker? Use `http://host.docker.internal:PORT/stats` instead of `localhost`.
-3. **Explore.** Overview, Topology, LB Infra, Graphs, Services and Config audit fill in right away.
+3. **Explore.** Overview, Topology, Infrastructure, Graphs, Services and Config audit fill in right away.
 
 Just want to look around first? `DEMO_MODE=true docker compose up -d` serves synthetic traffic on a sample shop, no servers needed.
 Only want the map of a config file? Open *Review a config*, drop a `haproxy.cfg` / `nginx.conf` (or a whole folder), and nothing is saved.
@@ -94,7 +94,7 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 **See**
 - **Relationship map**: frontends / `server {}` blocks → routing rules (`use_backend … if acl`, `location /x`) → backends / upstreams → servers. Live status colours, traffic-weighted edges, orphans and broken routes highlighted, click a node to focus its path, double-click for its details page, PNG export, full-screen mode.
 - **Four layouts**: *Layers*, *Flow*, *Mind map* (shows the URIs each node handles) and *Tree* (a `tree`-style outline you can fold and copy).
-- **LB Infra**: the infrastructure behind the load balancer with an aliveness status per server, grouped by pool or by host, with "only alive" / "only not alive" filters.
+- **Infrastructure**: the infrastructure behind the load balancer with an aliveness status per server, as a foldable hierarchy (load balancer → networks → hosts → services), or grouped by pool or by host, with "only alive" / "only not alive" filters.
 - **Graphs**: Grafana-style charts for requests/s, session rate, sessions, 5xx, throughput, response time and servers up/down, plus a chart per server, pool and frontend. Drag to zoom, ✋ to pan, step through time, shared crosshair, clickable legends with per-series stats, full-screen. HTTP response and error **donut charts** per instance and per backend.
 - **Services table**: status, IP, port, which frontends reach it, where it leads, sessions, req/s, 5xx/s, trend. Charts on top follow your filters.
 - **Details pages**: click any row, chip or node for a page of its own: health, metrics, relationships, trend, configuration, events and audit findings, with a shareable link and working Back/Forward.
@@ -122,7 +122,7 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 <td width="50%"><img src="docs/img/graphs.png" alt="Graphs page with clickable legends and donut charts"><br><sub><b>Graphs</b>: zoom, pan, shared crosshair, clickable legends, donut charts for HTTP errors.</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/img/lbinfra.png" alt="LB Infra: what sits behind the load balancer and whether it is alive"><br><sub><b>LB Infra</b>: everything behind the load balancer, with aliveness.</sub></td>
+<td width="50%"><img src="docs/img/infrastructure.png" alt="Infrastructure: what sits behind the load balancer and whether it is alive"><br><sub><b>Infrastructure</b>: networks, hosts and services behind the load balancer, in a foldable hierarchy with aliveness.</sub></td>
 <td width="50%"><img src="docs/img/services.png" alt="Services table with charts, IPs, ports, frontends and targets"><br><sub><b>Services</b>: IP, port, who reaches it, where it leads, with charts for the current filter.</sub></td>
 </tr>
 <tr>
@@ -148,7 +148,7 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 | Keep several configs side by side | In the review header press **Save as instance…**, or upload a config in *Add instance* without a URL |
 | Refresh a saved config after editing it | **Update config** (header, Config page, or Settings): drop the new file or folder |
 | Look back in time | **Graphs**: pick a range (5 min to 7 days), drag a chart to zoom, ✋ to pan |
-| Find what is down | **LB Infra** → *Only show what is not alive*, or **Overview** → *Down* |
+| Find what is down | **Infrastructure** → *Only show what is not alive*, or **Overview** → *Down* |
 | Get back to the overview | Click the **GateLight logo** at any time |
 
 ### Prepare your load balancers

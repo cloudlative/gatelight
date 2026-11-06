@@ -67,7 +67,7 @@
 
   <div id="app" hidden>
     <header class="topbar">
-      <button class="brand" id="btn-home" type="button" title="Back to the Overview"><img class="logo" src="logo.svg" alt="" width="20" height="20">GateLight</button>
+      <button class="brand" id="btn-home" type="button" title="Back to the Overview"><img class="logo" src="logo.svg" alt="" width="20" height="20"><span class="brand-t"><span class="brand-n">GateLight</span><small>by Cloudlative</small></span></button>
       <span class="tagline" aria-hidden="true">Light up your gateways.</span>
       <button id="btn-start" class="btn ghost" type="button">← Start over</button>
       <button id="btn-save-review" class="btn primary review-only" type="button" title="Keep this config as a named instance in your dashboard">Save as instance…</button>
@@ -92,7 +92,7 @@
       <button data-live data-view="overview" class="active"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-8 9 8v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Overview</span></button>
       <div class="nav-lbl">Explore</div>
       <button data-view="topology"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2.5"/><circle cx="19" cy="5" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M7.2 11l9.6-5M7.2 13l9.6 5"/></svg><span>Topology</span></button>
-      <button data-live data-view="lbinfra"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></svg><span>LB Infra</span></button>
+      <button data-live data-view="infrastructure"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></svg><span>Infrastructure</span></button>
       <button data-live data-view="services"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Services</span><span class="badge" id="nav-down" hidden></span></button>
       <div class="nav-lbl" data-live>Monitor</div>
       <button data-live data-view="graphs"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg><span>Graphs</span></button>
@@ -179,7 +179,7 @@
         <div id="gr-body" class="gr-body"></div>
       </section>
 
-      <section class="view" id="view-lbinfra"></section>
+      <section class="view" id="view-infrastructure"></section>
 
       <section class="view" id="view-services">
         <div id="svc-charts" class="svc-charts"></div>
@@ -198,15 +198,15 @@
 
       <section class="view" id="view-config">
         <div class="toolbar">
-          <input id="cfg-search" type="search" placeholder="Search config…" aria-label="Search config">
+          <button type="button" class="btn" id="cfg-tree-toggle" aria-pressed="true" title="Show or hide the section tree">☰ Sections</button>
+          <span class="cfg-find" role="search"><input id="cfg-search" type="search" placeholder="Search config…  (Enter = next)" aria-label="Search config" autocomplete="off"><span class="muted small cfg-count" id="cfg-count" aria-live="polite"></span><button type="button" class="btn icon" id="cfg-prev" title="Previous match (Shift+Enter)" aria-label="Previous match">↑</button><button type="button" class="btn icon" id="cfg-next" title="Next match (Enter)" aria-label="Next match">↓</button></span>
           <select id="cfg-file" aria-label="Config file" hidden></select>
-          <select id="cfg-jump" aria-label="Jump to section"></select>
           <span class="spacer"></span>
           <span class="muted small" id="cfg-path"></span>
           <button class="btn" id="cfg-download">Download (redacted)</button>
           <button class="btn primary" type="button" data-cfgup>Update config</button>
         </div>
-        <pre id="cfg-code" class="code"></pre>
+        <div class="cfg-body"><aside id="cfg-tree" class="cfg-tree" aria-label="Sections"></aside><pre id="cfg-code" class="code"></pre></div>
       </section>
 
     </main>
