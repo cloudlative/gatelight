@@ -41,7 +41,12 @@ function createApp(settings) {
 
   // --- Static assets (explicit allowlist: nothing outside /public is served) ---
   app.use('/vendor/vis-network.min.js', (_req, res) => res.sendFile(path.join(VIS_DIR, 'vis-network.min.js')));
-  app.use(express.static(PUBLIC, { index: 'index.html', maxAge: '5m' }));
+  // The UI files change on every release and must always match each other, so the browser revalidates them (cheap 304s via ETag)
+  // instead of reusing a mix of old and new files for a few minutes after an upgrade. Images and fonts may be cached.
+  app.use(express.static(PUBLIC, {
+    index: 'index.html', maxAge: '1h',
+    setHeaders: (res, file) => { if (/\.(html|js|css)$/.test(file)) res.setHeader('Cache-Control', 'no-cache'); },
+  }));
 
   app.get('/readyz', (_req, res) => {
     const ready = registry.list().filter((i) => !i.managed || settings.ui.shared).every((i) => i.ok !== null);
