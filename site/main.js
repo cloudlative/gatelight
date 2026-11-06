@@ -64,5 +64,23 @@
   // feature cards: light follows the pointer
   $$('.feat').forEach((c) => c.addEventListener('pointermove', (e) => { const r = c.getBoundingClientRect(); c.style.setProperty('--mx', `${((e.clientX - r.left) / r.width) * 100}%`); }));
 
+
+  // hero visual: pointer parallax + live-ticking numbers
+  const hv = $('.hero-visual');
+  const calm = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (hv && !calm) {
+    hv.addEventListener('pointermove', (e) => { const r = hv.getBoundingClientRect(); hv.style.setProperty('--px', ((e.clientX - r.left) / r.width - 0.5).toFixed(3)); hv.style.setProperty('--py', ((e.clientY - r.top) / r.height - 0.5).toFixed(3)); });
+    hv.addEventListener('pointerleave', () => { hv.style.setProperty('--px', 0); hv.style.setProperty('--py', 0); });
+    const e5 = $('#live5xx'), line = $('#sparkline'), al = $('#liveAlive');
+    const pts = [12, 9, 13, 6, 10, 4, 8]; let v = 2.5, n = 0;
+    setInterval(() => {
+      v = Math.max(0.4, Math.min(6, v + (Math.random() - 0.5) * 1.1));
+      e5.textContent = v.toFixed(2);
+      pts.shift(); pts.push(Math.round(16 - Math.min(14, v * 2.4)));
+      line.setAttribute('points', pts.map((y, i) => `${i * 10},${y}`).join(' '));
+      if (++n % 6 === 0) { al.textContent = al.textContent.startsWith('2') ? '3 / 3 alive' : '2 / 3 alive'; }
+    }, 1400);
+  }
+
   $('#year').textContent = new Date().getFullYear();
 })();

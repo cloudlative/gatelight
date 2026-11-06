@@ -204,3 +204,48 @@ p { margin: 0; }
 
 /* mobile: let grid children shrink below their min-content (copy-able command scrolls inside its box) */
 .hero-grid > *, .cmd { min-width: 0; max-width: 100%; }
+
+/* hero headline: two clean lines, never an orphaned word */
+.hero h1 { font-size: clamp(40px, 5.2vw, 72px); line-height: 1.04; }
+.hero h1 .ln { display: block; white-space: nowrap; }
+@media (max-width: 380px) { .hero h1 { font-size: 36px; } }
+.cmd code { scrollbar-width: none; } .cmd code::-webkit-scrollbar { display: none; }
+
+/* ---------- hero visual: living motion ---------- */
+.hero-visual { --px: 0; --py: 0; perspective: 1600px; }
+.window.tilt { animation: sway 9s ease-in-out infinite; transform-origin: 60% 50%; }
+.hero-visual:hover .window.tilt { animation-play-state: paused; }
+@keyframes sway {
+  0%, 100% { transform: perspective(1600px) rotateY(-7deg) rotateX(3deg) translateY(0); }
+  50% { transform: perspective(1600px) rotateY(-3.5deg) rotateX(1.5deg) translateY(-10px); }
+}
+.glow { animation: breathe 7s ease-in-out infinite; }
+@keyframes breathe { 50% { opacity: .5; transform: scale(1.05); } }
+.scan { position: absolute; inset: 0; z-index: 3; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.scan::before { content: ""; position: absolute; top: 0; bottom: 0; width: 38%; left: -45%; background: linear-gradient(100deg, transparent, rgba(34, 211, 238, .16), rgba(168, 85, 247, .16), transparent); transform: skewX(-14deg); animation: sweep 6.5s ease-in-out infinite; }
+@keyframes sweep { 0% { left: -45%; } 55%, 100% { left: 125%; } }
+.float { transition: translate .25s ease-out; translate: calc(var(--px) * 14px) calc(var(--py) * 10px); }
+.f1 { animation: bob 6s ease-in-out infinite, enterL 1s cubic-bezier(.2, .7, .2, 1) both; }
+.f2 { animation: bob2 7s ease-in-out infinite -2s, enterR 1s .15s cubic-bezier(.2, .7, .2, 1) both; }
+.f3 { animation: bob 8s ease-in-out infinite -4s, enterR 1s .3s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes bob2 { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(-12px) rotate(1.2deg); } }
+@keyframes enterL { from { opacity: 0; margin-left: -40px; } }
+@keyframes enterR { from { opacity: 0; margin-right: -40px; } }
+.ping { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 0 rgba(52, 211, 153, .6); animation: ping 1.8s infinite; vertical-align: 1px; }
+@keyframes ping { 70% { box-shadow: 0 0 0 9px rgba(52, 211, 153, 0); } 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); } }
+.float em { font-style: normal; } .spark { width: 46px; height: 14px; vertical-align: -2px; margin-left: 6px; overflow: visible; }
+.spark polyline { stroke-dasharray: 90; animation: draw 3.2s ease-in-out infinite alternate; }
+@keyframes draw { from { stroke-dashoffset: 90; } to { stroke-dashoffset: 0; } }
+.ring { position: absolute; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--cyan) 45%, transparent); pointer-events: none; animation: spin 24s linear infinite; }
+.ring.r1 { width: 120px; height: 120px; right: -46px; top: -34px; border-style: dashed; }
+.ring.r2 { width: 74px; height: 74px; left: -28px; bottom: 14%; border-color: color-mix(in srgb, var(--violet, #a855f7) 50%, transparent); animation-direction: reverse; animation-duration: 18s; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (max-width: 1020px) { .ring { display: none; } .float { translate: none; } }
+@media (prefers-reduced-motion: reduce) { .window.tilt, .glow, .scan::before, .float, .ring, .ping, .spark polyline { animation: none !important; } }
+
+/* command boxes: always show the whole command, wrapped — never a scrollbar */
+.cmd code { white-space: pre-wrap; overflow: visible; overflow-wrap: anywhere; word-break: normal; }
+.cmd { align-items: flex-start; } .cmd .prompt, .cmd .copy { margin-top: 1px; }
+.cmd code { overflow-wrap: break-word; }
+.cmd code { min-width: 0; } .cmd .copy { flex: none; }
+.foot-grid b a { color: inherit; text-decoration: none; } .foot-grid b a:hover { color: var(--cyan); }
