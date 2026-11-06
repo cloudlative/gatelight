@@ -1144,7 +1144,7 @@ function applyTheme(pref) {
   if (state.snapshot) renderView(state.view);
 }
 function cycleTheme() {
-  const order = ['auto', 'light', 'dark']; const cur = loadPref('gatelight.theme', 'auto');
+  const order = ['dark', 'light', 'auto']; const cur = loadPref('gatelight.theme', 'dark');
   const next = order[(order.indexOf(cur) + 1) % 3];
   savePref('gatelight.theme', next); applyTheme(next); toast(`Theme: ${next}`);
 }
@@ -2684,7 +2684,7 @@ async function backfillSeries() {
 function restoreDetail(v, k) { if (v === 'detail' && k && state.snapshot) { const key = decodeURIComponent(k); const r = indexRows(state.snapshot.rows).get(key); inspect(key, r && r.kind); } }
 async function init() {
   const qTheme = new URLSearchParams(location.search).get('theme');
-  applyTheme(['light', 'dark'].includes(qTheme) ? qTheme : loadPref('gatelight.theme', 'auto'));
+  applyTheme(['light', 'dark'].includes(qTheme) ? qTheme : loadPref('gatelight.theme', 'dark')); // dark unless the user chose otherwise
   wire();
   const hash = location.hash.slice(1);
   const [hInst, hViewRaw, hKey] = hash.includes('/') ? hash.split('/') : [null, hash];

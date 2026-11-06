@@ -5,6 +5,10 @@
   const params = new URLSearchParams(location.search);
   const t = params.get('theme');
   if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  else { // dark by default; follow a theme chosen inside the app
+    let pref = 'dark'; try { const v = JSON.parse(localStorage.getItem('gatelight.theme')); if (v) pref = v; } catch { /* storage unavailable */ }
+    if (pref === 'light' || pref === 'dark') document.documentElement.dataset.theme = pref; else delete document.documentElement.dataset.theme;
+  }
 
   // Only ever send people back to a path on this site (no open redirect). The URL fragment (#demo/services) survives the trip.
   const safeNext = () => {
