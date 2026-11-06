@@ -937,3 +937,7 @@ ul.tree, .tree ul { list-style: none; margin: 0; padding: 0; } .tree ul { margin
 .topbar .brand-t small { margin-top: 3px; font-size: 11px; font-weight: 500; letter-spacing: .06em; color: var(--muted); text-transform: none; }
 .topbar .brand:hover .brand-t small { color: var(--cyan); }
 @media (max-width: 800px) { .topbar .brand-t small { display: none; } .topbar .brand-n { font-size: 20px; } }
+
+.af-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 12px; padding: 10px 14px; border: 1px solid color-mix(in srgb, var(--cyan) 45%, var(--line)); border-left-width: 3px; border-radius: 10px; background: color-mix(in srgb, var(--cyan) 8%, var(--bg-2)); }
+.af-bar b { color: var(--cyan); } .af-bar .btn { margin-left: auto; }
+.bc-list li[aria-pressed="true"] { background: var(--bg-3); box-shadow: inset 3px 0 0 var(--cyan); }

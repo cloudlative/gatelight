@@ -1138,7 +1138,7 @@ function renderAudit() {
       ${cats.map((x) => `<span class="chip ${cat === x ? 'on' : ''}" data-cat="${x}">${esc(x)}</span>`).join('')}
       <span class="spacer"></span><button class="btn" id="audit-export">Export JSON</button>
     </div>
-    ${auditCharts(list)}
+    ${auditFilterBar()}${auditCharts(list, s.findings)}
     ${groupFindings(list).map((g) => (g.items.length >= 4 ? `<details class="finding ${esc(g.severity)}"><summary class="ft"><span class="sev-${esc(g.severity)}">${esc(g.severity.toUpperCase())}</span> · ${esc(g.rule)} <span class="tag">${g.items.length} occurrences</span> <span class="tag">${esc(g.category)}</span></summary>
         <div class="fm">${esc(g.items[0].detail)}</div>${g.items[0].fix ? `<div class="fx">Fix: ${esc(g.items[0].fix)}</div>` : ''}
         <ul class="locs">${g.items.map((x) => `<li><a ${loc(x)}>${esc(x.section)}:${x.line}</a> — ${esc(x.title)}</li>`).join('')}</ul></details>`
@@ -1911,11 +1911,18 @@ function svcCharts(rows) {
 }
 
 // ---------- CONFIG AUDIT: charts for the findings the filters currently show ----------
-function auditCharts(list) {
+function auditFilterBar() {
+  const { sev, cat } = state.auditFilter; if (sev === 'all' && cat === 'all') return '';
+  const parts = [sev !== 'all' ? `severity <b>${esc(sev)}</b>` : '', cat !== 'all' ? `category <b>${esc(cat)}</b>` : ''].filter(Boolean).join(' and ');
+  return `<div class="af-bar" role="status"><span>Showing only ${parts}.</span><button type="button" class="btn" data-af-clear>✕ Show all findings</button></div>`;
+}
+function auditCharts(list, all = list) {
   const count = (key) => { const m = new Map(); for (const f of list) m.set(f[key], (m.get(f[key]) || 0) + 1); return [...m].sort((a, b) => b[1] - a[1]); };
   const sev = ['error', 'warning', 'info'].map((k) => ({ label: k[0].toUpperCase() + k.slice(1), color: { error: '#f87171', warning: '#fbbf24', info: '#22d3ee' }[k], value: list.filter((f) => f.severity === k).length }));
   const donut = donutCard('Findings by severity', sev, { big: String(list.length), sub: 'findings' }, 'How serious the findings are.');
-  const cats = barChart('By category', count('category').slice(0, 8).map(([k, v]) => ({ label: k, value: v, color: '#818cf8', attrs: `data-cat="${esc(k)}"` })), { sub: 'click to filter' });
+  const sevOnly = state.auditFilter.sev === 'all' ? all : all.filter((f) => f.severity === state.auditFilter.sev);
+  const catCount = new Map(); for (const f of sevOnly) catCount.set(f.category, (catCount.get(f.category) || 0) + 1);
+  const cats = barChart('By category', [...catCount].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => ({ label: k, value: v, color: state.auditFilter.cat === k ? '#22d3ee' : '#818cf8', attrs: `data-cat="${esc(state.auditFilter.cat === k ? 'all' : k)}" aria-pressed="${state.auditFilter.cat === k}"` })), { sub: state.auditFilter.cat === 'all' ? 'click to filter' : 'click again to clear' });
   const secs = barChart('Most affected sections', count('section').slice(0, 8).map(([k, v]) => ({ label: k || '(global)', value: v, color: '#22d3ee' })), { sub: 'frontends, backends, upstreams' });
   const ruleName = new Map(list.map((f) => [f.id, f.rule || f.title]));
   const rules = barChart('Most frequent rules', count('id').slice(0, 8).map(([k, v]) => ({ label: ruleName.get(k) || k, value: v, color: '#fbbf24' })), { sub: 'rule · occurrences' });
@@ -2506,6 +2513,7 @@ function wire() {
     const kc = e.target.closest('[data-card]'); if (kc) { openCard(kc.dataset.card); return; }
     const gt = e.target.closest('[data-goto]'); if (gt) { switchView(gt.dataset.goto); return; }
     const ins = e.target.closest('[data-inspect]'); if (ins) { const key = ins.dataset.inspect; const r = indexRows(state.snapshot.rows).get(key); inspect(key, r && r.kind); return; }
+    if (e.target.closest('[data-af-clear]')) { state.auditFilter = { sev: 'all', cat: 'all' }; renderAudit(); return; }
     const sev = e.target.closest('[data-sev]'); if (sev) { state.auditFilter.sev = sev.dataset.sev; renderAudit(); return; }
     const cat = e.target.closest('[data-cat]'); if (cat) { state.auditFilter.cat = cat.dataset.cat; renderAudit(); return; }
     const ev = e.target.closest('[data-ev]'); if (ev) { state.eventFilter = ev.dataset.ev; renderEvents(); return; }
