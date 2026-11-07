@@ -223,7 +223,7 @@
     <div class="sec-head reveal">
       <span class="eyebrow">Quick setup</span>
       <h2>Running in <span class="grad">two minutes</span>.</h2>
-      <p>You need Docker with the Compose plugin. No clone, no build.</p>
+      <p>You need Docker with the Compose plugin. No clone, no build, and upgrades are one command.</p>
     </div>
     <ol class="steps">
       <li class="step reveal">
@@ -251,6 +251,17 @@
           <h3>Add an instance</h3>
           <p>Overview → <b>Add an instance</b>. Pick HAProxy or NGINX, enter the stats URL, press <b>Test connection</b>, then <b>Save &amp; connect</b>. On the same machine as Docker, use <code>http://host.docker.internal:PORT/stats</code>.</p>
           <p class="muted">Just curious? <code>DEMO_MODE=true docker compose up -d</code> serves synthetic traffic on a sample shop. Only want the map of a file? Use <b>Review a config</b> and nothing is saved.</p>
+        </div>
+      </li>
+      <li class="step reveal d3">
+        <span class="num">4</span>
+        <div>
+          <h3>Upgrade whenever you like. Your data stays.</h3>
+          <p>One command pulls the newer image and replaces the container. Your connections, chart history, events and sign-in live in a Docker volume that is never touched, so nothing needs re-entering. Pin a release with <code>GATELIGHT_VERSION</code> and roll back the same way.</p>
+          <div class="cmd" data-copy="docker compose pull &amp;&amp; docker compose up -d">
+            <span class="prompt">$</span><code>docker compose pull &amp;&amp; docker compose up -d</code><button type="button" class="copy">Copy</button>
+          </div>
+          <p class="muted">Kept in the <code>gatelight-data</code> volume: saved connections, chart history (14 days), events and the session secret. Only <code>docker compose down -v</code> deletes it. <a href="https://github.com/cloudlative/gatelight#upgrading-is-one-command-and-your-data-stays" target="_blank" rel="noopener noreferrer">Backup and restore ↗</a></p>
         </div>
       </li>
     </ol>
