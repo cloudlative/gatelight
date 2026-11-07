@@ -19,7 +19,7 @@ One portal for both. Free, open source, and nothing to build.
 [![NGINX](https://img.shields.io/badge/NGINX-supported-0b1220.svg?style=flat-square)](#what-each-data-source-gives-you)
 [![Runtime deps: 2](https://img.shields.io/badge/runtime%20deps-2-fbbf24.svg?style=flat-square)](package.json)
 
-[**Website**](https://cloudlative.github.io/gatelight/) · [**Quick setup**](#quick-setup-two-minutes) · [**Why**](#why-gatelight-exists) · [**Highlights**](#highlights) · [**Screenshots**](#screenshots) · [**Configure**](#configuring-instances) · [**Security**](#security-model) · [**Contribute**](CONTRIBUTING.md)
+[**Website**](https://gatelight.cloudlative.com/) · [**Quick setup**](#quick-setup-two-minutes) · [**Why**](#why-gatelight-exists) · [**Highlights**](#highlights) · [**Screenshots**](#screenshots) · [**Configure**](#configuring-instances) · [**Security**](#security-model) · [**Contribute**](CONTRIBUTING.md)
 
 <br>
 
