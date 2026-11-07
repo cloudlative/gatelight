@@ -49,6 +49,8 @@ Open **http://localhost:3000**, then:
    Running on the same machine as Docker? Use `http://host.docker.internal:PORT/stats` instead of `localhost`.
 3. **Explore.** Overview, Topology, Infrastructure, Graphs, Services and Config audit fill in right away.
 
+**Upgrading later?** `docker compose pull && docker compose up -d`: your connections, history and sign-in are kept in a Docker volume ([details below](#upgrading-is-one-command-and-your-data-stays)).
+
 Just want to look around first? `DEMO_MODE=true docker compose up -d` serves synthetic traffic on a sample shop, no servers needed.
 Only want the map of a config file? Open *Review a config*, drop a `haproxy.cfg` / `nginx.conf` (or a whole folder), and nothing is saved.
 
@@ -60,12 +62,48 @@ Only want the map of a config file? Open *Review a config*, drop a `haproxy.cfg`
 | Use another port | `GATELIGHT_PORT=8080 docker compose up -d` |
 | Reach it from other machines | `GATELIGHT_BIND=0.0.0.0` and put **HTTPS in front first** |
 | Pin a version | `GATELIGHT_VERSION=3.0.0 docker compose up -d` (tags: `latest`, `3.0.0`, `3.0`) |
-| Upgrade | `docker compose pull && docker compose up -d` (your data volume is kept) |
+| Upgrade | `docker compose pull && docker compose up -d` (your data volume is kept, see [Upgrading](#upgrading-is-one-command-and-your-data-stays)) |
 | Choose the password | `AUTH_PASS=... docker compose up -d`, or a hash: `printf '%s' 'pw' \| docker run -i --rm ghcr.io/cloudlative/gatelight node src/cli.js hash-password` |
 | Forget the generated password | `docker compose exec gatelight cat /app/data/.initial-password` |
 | Run from source | `git clone` the repo and `docker compose up -d --build` (the override file builds locally), or `npm ci && DEMO_MODE=true npm start` (Node 22.5+) |
 
 </details>
+
+### Upgrading is one command, and your data stays
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+That is the whole upgrade. Compose downloads the newer image, replaces the container and starts it; the **`gatelight-data` volume is not touched**, so nothing has to be re-entered. It takes a few seconds and the dashboard is back, with:
+
+| Kept across upgrades, restarts and re-creates | Where (inside the volume, `/app/data`) |
+|---|---|
+| Saved connections: URLs, credentials, uploaded config files | `ui-instances.json` |
+| Chart history and the events timeline (SQLite, 14 days by default) | `history.db` |
+| The sign-in session secret, so nobody is signed out by an upgrade | `.auth-secret` |
+| The generated first-run password, if you did not set `AUTH_PASS` | `.initial-password` |
+
+Good to know:
+
+- **Your own settings** live in `.env` next to the compose file, so they survive too. Nothing in the image needs editing.
+- **Pin a release** if you want upgrades to be deliberate: `GATELIGHT_VERSION=3.0.0` in `.env` (tags: `latest`, `3.0.0`, `3.0`). **Roll back** by setting the old tag and running `docker compose up -d`.
+- **History retention** is `HISTORY_KEEP_DAYS` (default 14); raw samples are rolled up to one-minute averages after `HISTORY_RAW_HOURS` (default 6) to keep the file small.
+- `docker compose down` keeps the volume. Only `docker compose down -v` deletes it, so avoid `-v` unless you mean it.
+- The container itself is stateless and read-only; the volume is the only thing worth backing up.
+
+Back up and restore the volume:
+
+```bash
+# back up
+docker run --rm -v gatelight_gatelight-data:/data -v "$PWD":/backup alpine tar czf /backup/gatelight-data.tgz -C /data .
+# restore (into an empty volume, with GateLight stopped)
+docker compose down
+docker run --rm -v gatelight_gatelight-data:/data -v "$PWD":/backup alpine sh -c "cd /data && tar xzf /backup/gatelight-data.tgz"
+docker compose up -d
+```
+
+The volume is named `<project>_gatelight-data`; with the default compose project name that is `gatelight_gatelight-data` (check with `docker volume ls`).
 
 ## Why GateLight exists
 
