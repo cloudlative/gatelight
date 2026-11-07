@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Validate** page and engine: version-aware validation of HAProxy (1.7–3.4) and NGINX configurations against the official documentation, with version-dependent recommendations. Knowledge bases are generated from the manuals (`npm run kb:build`).
+- API: `POST /api/validate`, `GET /api/instances/:id/validate`, `GET /api/validate/versions`.
+
+### Changed
+- The app header no longer shows the tagline (it stays on the sign-in page and the website).
+
 ## 3.0.0 — first open-source release
 - **One-file setup**: `curl` the compose file, `docker compose up -d`. Multi-arch image on GHCR, first-run sign-in password generated and printed in the logs.
 - **Graphs** page (zoom, pan, shared crosshair, clickable legends, donut charts for HTTP errors), **Infrastructure** page (what is behind the load balancer and whether it is alive), charts on Services and Config audit, details pages instead of a side panel, profile page.

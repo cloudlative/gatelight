@@ -373,7 +373,7 @@ function loadNginxConfig(mainPath, rootDir) {
  * Analyse an uploaded set of files [{name, content}] (e.g. nginx.conf + conf.d/*.conf), resolving
  * include directives against the set. Returns { sections, notes, files, mainFile }.
  */
-function parseNginxFiles(input) {
+function astFromFiles(input) {
   const list = (input || []).filter((f) => f && typeof f.name === 'string' && typeof f.content === 'string').slice(0, MAX_FILES);
   if (!list.length) throw new Error('No files provided');
   const norm = list.map((f) => ({ name: f.name.replace(/\\/g, '/').replace(/^\/+/, '').replace(/^(\.\/)+/, ''), content: f.content.slice(0, MAX_FILE_BYTES) }));
@@ -389,6 +389,11 @@ function parseNginxFiles(input) {
     || norm.find((f) => looksMain(f.content)) || norm[0];
   const loader = new Loader(`/${path.posix.normalize(main.name)}`, '/', vfs);
   const { ast, files, notes } = loader.load();
+  return { ast, files, notes, main, norm };
+}
+
+function parseNginxFiles(input) {
+  const { ast, files, notes, main, norm } = astFromFiles(input);
   // A file with only server{}/upstream{} (no http{} wrapper) is a conf.d fragment: parse it as if inside http.
   const sections = buildModel(ast);
   if (!ast.some((n) => n.name === 'http' || n.name === 'stream')) {
@@ -409,4 +414,4 @@ function parseNginxText(text) {
   return { sections: buildModel(ast), notes: [], files: [{ name: 'nginx.conf', raw: redactNginx(text), mtimeMs: 0 }], ast };
 }
 
-module.exports = { loadNginxConfig, parseNginxText, parseNginxFiles, tokenize, redactNginx, parseListen };
+module.exports = { loadNginxConfig, parseNginxText, parseNginxFiles, astFromFiles, tokenize, redactNginx, parseListen };

@@ -69,7 +69,7 @@ const beLike = (s) => s.type === 'backend' || s.type === 'listen';
 
 // ---------- navigation ----------
 let navReady = false; let navFromHistory = false; // push history entries only after start-up, and never while replaying one
-const REVIEW_VIEWS = ['topology', 'audit', 'config'];
+const REVIEW_VIEWS = ['topology', 'audit', 'validate', 'config'];
 const visibleNav = () => $$('#nav button').filter((b) => !b.hidden && b.offsetParent !== null);
 const VIEW_ALIAS = { lbinfra: 'infrastructure' }; // old links keep working
 function switchView(view) {
@@ -82,6 +82,7 @@ function switchView(view) {
   if (view === 'detail' && !state.inspected) view = (state.detailFrom && state.detailFrom !== 'detail') ? state.detailFrom : 'overview';
   if (state.view === 'detail' && view !== 'detail') state.inspected = null;
   state.view = view;
+  if (view === 'validate') setTimeout(() => valLoad(false), 0);
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${view}`));
   $$('#nav button').forEach((b) => { const on = b.dataset.view === view; b.classList.toggle('active', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   const dkey = view === 'detail' && state.inspected && state.inspected.key ? `/${encodeURIComponent(state.inspected.key)}` : '';
@@ -123,7 +124,7 @@ function renderView(view) {
     if (view === 'overview') { if (state.current) $('#view-overview').innerHTML = '<div class="skeleton-cards"><i></i><i></i><i></i><i></i><i></i></div>'; else renderWelcome(); }
     return;
   }
-  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, events: renderEvents, config: renderConfig }[view] || (() => {}))();
+  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, validate: renderValidate, events: renderEvents, config: renderConfig }[view] || (() => {}))();
 }
 
 // ---------- data loading ----------
@@ -1180,6 +1181,81 @@ function groupFindings(list) {
   return [...groups.values()].sort((a, b) => ({ error: 0, warning: 1, info: 2 }[a.severity] - { error: 0, warning: 1, info: 2 }[b.severity]));
 }
 
+
+
+// ---------- VALIDATE (version-aware, against the official docs) ----------
+const VAL = { inst: null, data: null, loading: false, err: null, version: '', build: '', tab: 'all', sev: 'all', versions: null, key: '', buildOpen: false };
+const NGINX_COMMON = ['1.31', '1.30', '1.28', '1.26', '1.24', '1.22', '1.20', '1.18', '1.16', '1.14'];
+async function valLoad(force) {
+  if (VAL.loading) return;
+  const key = `${state.current}|${VAL.version}|${VAL.build.length}`;
+  if (!force && VAL.data && VAL.key === key) return;
+  VAL.loading = true; VAL.err = null; renderValidate();
+  try {
+    if (!VAL.versions) { try { VAL.versions = await api('/validate/versions'); } catch { VAL.versions = null; } }
+    let res;
+    if (state.mode === 'review' && state.analysisCfg) {
+      res = await api('/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: state.analysisCfg.type, files: state.analysisCfg.files, version: VAL.version || undefined, build: VAL.build || undefined }) });
+    } else {
+      const q = new URLSearchParams(); if (VAL.version) q.set('version', VAL.version); if (VAL.build) q.set('build', VAL.build);
+      res = await api(`/instances/${encodeURIComponent(state.current)}/validate?${q}`);
+    }
+    VAL.data = res; VAL.key = key;
+    const nv = $('#nav-validate'); if (nv) { const n = res.summary.error + res.summary.warning; nv.hidden = !n; nv.textContent = n; }
+  } catch (e) { VAL.err = e.message; VAL.data = null; }
+  VAL.loading = false; if (state.view === 'validate') renderValidate();
+}
+const VAL_KIND = { all: 'All', syntax: 'Syntax', compat: 'Compatibility', recommendation: 'Recommendations' };
+const valKind = (f) => (f.category === 'syntax' ? 'syntax' : (f.category === 'recommendation' || /^rec-/.test(f.id)) ? 'recommendation' : 'compat');
+function renderValidate() {
+  const el = $('#view-validate'); if (!el) return;
+  const snap = state.snapshot; if (!snap) { el.innerHTML = ''; return; }
+  if (VAL.inst !== state.current) { // another instance: forget the previous pick and results
+    Object.assign(VAL, { inst: state.current, version: '', build: '', data: null, err: null, tab: 'all', sev: 'all', key: '', buildOpen: false });
+    if (!VAL.loading) setTimeout(() => valLoad(true), 0);
+  }
+  const type = snap.instance.type; const d = VAL.data;
+  const hap = type === 'haproxy';
+  const opts = hap && VAL.versions ? VAL.versions.haproxy.list : [];
+  const detected = d && d.detectedVersion;
+  const sel = hap
+    ? `<select id="val-version" aria-label="Target HAProxy version"><option value="">${detected ? `Detected (${esc(detected)})` : 'Latest'}</option>${opts.map((v) => `<option value="${esc(v)}"${VAL.version === v ? ' selected' : ''}>HAProxy ${esc(v)}</option>`).join('')}</select>`
+    : `<input id="val-version" list="val-nginx-v" placeholder="${detected ? `Detected (${esc(detected)})` : 'e.g. 1.24.0 (empty = latest)'}" value="${esc(VAL.version)}" aria-label="Target NGINX version" autocomplete="off"><datalist id="val-nginx-v">${NGINX_COMMON.map((v) => `<option value="${v}">`).join('')}</datalist>`;
+  const head = `<div class="panel val-head">
+      <div class="val-pick"><label for="val-version">Validate against</label>${sel}
+        <button class="btn primary" type="button" data-val-run>${VAL.loading ? 'Checking…' : 'Validate'}</button>
+        ${hap ? '' : `<button class="link" type="button" data-val-build>${VAL.buildOpen ? 'Hide' : 'Add'} build info</button>`}</div>
+      <p class="muted small">Every directive, parameter, context and expression is checked against the official ${hap ? 'HAProxy manual' : 'NGINX documentation'} for the chosen version, so you see what that exact release will accept, reject or has removed — plus recommendations that depend on the version.</p>
+      ${!hap && VAL.buildOpen ? `<textarea id="val-build" rows="3" placeholder="Paste the output of  nginx -V  to also check which modules your build contains" spellcheck="false">${esc(VAL.build)}</textarea>` : ''}
+    </div>`;
+  if (VAL.loading && !d) { el.innerHTML = `${head}<div class="skeleton-cards"><i></i><i></i><i></i></div>`; return; }
+  if (VAL.err) { el.innerHTML = `${head}<div class="panel"><div class="empty">Could not validate: ${esc(VAL.err)}</div></div>`; return; }
+  if (!d) { el.innerHTML = head; return; }
+  const all = d.findings; const kinds = { syntax: 0, compat: 0, recommendation: 0 };
+  all.forEach((f) => { kinds[valKind(f)]++; });
+  const list = all.filter((f) => (VAL.tab === 'all' || valKind(f) === VAL.tab) && (VAL.sev === 'all' || f.severity === VAL.sev));
+  const tgt = d.target; const label = hap ? `HAProxy ${tgt.branch}` : `NGINX ${tgt.version}`;
+  const bad = d.summary.error;
+  const verdict = bad ? `<span class="val-no">✗ ${bad} problem${bad === 1 ? '' : 's'} on ${esc(label)}</span>` : `<span class="val-ok">✓ Valid for ${esc(label)}</span>`;
+  const chip = (x, t, n, attr) => `<span class="chip ${VAL[attr] === x ? 'on' : ''}" data-val-${attr}="${x}">${t}${n == null ? '' : ` (${n})`}</span>`;
+  const card = (f) => {
+    const kind = valKind(f);
+    const tags = [f.since ? `<span class="tag since">needs ≥ ${esc(f.since)}</span>` : '', f.until ? `<span class="tag until">gone after ${esc(f.until)}</span>` : '', `<span class="tag">${esc({ syntax: 'syntax', compat: 'compatibility', recommendation: 'recommendation' }[kind])}</span>`].join(' ');
+    const where = f.line ? `<a ${loc(f)}>${esc(f.file ? `${f.file}:` : '')}${f.section ? `${esc(f.section)}:` : ''}${f.line}</a>` : '';
+    return `<div class="finding ${esc(f.severity)}"><div class="ft"><span class="sev-${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span> · ${esc(f.title)} ${tags}</div>
+      ${f.detail ? `<div class="fm">${esc(f.detail)} ${where}</div>` : (where ? `<div class="fm">${where}</div>` : '')}
+      ${f.fix ? `<div class="fx"><b>Fix</b> ${f.fix.includes('\n') ? `<pre class="val-code">${esc(f.fix)}</pre>` : esc(f.fix)}</div>` : ''}
+      ${f.docs ? `<div class="fm small"><a href="${esc(f.docs)}" target="_blank" rel="noopener noreferrer">Official documentation ↗</a></div>` : ''}</div>`;
+  };
+  el.innerHTML = `${head}
+    <div class="panel val-sum"><div class="val-verdict">${verdict}</div>
+      <div class="val-counts"><span><b class="sev-error">${d.summary.error}</b> errors</span><span><b class="sev-warning">${d.summary.warning}</b> warnings</span><span><b class="sev-info">${d.summary.info}</b> notes</span></div>
+      ${tgt.note ? `<p class="muted small">${esc(tgt.note)}</p>` : ''}
+      <p class="muted small">Checked against the official ${hap ? 'manual at docs.haproxy.org' : 'documentation at nginx.org'} (knowledge base built ${esc(d.kb.generated)}${hap ? '' : `, up to nginx ${esc(d.kb.latest)}`}).${d.runningVersionText ? ` Running version reported: <span class="mono">${esc(d.runningVersionText)}</span>.` : ''}</p></div>
+    <div class="chips">${Object.entries(VAL_KIND).map(([k, t]) => chip(k, t, k === 'all' ? all.length : kinds[k], 'tab')).join('')}<span class="muted">|</span>
+      ${['all', 'error', 'warning', 'info'].map((x) => chip(x, x === 'all' ? 'Any severity' : x, null, 'sev')).join('')}</div>
+    ${list.map(card).join('') || `<div class="empty">✓ Nothing to report for this filter</div>`}`;
+}
 
 // ---------- PROFILE ----------
 function renderProfile() {
@@ -2540,6 +2616,10 @@ function wire() {
     if (e.target.closest('[data-af-clear]')) { state.auditFilter = { sev: 'all', cat: 'all' }; renderAudit(); return; }
     const sev = e.target.closest('[data-sev]'); if (sev) { state.auditFilter.sev = sev.dataset.sev; renderAudit(); return; }
     const cat = e.target.closest('[data-cat]'); if (cat) { state.auditFilter.cat = cat.dataset.cat; renderAudit(); return; }
+    if (e.target.closest('[data-val-run]')) { const v = $('#val-version'); VAL.version = v ? v.value.trim() : ''; const b = $('#val-build'); if (b) VAL.build = b.value.trim(); valLoad(true); return; }
+    if (e.target.closest('[data-val-build]')) { const b = $('#val-build'); if (b) VAL.build = b.value; VAL.buildOpen = !VAL.buildOpen; renderValidate(); return; }
+    const vt = e.target.closest('[data-val-tab]'); if (vt) { VAL.tab = vt.dataset.valTab; renderValidate(); return; }
+    const vs = e.target.closest('[data-val-sev]'); if (vs) { VAL.sev = vs.dataset.valSev; renderValidate(); return; }
     const ev = e.target.closest('[data-ev]'); if (ev) { state.eventFilter = ev.dataset.ev; renderEvents(); return; }
     const th = e.target.closest('th[data-sort]');
     if (th && !SVC_COLS.find((c) => c.k === th.dataset.sort).nosort) {

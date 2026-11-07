@@ -3,16 +3,34 @@
   "version": "3.0.0",
   "description": "GateLight: open-source portal for HAProxy and NGINX. Relationship maps, live health, config audit and alerting",
   "main": "server.js",
-  "bin": { "gatelight": "src/cli.js" },
-  "engines": { "node": ">=22.5" },
-  "repository": { "type": "git", "url": "git+https://github.com/Cloudlative/gatelight.git" },
+  "bin": {
+    "gatelight": "src/cli.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cloudlative/gatelight.git"
+  },
   "homepage": "https://cloudlative.github.io/gatelight/",
-  "bugs": { "url": "https://github.com/Cloudlative/gatelight/issues" },
-  "keywords": ["haproxy", "nginx", "load-balancer", "monitoring", "dashboard", "config-audit", "topology"],
+  "bugs": {
+    "url": "https://github.com/Cloudlative/gatelight/issues"
+  },
+  "keywords": [
+    "haproxy",
+    "nginx",
+    "load-balancer",
+    "monitoring",
+    "dashboard",
+    "config-audit",
+    "topology"
+  ],
   "scripts": {
     "start": "node server.js",
     "test": "node --test --test-force-exit",
-    "audit": "node src/cli.js audit"
+    "audit": "node src/cli.js audit",
+    "kb:build": "node tools/kb/haproxy.js && node tools/kb/nginx.js"
   },
   "license": "MIT",
   "dependencies": {

@@ -11,6 +11,8 @@ const { auditNginx } = require('./nginxAudit');
 const { detectType } = require('./detect');
 const { parseStatsCsv, statusClass } = require('./statsParser');
 const { auditConfig, summarize } = require('./audit');
+const { validateConfig, versions: kbVersions } = require('./validate');
+const { detect: detectVersion } = require('./validate/version');
 const { renderMetrics } = require('./metrics');
 const { securityHeaders, rateLimit } = require('./security');
 const { createAuth } = require('./login');
@@ -278,6 +280,39 @@ function createApp(settings) {
       config: { files: outFiles, sections: sections.map(({ directives, ...rest }) => rest) },
       rows, findings, findingsSummary: summarize(findings),
     });
+  });
+
+  // Version-aware validation against the official HAProxy / NGINX documentation (knowledge bases in src/kb).
+  //   POST body: { type?: 'auto'|'haproxy'|'nginx', version?: '2.8' | '1.24.0' | 'HAProxy version 2.8.5', config?: string, files?: [{name, content}], build?: 'nginx -V output' }
+  api.get('/validate/versions', (_req, res) => res.json(kbVersions()));
+
+  api.post('/validate', express.json({ limit: '8mb' }), rateLimit({ max: 60 }), (req, res) => {
+    const body = req.body || {};
+    const files = Array.isArray(body.files) ? body.files.filter((f) => f && typeof f.content === 'string' && typeof f.name === 'string').slice(0, 300) : [];
+    const text = typeof body.config === 'string' ? body.config : '';
+    if (!files.length && !text.trim()) return res.status(400).json({ error: 'Provide "config" (string) or "files" ([{name, content}])' });
+    const cfgFiles = files.filter((f) => !/\.csv$/i.test(f.name));
+    let type = String(body.type || 'auto');
+    if (type === 'auto') type = detectType(cfgFiles.length ? cfgFiles.map((f) => f.content).join('\n') : text);
+    if (!['haproxy', 'nginx'].includes(type)) return res.status(400).json({ error: `Unknown type "${type}"` });
+    try {
+      const out = validateConfig({ product: type, version: typeof body.version === 'string' ? body.version : null, config: text, files: cfgFiles, build: typeof body.build === 'string' ? body.build : undefined });
+      return res.json(out);
+    } catch (e) { return res.status(422).json({ error: `Could not validate configuration: ${e.message}` }); }
+  });
+
+  api.get('/instances/:id/validate', withInstance, rateLimit({ max: 30 }), (req, res) => {
+    const p = req.poller; const type = p.instance.type;
+    const cache = p.configCache;
+    if (!cache || !cache.files || !cache.files.length) return res.status(404).json({ error: 'This instance has no configuration loaded to validate.' });
+    const info = (p.snapshot && p.snapshot.info) || {};
+    const detected = detectVersion(info.version);
+    const version = typeof req.query.version === 'string' && req.query.version.trim() ? req.query.version.trim() : detected;
+    try {
+      const files = cache.files.map((f) => ({ name: f.name, content: f.raw }));
+      const out = validateConfig({ product: type, version, config: type === 'haproxy' ? files[0].content : undefined, files: type === 'nginx' ? files : undefined, build: typeof req.query.build === 'string' ? req.query.build : undefined });
+      return res.json({ ...out, detectedVersion: detected, runningVersionText: info.version || null });
+    } catch (e) { return res.status(422).json({ error: `Could not validate configuration: ${e.message}` }); }
   });
 
   // Bundled, sanitised examples so people can try the tool without their own config.

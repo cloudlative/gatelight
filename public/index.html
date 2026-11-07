@@ -68,7 +68,6 @@
   <div id="app" hidden>
     <header class="topbar">
       <button class="brand" id="btn-home" type="button" title="Back to the Overview"><img class="logo" src="logo.svg" alt="" width="20" height="20"><span class="brand-t"><span class="brand-n">GateLight</span><small>by Cloudlative</small></span></button>
-      <span class="tagline" aria-hidden="true">Light up your gateways.</span>
       <button id="btn-start" class="btn ghost" type="button">← Start over</button>
       <button id="btn-save-review" class="btn primary review-only" type="button" title="Keep this config as a named instance in your dashboard">Save as instance…</button>
       <div class="isel live-only" id="isel"><select id="instance-select" class="isel-native" aria-label="Instance" tabindex="-1" aria-hidden="true"></select><button type="button" id="isel-btn" class="isel-btn" aria-haspopup="listbox" aria-expanded="false" aria-controls="isel-pop" title="Switch instance"></button><div id="isel-pop" class="isel-pop" role="listbox" aria-label="Instances" hidden></div></div>
@@ -99,6 +98,7 @@
       <button data-live data-view="events"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Events</span></button>
       <div class="nav-lbl">Configuration</div>
       <button data-view="audit"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Config audit</span><span class="badge warn" id="nav-audit" hidden></span></button>
+      <button data-view="validate"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg><span>Validate</span><span class="badge warn" id="nav-validate" hidden></span></button>
       <button data-view="config"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg><span>Config</span></button>
       <div class="nav-lbl nav-push" data-live>Manage</div>
       <button data-live data-view="connect"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span>Add instance</span></button>
@@ -194,6 +194,7 @@
       </section>
 
       <section class="view" id="view-audit"></section>
+      <section class="view" id="view-validate"></section>
       <section class="view" id="view-events"></section>
 
       <section class="view" id="view-config">

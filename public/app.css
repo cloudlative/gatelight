@@ -949,3 +949,18 @@ ul.tree, .tree ul { list-style: none; margin: 0; padding: 0; } .tree ul { margin
 .pcell b { font-size: 19px; font-variant-numeric: tabular-nums; }
 .pbar { display: block; height: 6px; margin-top: 4px; background: var(--bg-3); border-radius: 99px; overflow: hidden; } .pbar i { display: block; height: 100%; background: var(--green); border-radius: 99px; }
 .pbar.warn i { background: var(--amber); } .pbar.bad i { background: var(--red); }
+
+/* the header carries no tagline (it lives on the login page and website only) */
+.topbar .tagline { display: none; }
+
+/* ---------- Validate page ---------- */
+.val-head { margin-bottom: 14px; } .val-pick { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.val-pick label { font-weight: 600; } .val-pick select, .val-pick input { min-width: 220px; }
+.val-head textarea { width: 100%; margin-top: 10px; font-family: var(--mono, ui-monospace, monospace); font-size: 12.5px; }
+.val-sum { margin-bottom: 14px; } .val-verdict { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+.val-ok { color: var(--green, #34d399); } .val-no { color: var(--red, #f87171); }
+.val-counts { display: flex; gap: 22px; flex-wrap: wrap; margin: 6px 0; } .val-counts b { font-size: 22px; margin-right: 4px; }
+.finding .tag.since { color: var(--amber, #fbbf24); } .finding .tag.until { color: var(--red, #f87171); }
+.val-code { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--bg, rgba(0,0,0,.2)); white-space: pre-wrap; font-size: 12.5px; }
+.val-pick input, .val-head textarea { background: var(--bg-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; }
+.val-head textarea { font-family: var(--mono, ui-monospace, monospace); }

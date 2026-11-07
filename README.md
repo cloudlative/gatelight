@@ -114,6 +114,20 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 **Built for real teams**
 - Password **sign-in** (hashed passwords supported), a profile page, multi-instance fleet view, secret redaction everywhere, strict CSP, no CDN dependencies (works air-gapped), light and dark themes, command palette (`Ctrl/⌘ K`), keyboard shortcuts.
 
+
+## Validate a config against a specific version
+
+The **Validate** page checks a configuration against the official documentation of the exact release you run (or plan to run), and adds recommendations that depend on that version.
+
+- **HAProxy 1.7 → 3.4** and **NGINX up to the latest release**; pick the target version, or let GateLight use the one the running instance reports.
+- Checks every keyword, section/context, bind and server option, rule action, sample fetch and converter, parameter, variable and `%[...]` expression, not only the ones the map understands. It handles line continuations, quoting, `${ENV}`, HAProxy `.if version_atleast(...)` blocks, nested NGINX contexts, `include`d files, `stream`/`mail`, regex captures and third-party (Lua/njs) blocks.
+- Tells you *what exactly is wrong for that version*: unknown (with "did you mean"), **too new** ("needs ≥ 2.5"), **removed** ("gone after 2.4, use `nbthread`"), **deprecated**, wrong section/context, bad arguments, duplicates, undefined zones, `proxy_pass` URI rules, syntax errors with file and line.
+- Version-aware recommendations, for example upstream keep-alive before/after NGINX 1.29.7, `http2 on;` vs `listen ... http2` from 1.25.1, `http-after-response` from HAProxy 2.2, `add_header` inheritance, weak ciphers, health-check style.
+- Optional: paste `nginx -V` to also catch directives whose module is not compiled into your binary.
+- Works for connected instances and for offline "Review a config". API: `POST /api/validate`, `GET /api/instances/:id/validate?version=`, `GET /api/validate/versions`.
+
+The rules are not hand-typed: `npm run kb:build` re-reads the official manuals (docs.haproxy.org for every version, nginx.org directive reference and changelog) and regenerates `src/kb/*.json`, so supporting a new release is one command.
+
 ## Screenshots
 
 <table>
