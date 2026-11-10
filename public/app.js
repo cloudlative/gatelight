@@ -76,9 +76,8 @@ const FILTER_RESETS = {
   graphs() { gr.q = ''; gr.pool = ''; gr.focus.clear(); gr.sig = ''; const e = $('#gr-search'); if (e) e.value = ''; const pl = $('#gr-pool'); if (pl) pl.value = ''; },
   config() { const e = $('#cfg-search'); if (e) e.value = ''; state.cfgFilter = ''; cfgRendered = null; },
   events() { state.eventFilter = 'all'; },
-  infrastructure() { lbi.problems = false; lbi.alive = false; },
   traffic() { if (typeof trResetFilters === 'function') trResetFilters(); },
-  flow() { FLOW.fe = ''; FLOW.st = ''; FLOW.dq = ''; FLOW.sel = null; FLOW.trace = null; FLOW.traceErr = null; FLOW.req = { host: '', path: '/', port: '', method: 'GET' }; },
+  flow() { FLOW.fe = ''; FLOW.st = ''; FLOW.dq = ''; FLOW.trace = null; FLOW.traceErr = null; FLOW.req = { host: '', path: '/', port: '', method: 'GET' }; },
 };
 function resetFilters(view) { try { const f = FILTER_RESETS[view]; if (f) f(); } catch { /* a missing element must never break navigation */ } }
 const resetAllFilters = () => Object.keys(FILTER_RESETS).forEach(resetFilters);
@@ -87,8 +86,9 @@ const resetAllFilters = () => Object.keys(FILTER_RESETS).forEach(resetFilters);
 let navReady = false; let navFromHistory = false; // push history entries only after start-up, and never while replaying one
 const REVIEW_VIEWS = ['topology', 'flow', 'forge', 'config'];
 const visibleNav = () => $$('#nav button').filter((b) => !b.hidden && b.offsetParent !== null);
-const VIEW_ALIAS = { lbinfra: 'infrastructure', audit: 'forge', validate: 'forge' }; // old links keep working
+const VIEW_ALIAS = { audit: 'forge', validate: 'forge' }; // old links keep working
 function switchView(view) {
+  if (view === 'infrastructure' || view === 'lbinfra') { const l = $('#topo-layout'); if (l && l.value !== 'network') { l.value = 'network'; if (network) { network.destroy(); network = null; } } view = 'topology'; } // Infrastructure is now a Topology layout
   view = VIEW_ALIAS[view] || view;
   if (state.mode === 'review' && !REVIEW_VIEWS.includes(view)) view = 'topology';
   if (state.mode === 'live' && !state.snapshot && !state.current && !['overview', 'connect', 'settings', 'forge'].includes(view)) view = 'overview';
@@ -143,7 +143,7 @@ function renderView(view) {
     if (view === 'overview') { if (state.current) $('#view-overview').innerHTML = '<div class="skeleton-cards"><i></i><i></i><i></i><i></i><i></i></div>'; else renderWelcome(); }
     return;
   }
-  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, forge: () => renderForge(), flow: renderFlow, traffic: () => renderTraffic(), events: renderEvents, config: renderConfig }[view] || (() => {}))();
+  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, forge: () => renderForge(), flow: renderFlow, traffic: () => renderTraffic(), events: renderEvents, config: renderConfig }[view] || (() => {}))();
 }
 
 // ---------- data loading ----------
@@ -766,11 +766,13 @@ function renderTopology() {
     $('#graph-hint').style.opacity = 1;
   }
   if (typeof vis === 'undefined') { $('#graph').innerHTML = '<div class="empty">vis-network failed to load</div>'; return; }
-  renderUrlMap();
   const mode = $('#topo-layout').value;
-  const treeOn = mode === 'tree';
-  $('#tree').hidden = !treeOn; $('#graph-wrap').hidden = treeOn;
-  $$('#view-topology [data-graph-only]').forEach((el) => { el.hidden = treeOn; });
+  const treeOn = mode === 'tree'; const netOn = mode === 'network'; const alt = treeOn || netOn;
+  $('#tree').hidden = !treeOn; $('#infra').hidden = !netOn; $('#graph-wrap').hidden = alt;
+  $$('#view-topology [data-graph-only]').forEach((el) => { el.hidden = alt; });
+  ['topo-search', 'topo-problems'].forEach((id) => { const e = $(`#${id}`); if (e) (e.closest('label') || e).hidden = netOn; });
+  if (netOn && $('#topo-layer')) $('#topo-layer').hidden = true;
+  if (netOn) { renderLbInfra(); return; }
   if (treeOn) { renderTree(); return; }
   const { nodes, edges } = buildGraph();
   let layersSig = null;
@@ -875,39 +877,6 @@ function setTopoFs(on) {
   setTimeout(() => { if (network) { network.setSize('100%', '100%'); network.redraw(); network.fit({ animation: false }); } }, 120);
 }
 function toggleTopoFs() { setTopoFs(!document.body.classList.contains('topo-fs')); }
-function renderUrlMap() {
-  const box = $('#urlmap'); const open = Boolean(state.urlmapOpen);
-  box.hidden = !open; $('#topo-urlmap').classList.toggle('on', open);
-  if (!open || !state.snapshot) return;
-  const q = $('#topo-search').value.trim().toLowerCase();
-  const rows = [];
-  cfgSections().filter(feLike).forEach((fe) => fe.routes.forEach((rt, i) => rows.push({ fe, rt, i })));
-  const shown = rows.filter(({ fe, rt }) => !q || `${fe.name} ${rt.target} ${routeSummary(rt)} ${(rt.hosts || []).join(' ')} ${rt.passUrl || ''}`.toLowerCase().includes(q));
-  const binds = (fe) => { // compact: one entry per port ("80, 443 🔒")
-    const seen = new Map();
-    fe.binds.filter((b) => !b.commented).forEach((b) => b.addresses.forEach((a) => { const port = String(a).replace(/^.*:/, ''); seen.set(port, seen.get(port) || b.ssl); }));
-    return [...seen].map(([port, ssl]) => `${port}${ssl ? ' 🔒' : ''}`).join(', ');
-  };
-  const mode = state.urlmapMode || 'normal';
-  box.className = `urlmap um-${mode}`; $('#view-topology').classList.toggle('um-max', mode === 'max');
-  if (mode === 'normal' && state.urlmapH) box.style.height = `${state.urlmapH}px`; else box.style.height = '';
-  box.innerHTML = `<div class="urlmap-grip" data-um-grip title="Drag to resize"></div>
-    <div class="urlmap-head"><b>URL map</b> <span class="muted small">${shown.length} of ${rows.length} routing rules${mode === 'min' ? '' : ' · click a row to focus it in the graph'}</span><span class="spacer"></span>
-      <button class="btn icon" type="button" data-um="min" title="${mode === 'min' ? 'Restore' : 'Minimize'}" aria-label="${mode === 'min' ? 'Restore URL map' : 'Minimize URL map'}">${mode === 'min' ? '▴' : '▁'}</button>
-      <button class="btn icon" type="button" data-um="max" title="${mode === 'max' ? 'Restore size' : 'Expand to full height'}" aria-label="${mode === 'max' ? 'Restore URL map size' : 'Expand URL map'}">${mode === 'max' ? '⤡' : '⤢'}</button>
-      <button class="btn icon" type="button" data-um="close" title="Close" aria-label="Close URL map">✕</button></div>
-    <div class="urlmap-scroll"><table class="grid urlmap-table"><thead><tr><th>${esc(lbl('frontend'))}</th><th>Host</th><th>URL / path match</th><th>Target</th><th>${snapshotType() === 'nginx' ? 'Upstream URL' : 'Servers'}</th></tr></thead><tbody>
-    ${shown.map(({ fe, rt, i }) => {
-    const up = rt.passUrl ? `<code>${esc(rt.passUrl)}</code>${rt.rewriteNote ? `<div class="muted small">${esc(rt.rewriteNote)}</div>` : ''}${(rt.rewrites || []).map((r) => `<div class="muted small mono">rewrite ${esc(r)}</div>`).join('')}` : `<span class="mono small">${esc(poolAddresses(rt.target))}</span>`;
-    const missing = routeTargetId(rt).startsWith('missing:');
-    return `<tr class="${rt.commented ? 'dim' : ''}" data-urlrow="${esc(fe.name)}|${i}">
-        <td><b>${esc(fe.name)}</b> ${layerTag(fe)}<div class="muted small mono">${esc(binds(fe))}</div></td>
-        <td class="mono small">${esc((rt.hosts || []).join(', ')) || '<span class="muted">any</span>'}</td>
-        <td>${rt.type === 'default' ? '<span class="tag">default</span> <span class="muted">everything else</span>' : `<span class="mono">${esc(rt.match || rt.condition)}</span>`}${rt.commented ? ' <span class="muted">(disabled)</span>' : ''}${snapshotType() === 'haproxy' && rt.rawCondition ? `<div class="muted small mono">${esc(rt.rawCondition)}</div>` : ''}</td>
-        <td>${missing ? `<span class="sev-error">${esc(rt.target)} (undefined)</span>` : `<b>${esc(rt.target)}</b>`}</td>
-        <td>${up}</td></tr>`;
-  }).join('') || '<tr><td colspan="5" class="empty">No routing rules</td></tr>'}</tbody></table></div>`;
-}
 /** "Relationships" card: who sends traffic here, where this sends it, and its siblings. Uses the config when present,
  *  otherwise falls back to what runtime stats imply (server -> its backend, backend -> its servers). */
 function relationsHtml(r, proxy, sec, srv) {
@@ -1245,7 +1214,7 @@ function cycleTheme() {
 }
 
 // ---------- TRAFFIC FLOW: listener port -> backend port, and what happens to the URI on the way ----------
-const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'domains', dq: '', st: '', sel: null };
+const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'domains', dq: '', st: '' };
 const TLS_LABEL = { terminate: 'TLS ended here → plain', 're-encrypt': 'TLS → TLS (re-encrypted)', upgrade: 'plain → TLS', plain: 'plain → plain', passthrough: 'TCP passthrough' };
 async function flowLoad(force) {
   if (FLOW.loading) return;
@@ -1318,67 +1287,6 @@ function serverPass(pool, name) {
 const stDot = (k) => `<span class="st-dot st-${k}" title="${esc(FLOW_ST[k])}"></span>`;
 // Clicking a card in the diagram keeps only what is connected to it. A listener keeps its own port only; a rule keeps its
 // listeners and pool; a pool keeps every rule that leads to it.
-function flowNarrow(flows) {
-  const sel = FLOW.sel; if (!sel) return { flows, label: '' };
-  const [kind, a, b, c] = sel.key.split('|');
-  if (kind === 'l') {
-    const keep = flows.filter((f) => f.frontend === a && f.listeners.some((l) => String(l.port) === b && (l.tls ? 1 : 0) === Number(c)))
-      .map((f) => ({ ...f, listeners: f.listeners.filter((l) => String(l.port) === b && (l.tls ? 1 : 0) === Number(c)), portMap: f.portMap.filter((p) => String(p.in) === b && (p.listenerTls ? 1 : 0) === Number(c)) }));
-    return { flows: keep, label: `${Number(c) ? '🔒 ' : ''}:${b} of ${a.replace(/:[\d+]+(#\d+)?$/, '')}` };
-  }
-  if (kind === 'r') { const keep = flows.filter((f) => f.id === sel.key.slice(2)); return { flows: keep, label: keep[0] ? (keep[0].match.type === 'default' ? 'default rule' : keep[0].match.short || keep[0].match.text) : '' }; }
-  if (kind === 'p') return { flows: flows.filter((f) => f.pool.name === sel.key.slice(2)), label: sel.key.slice(2) };
-  return { flows, label: '' };
-}
-function flowSvg(flows) {
-  // three columns: listeners -> rules -> pools. One row per rule; listeners and pools are shared rows.
-  const lis = []; const lisIdx = new Map(); const pools = []; const poolIdx = new Map();
-  flows.forEach((f) => {
-    f.listeners.filter((l) => l.port).forEach((l) => { const k = `${f.frontend}|${l.port}|${l.tls}`; if (!lisIdx.has(k)) { lisIdx.set(k, lis.length); lis.push({ k, fe: f.frontend, port: l.port, tls: l.tls }); } });
-    if (!poolIdx.has(f.pool.name)) { poolIdx.set(f.pool.name, pools.length); pools.push(f); }
-  });
-  const RH = 62; const rows = Math.max(flows.length, lis.length, pools.length); const H = rows * RH + 36; const W = 1080;
-  const ly = (i, n) => 20 + (n <= 1 ? (rows * RH) / 2 : (i * (rows * RH - RH)) / (n - 1)) + RH / 2 - 8;
-  const clip = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
-  let cid = 0; const clipBox = (x, y, w, h) => { const id = `fsc${cid++}`; return { id, def: `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7"/></clipPath>` }; };
-  let out = `<svg class="flow-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Listener to rule to backend pool map" preserveAspectRatio="xMinYMin meet">`;
-  out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="770" y="14" class="fs-h">POOLS, BACKEND IPS &amp; PORTS</text>`;
-  const edge = (x1, y1, x2, y2, cls, label, tip, st) => { const mx = (x1 + x2) / 2; const d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; return `<g class="fs-eg"><title>${esc(`${tip || label || ''}${st ? `\n\nStatus: ${FLOW_ST[st.k]}. ${st.text}` : ''}`)}</title><path class="fs-e ${cls || ''} ${st ? `st-${st.k}` : ''}" d="${d}"/><path class="fs-hit" d="${d}"/>${label ? `<text class="fs-pl" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${esc(label)}</text>` : ''}${st && label ? `<circle class="fs-dot st-${st.k}" cx="${mx}" cy="${(y1 + y2) / 2 + 5}" r="4.5"/>` : ''}</g>`; };
-  flows.forEach((f, i) => {
-    const y = ly(i, flows.length); const pi = poolIdx.get(f.pool.name); const py = ly(pi, pools.length); const st = flowStatus(f);
-    f.listeners.filter((l) => l.port).forEach((l) => { const li = lisIdx.get(`${f.frontend}|${l.port}|${l.tls}`); out += edge(190, ly(li, lis.length), 360, y, f.shadowedBy ? 'dead' : '', '', `${l.tls ? 'TLS ' : ''}port ${l.port} on ${f.frontend}\n→ ${f.match.type === 'default' ? 'default rule' : f.match.text}`, st); });
-    const pm = f.portMap[f.portMap.length - 1];
-    const sh = (o) => (!o.length ? '?' : o.length <= 2 ? o.join('/') : `${Math.min(...o)}…${Math.max(...o)}`); // long port lists: first…last
-    const label = clip(f.portMap.map((p) => `${p.in}→${sh(p.out)}`).slice(0, 2).join(' · '), 24);
-    out += edge(640, y, 770, py, `${f.pool.undefined ? 'bad' : ''} ${f.shadowedBy ? 'dead' : ''} ${pm && pm.tls === 're-encrypt' && (st.k === 'config' || st.k === 'idle') ? 'enc' : ''}`, label, `${f.frontend} → ${f.pool.name}\n${f.portMap.map((p) => `${p.listenerTls ? '🔒' : ''}:${p.in} → ${p.targets.length ? p.targets.join(', ') : '?'}  (${TLS_LABEL[p.tls] || p.tls})`).join('\n')}${f.pool.undefined ? '\nBackend is not defined' : ''}`, st);
-  });
-  lis.forEach((l, i) => { const y = ly(i, lis.length); const c = clipBox(10, y - 15, 180, 30);
-    out += `<g class="fs-pick${FLOW.sel && FLOW.sel.key === `l|${l.fe}|${l.port}|${l.tls ? 1 : 0}` ? ' sel' : ''}" data-fsel="l|${esc(l.fe)}|${esc(l.port)}|${l.tls ? 1 : 0}"><title>${esc(`${l.tls ? 'TLS ' : ''}listener :${l.port} of ${l.fe}\n${flows.filter((f) => f.frontend === l.fe && f.listeners.some((x) => x.port === l.port)).length} routing rule(s)`)}</title>${c.def}<rect class="fs-n fs-l" x="10" y="${y - 15}" width="180" height="30" rx="7"/><text class="fs-t" clip-path="url(#${c.id})" x="20" y="${y + 4}">${l.tls ? '🔒 ' : ''}:${esc(l.port)} · ${esc(clip(l.fe.replace(/:[\d+]+(#\d+)?$/, ''), 20))}</text></g>`; });
-  flows.forEach((f, i) => {
-    const y = ly(i, flows.length); const ex = f.example; const c = clipBox(360, y - 19, 280, 38);
-    const host = f.match.hosts && f.match.hosts.length ? `${f.match.hosts[0]} ` : '';
-    out += `<g class="fs-pick${FLOW.sel && FLOW.sel.key === `r|${f.id}` ? ' sel' : ''}" data-fsel="r|${esc(f.id)}"><title>${esc(f.match.text)}${ex ? `\n${ex.in} → ${ex.out}` : ''}</title>${c.def}<rect class="fs-n fs-r${f.shadowedBy ? ' dead' : ''}" x="360" y="${y - 19}" width="280" height="38" rx="7"/>
-      <text class="fs-t" clip-path="url(#${c.id})" x="370" y="${y - 3}">${esc(clip(f.match.type === 'default' ? 'default (everything else)' : `${host}${f.match.short || f.match.text}`, 40))}</text>
-      <text class="fs-s" clip-path="url(#${c.id})" x="370" y="${y + 12}">${f.shadowedBy ? `⚠ shadowed by rule #${f.shadowedBy}` : ex && ex.changed ? `${esc(clip(ex.in, 20))} → ${esc(clip(ex.out, 20))}` : f.chain.some((s) => s.kind === 'terminal' && s.applies === true) ? 'answers with a redirect / deny' : 'path unchanged'}</text></g>`;
-  });
-  pools.forEach((f, i) => {
-    const y = ly(i, pools.length); const ports = [...new Set(f.portMap.flatMap((p) => p.out))].sort((a, b) => a - b);
-    const hosts = [...new Set(f.members.map((m) => (m.addr.kind === 'socket' ? m.address : m.addr.host)))];
-    const c = clipBox(770, y - 27, 300, 54);
-    // everything lives inside the card: name, then ports, then member IPs; what does not fit is summarised as "+N"
-    const fit = (list, fmt, max) => { let t = ''; let n = 0; for (const x of list) { const nx = `${t}${t ? ' ' : ''}${fmt(x)}`; if (nx.length > max - 6 && n < list.length) break; t = nx; n++; } return n < list.length ? `${t} +${list.length - n}` : t; };
-    const l1 = f.pool.undefined ? `${f.pool.name} (undefined)` : f.pool.name;
-    const l2 = f.pool.undefined ? 'not defined: requests get a 503' : ports.length ? fit(ports, (x) => `:${x}`, 44) : 'no ports';
-    const l3 = f.pool.undefined ? '' : hosts.length ? fit(hosts, (x) => x, 44) : 'no members';
-    out += `<g class="fs-pick${FLOW.sel && FLOW.sel.key === `p|${f.pool.name}` ? ' sel' : ''}" data-fsel="p|${esc(f.pool.name)}"><title>${esc(f.pool.name)}\n${esc(f.portMap.flatMap((p) => p.targets).filter((t, k, a) => a.indexOf(t) === k).join('\n'))}</title>${c.def}<rect class="fs-n fs-p${f.pool.undefined ? ' bad' : ''}" x="770" y="${y - 27}" width="300" height="54" rx="7"/>
-      <text class="fs-t fs-tb" clip-path="url(#${c.id})" x="780" y="${y - 10}">${esc(clip(l1, 40))}</text>
-      <text class="fs-s fs-sp" clip-path="url(#${c.id})" x="780" y="${y + 4}">${esc(l2)}</text>
-      <text class="fs-s" clip-path="url(#${c.id})" x="780" y="${y + 18}">${esc(l3)}</text></g>`; });
-  // <title> tooltips are slow and unreliable: carry the text in data-tip and show it with our own instant tooltip
-  return `${out}</svg>`.replace(/<g((?: [\w-]+="[^"]*")*)><title>([\s\S]*?)<\/title>/g, (_m, attrs, t) => `<g${attrs} data-tip="${t}">`);
-}
-
-// Domain -> listener -> rule -> pool -> server:port. One card per host name.
 function flowDomainsHtml(d, hap) {
   const q = FLOW.dq.trim().toLowerCase(); const rows = state.snapshot && state.snapshot.rows ? state.snapshot.rows : [];
   const KIND = { wildcard: 'wildcard', regex: 'regex', catchall: hap ? 'no host condition' : 'catch-all (_)', dynamic: 'resolved at runtime' };
@@ -1445,7 +1353,7 @@ function renderFlow() {
       <button class="btn primary" type="button" data-flow-trace>${FLOW.tracing ? 'Tracing…' : 'Trace'}</button></div>${flowTraceHtml()}</div>`;
   const sum = d.summary;
   const stats = `<div class="panel val-sum"><div class="val-counts"><span><b>${sum.domains}</b> domain${sum.domains === 1 ? '' : 's'}</span><span><b>${sum.listeners}</b> listener ports</span><span><b>${sum.flows}</b> routing rules</span><span><b>${sum.rewrites}</b> rewrite the URI</span><span><b class="${sum.findings ? 'sev-warning' : ''}">${sum.findings}</b> routing findings</span></div></div>`;
-  const tabs = [['domains', 'Domains'], ['ports', 'Port map'], ['uri', 'URI map'], ['diagram', 'Diagram']];
+  const tabs = [['domains', 'Domains'], ['ports', 'Port map'], ['uri', 'URI map']];
   const chips = `<div class="chips">${tabs.map(([k, t]) => `<span class="chip ${FLOW.tab === k ? 'on' : ''}" data-flow-tab="${k}">${t}</span>`).join('')}${FLOW.tab === 'domains' ? `<input id="flow-dq" type="search" placeholder="Filter domains, pools, servers, IPs…" value="${esc(FLOW.dq)}" aria-label="Filter domains" autocomplete="off">` : ''}<span class="muted">|</span><select id="flow-st" aria-label="Filter by status" title="Alive: has a healthy member. Not alive: no healthy member, or the backend is not defined. Unused: no traffic right now, or a rule that can never match. In Domains, servers are filtered one by one by their own state. Needs live stats.">${Object.entries(FLOW_STF).map(([k, t]) => `<option value="${k}"${FLOW.st === k ? ' selected' : ''}>${t}</option>`).join('')}</select>${fes.length > 1 ? `<select id="flow-fe" aria-label="Filter by ${esc(lbl('frontend').toLowerCase())}"><option value="">All ${esc(lbl('frontend').toLowerCase())}s</option>${fes.map((x) => `<option value="${esc(x)}"${FLOW.fe === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}</div>`;
   let body = '';
   if (FLOW.tab === 'domains') body = flowDomainsHtml(d, hap);
@@ -1463,9 +1371,6 @@ function renderFlow() {
         <td class="msg">${f.mode === 'tcp' ? '<span class="tag layer-l4">L4</span> <span class="muted">TCP: paths and headers are never seen, so there is nothing to rewrite</span>' : ''}${f.mode !== 'tcp' && steps.length ? steps.map((s) => `<div class="mono small" title="${esc(s.condText || s.note || '')}"><span class="tag">${esc(s.stage || s.scope)}</span> ${esc(s.text)}${s.cond ? ` <span class="muted">${esc(s.cond)}</span>` : ''}${s.applies === null ? ' <span class="tag" title="Depends on something a host / path test cannot decide">maybe</span>' : ''}${s.note ? `<div class="muted">${esc(s.note)}</div>` : ''}</div>`).join('') : (f.mode === 'tcp' ? '' : '<span class="muted">none: the backend gets the same URI</span>')}${other ? `<div class="muted small">+ ${other} redirect / deny / auth rule${other === 1 ? '' : 's'} that may answer before this (use Try a request)</div>` : ''}</td>
         <td class="mono small">${ex ? (ex.changed ? `${esc(ex.in)} → <b>${esc(ex.out)}</b>${ex.exact ? '' : ' <span class="tag">approx.</span>'}` : `${esc(ex.in)} <span class="muted">unchanged</span>`) : '<span class="muted">–</span>'}</td>
         <td><b>${esc(f.pool.name)}</b><div class="mono small">${f.portMap.map((p) => `${esc(p.in)}→${p.out.length ? p.out.join('/') : '?'}`).join(' · ')}</div></td></tr>`; }).join('') || `<tr><td colspan="6" class="empty">${FLOW.st ? 'Nothing matches the status filter' : 'No routing rules'}</td></tr>`}</tbody></table></div>`;
-  } else {
-    const sv = flowNarrow(flows);
-    body = `<div class="panel flow-diagram">${FLOW.sel && sv.label ? `<div class="flow-selbar">Showing only the relationships of <b>${esc(sv.label)}</b> <span class="muted small">(${sv.flows.length} rule${sv.flows.length === 1 ? '' : 's'})</span><span class="spacer"></span><button type="button" class="btn small-btn" data-flow-clear>Show all</button></div>` : ''}${sv.flows.length ? flowSvg(sv.flows) : `<div class="empty">${FLOW.st ? 'Nothing matches the status filter' : 'No routing rules'}</div>`}<p class="muted small flow-note">Click a listener, rule or pool to see only its relationships. Lines carry <code>listener→backend</code> ports. Line colour shows whether the relationship is live: <span class="st-dot st-active"></span> active (moving dashes, traffic now) <span class="st-dot st-idle"></span> idle <span class="st-dot st-down"></span> down (no healthy member) <span class="st-dot st-dead"></span> never used (shadowed rule or undefined backend) <span class="st-dot st-config"></span> configured (no runtime data). Traffic is counted per pool, so rules that share a pool share its status.</p></div>`;
   }
   const finds = d.findings.filter((f) => !FLOW.fe || flows.some((x) => x.frontend === FLOW.fe && (f.section === x.frontend || f.section === x.pool.name)));
   const card = (f) => `<div class="finding ${esc(f.severity)}"><div class="ft"><span class="sev-${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span> · ${esc(f.title)}</div><div class="fm">${esc(f.detail || '')} ${f.line ? `<a ${loc(f)}>${esc(f.section || '')}:${f.line}</a>` : ''}</div>${f.fix ? `<div class="fx"><b>Fix</b> ${esc(f.fix)}</div>` : ''}</div>`;
@@ -2301,7 +2206,7 @@ function lbiTree(s, vis, rows, lbState, type, info, fes, binds) {
   return `<div class="lbt"><div class="lbt-ctl"><button type="button" class="btn" data-lbt-all="open">＋ Expand all</button><button type="button" class="btn" data-lbt-all="close">－ Collapse all</button></div><ul class="lbt-root">${root}</ul></div>`;
 }
 function renderLbInfra() {
-  const s = state.snapshot; const el = $('#view-infrastructure'); if (!s || !el) return;
+  const s = state.snapshot; const el = $('#infra'); if (!s || !el) return;
   const { rows, monitored } = lbiRows();
   const vis = lbi.problems ? rows.filter((r) => r.state !== 'up') : lbi.alive ? rows.filter((r) => r.state === 'up') : rows;
   const count = (st) => rows.filter((r) => r.state === st).length;
@@ -2863,14 +2768,14 @@ function wire() {
   grWire();
   iselWire();
   $('#view-profile').addEventListener('click', (e) => { if (e.target.closest('[data-prof-theme]')) { $('#btn-theme').click(); renderProfile(); } });
-  $('#view-infrastructure').addEventListener('click', (e) => {
+  $('#infra').addEventListener('click', (e) => {
     const b = e.target.closest('[data-lbi-by]'); if (b) { lbi.by = b.dataset.lbiBy; renderLbInfra(); return; }
     const t = e.target.closest('[data-lbt-toggle]');
     if (t) { const id = t.dataset.lbtToggle; if (lbi.open.has(id)) lbi.open.delete(id); else lbi.open.add(id); const li = t.closest('li'); const open = lbi.open.has(id); li.setAttribute('aria-expanded', String(open)); li.querySelector(':scope > ul').hidden = !open; return; }
     const a = e.target.closest('[data-lbt-all]');
-    if (a) { const open = a.dataset.lbtAll === 'open'; $$('#view-infrastructure [data-lbt-toggle]').forEach((x) => { const id = x.dataset.lbtToggle; if (open) lbi.open.add(id); else if (id !== 'lb') lbi.open.delete(id); const li = x.closest('li'); const o = lbi.open.has(id); li.setAttribute('aria-expanded', String(o)); li.querySelector(':scope > ul').hidden = !o; }); }
+    if (a) { const open = a.dataset.lbtAll === 'open'; $$('#infra [data-lbt-toggle]').forEach((x) => { const id = x.dataset.lbtToggle; if (open) lbi.open.add(id); else if (id !== 'lb') lbi.open.delete(id); const li = x.closest('li'); const o = lbi.open.has(id); li.setAttribute('aria-expanded', String(o)); li.querySelector(':scope > ul').hidden = !o; }); }
   });
-  $('#view-infrastructure').addEventListener('change', (e) => { // the two filters exclude each other
+  $('#infra').addEventListener('change', (e) => { // the two filters exclude each other
     if (e.target.id === 'lbi-problems') { lbi.problems = e.target.checked; if (lbi.problems) lbi.alive = false; renderLbInfra(); }
     else if (e.target.id === 'lbi-alive') { lbi.alive = e.target.checked; if (lbi.alive) lbi.problems = false; renderLbInfra(); }
   });
@@ -2923,12 +2828,6 @@ function wire() {
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-topo-sel-x]')) { state.focus = null; topoSelect(null); renderTopology(); return; }
     if (e.target.closest('[data-topo-open]') && topoSel) { const t = topoSel; if (t.route) inspectRoute(t.route); else if (t.node._key) inspect(t.node._key, t.node._kind); else inspectMissing(t.node.id.slice(8)); return; }
-    const ur = e.target.closest('[data-urlrow]');
-    if (ur) {
-      const [feName, idx] = ur.dataset.urlrow.split('|'); const fe = cfgSections().find((x) => x.name === feName && feLike(x)); const rt = fe && fe.routes[Number(idx)];
-      if (rt) { state.focus = routeTargetId(rt); inspectRoute({ fe: fe.name, ...rt }); renderTopology(); if (network) network.focus(state.focus, { scale: 1, animation: { duration: 400 } }); }
-      return;
-    }
     const cuB = e.target.closest('[data-cx-up]'); if (cuB) { state.current = cuB.dataset.cxUp; cuOpen(); return; }
     const ce = e.target.closest('[data-cx-edit]'); if (ce) { switchView('connect'); cxOpen(ce.dataset.cxEdit, true).then(() => { const f = $('#cx-form'); if (f) f.scrollIntoView({ block: 'start' }); }); return; }
     const cd = e.target.closest('[data-cx-del]'); if (cd) { cxDelete(cd.dataset.cxDel); return; }
@@ -2940,10 +2839,6 @@ function wire() {
     const gt = e.target.closest('[data-goto]'); if (gt) { switchView(gt.dataset.goto); return; }
     const ins = e.target.closest('[data-inspect]'); if (ins) { const key = ins.dataset.inspect; const r = indexRows(state.snapshot.rows).get(key); inspect(key, r && r.kind); return; }
     if (e.target.closest('[data-flow-trace]')) { FLOW.req = { host: ($('#flow-host') || {}).value || '', path: ($('#flow-path') || {}).value || '/', port: ($('#flow-port') || {}).value || '', method: ($('#flow-method') || {}).value || 'GET' }; flowTrace(); return; }
-    if (e.target.closest('[data-flow-clear]')) { FLOW.sel = null; renderFlow(); return; }
-    const fp = e.target.closest('.flow-svg [data-fsel]');
-    if (fp) { const key = fp.getAttribute('data-fsel'); FLOW.sel = FLOW.sel && FLOW.sel.key === key ? null : { key }; renderFlow(); return; }
-    if (FLOW.sel && e.target.closest('.flow-svg') && !e.target.closest('.fs-eg')) { FLOW.sel = null; renderFlow(); return; }
     const fd = e.target.closest('[data-flow-dom]');
     if (fd) { const [name, port, tls] = fd.dataset.flowDom.split('|'); const host = name.startsWith('*.') ? `test${name.slice(1)}` : name.startsWith('.') ? `www${name}` : /^[(_~]/.test(name) || name.endsWith('.*') ? '' : name; FLOW.req = { host, path: '/', port, method: 'GET' }; FLOW.trace = null; flowTrace().then(() => { const el = $('.flow-try'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); return; }
     const ft = e.target.closest('[data-flow-tab]'); if (ft) { FLOW.tab = ft.dataset.flowTab; renderFlow(); return; }
@@ -2973,30 +2868,8 @@ function wire() {
   });
   $('#topo-layout').addEventListener('change', () => { if (network) { network.destroy(); network = null; } renderTopology(); });
   $('#topo-png').addEventListener('click', exportPng);
-  state.urlmapOpen = loadPref('gatelight.urlmap', true);
-  state.urlmapMode = loadPref('gatelight.urlmapMode', 'normal'); state.urlmapH = loadPref('gatelight.urlmapH', 0);
   const reflow = () => setTimeout(() => { if (network) { network.setSize('100%', '100%'); network.redraw(); network.fit({ animation: false }); } }, 60);
-  $('#topo-urlmap').addEventListener('click', () => {
-    state.urlmapOpen = !state.urlmapOpen; savePref('gatelight.urlmap', state.urlmapOpen);
-    if (state.urlmapOpen && state.urlmapMode === 'min') state.urlmapMode = 'normal';
-    if (!state.urlmapOpen) $('#view-topology').classList.remove('um-max');
-    renderUrlMap(); reflow();
-  });
-  $('#urlmap').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-um]'); if (!b) return;
-    e.stopPropagation();
-    if (b.dataset.um === 'close') { state.urlmapOpen = false; savePref('gatelight.urlmap', false); $('#view-topology').classList.remove('um-max'); }
-    else { const want = b.dataset.um; state.urlmapMode = state.urlmapMode === want ? 'normal' : want; savePref('gatelight.urlmapMode', state.urlmapMode); }
-    renderUrlMap(); reflow();
-  });
-  $('#urlmap').addEventListener('pointerdown', (e) => { // drag the top edge to resize
-    const g = e.target.closest('[data-um-grip]'); if (!g) return;
-    e.preventDefault(); const box = $('#urlmap'); const startY = e.clientY; const startH = box.getBoundingClientRect().height;
-    if (state.urlmapMode !== 'normal') { state.urlmapMode = 'normal'; savePref('gatelight.urlmapMode', 'normal'); renderUrlMap(); }
-    const move = (ev) => { const max = $('#view-topology').getBoundingClientRect().height - 140; state.urlmapH = Math.round(Math.max(90, Math.min(max, startH + (startY - ev.clientY)))); box.style.height = `${state.urlmapH}px`; };
-    const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); savePref('gatelight.urlmapH', state.urlmapH); reflow(); };
-    document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
-  });
+  $('#topo-urlmap').addEventListener('click', () => { FLOW.tab = 'uri'; switchView('flow'); }); // one routing explorer: the Traffic flow page
   $('#topo-fs').addEventListener('click', toggleTopoFs);
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.body.classList.contains('topo-fs')) setTopoFs(false); });
   $('#topo-expand').addEventListener('click', () => topoCollapseAll(false));

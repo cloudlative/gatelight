@@ -47,7 +47,7 @@ Open **http://localhost:3000**, then:
    The user is `admin`. Prefer your own? Put `AUTH_PASS=...` in a `.env` file next to the compose file (see [Environment](#environment)).
 2. **Add an instance** (Overview → *Add an instance*). Pick HAProxy or NGINX, enter the stats URL, username and password, press *Test connection*, then *Save & connect*.
    Running on the same machine as Docker? Use `http://host.docker.internal:PORT/stats` instead of `localhost`.
-3. **Explore.** Overview, Topology, Infrastructure, Graphs, Services and Config Forge fill in right away.
+3. **Explore.** Overview, Topology, Graphs, Services and Config Forge fill in right away.
 
 **Upgrading later?** `docker compose pull && docker compose up -d`: your connections, history and sign-in are kept in a Docker volume ([details below](#upgrading-is-one-command-and-your-data-stays)).
 
@@ -119,7 +119,7 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 | | HAProxy stats page / NGINX `stub_status` | GateLight |
 |---|---|---|
 | Relationships | none | frontend → rule → pool → server map, four layouts |
-| URLs and paths | not shown | every host/path → target, searchable URL map |
+| URLs and paths | not shown | every host/path → target, searchable (Traffic flow → URI map) |
 | Health | tables of status text | colour-coded, grouped, with reason and time in state |
 | History | none | charts with zoom/pan, kept in SQLite, 5 min to 7 days |
 | NGINX upstream health | none (open source) | per-server via Plus API or active TCP probe |
@@ -134,7 +134,7 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 - **L7 and L4 at a glance**: every frontend and pool is labelled **L7** (HTTP: host, path, headers, rewrites) or **L4** (TCP: ports and TLS SNI only, dashed), with a layer filter and tooltips explaining what each layer can and cannot see.
 - **Traffic flow**: follow a request from listener port to backend `ip:port`, where TLS ends or restarts, and the exact path your backend receives after rewrites. Each relationship is marked **active / idle / down / never used**, and *Try a request* traces any URL through the config.
 - **Four layouts**: *Layers*, *Flow*, *Mind map* (shows the URIs each node handles) and *Tree* (a `tree`-style outline you can fold and copy).
-- **Infrastructure**: the infrastructure behind the load balancer with an aliveness status per server, as a foldable hierarchy (load balancer → networks → hosts → services), or grouped by pool or by host, with "only alive" / "only not alive" filters.
+- **Topology → Network layout** (the former Infrastructure page): the infrastructure behind the load balancer with an aliveness status per server, as a foldable hierarchy (load balancer → networks → hosts → services), or grouped by pool or by host, with "only alive" / "only not alive" filters.
 - **Graphs**: Grafana-style charts for requests/s, session rate, sessions, 5xx, throughput, response time and servers up/down, plus a chart per server, pool and frontend. Drag to zoom, ✋ to pan, step through time, shared crosshair, clickable legends with per-series stats, full-screen. HTTP response and error **donut charts** per instance and per backend.
 - **Services table**: status, IP, port, which frontends reach it, where it leads, sessions, req/s, 5xx/s, trend. Charts on top follow your filters.
 - **Details pages**: click any row, chip or node for a page of its own: health, metrics, relationships, trend, configuration, events and audit findings, with a shareable link and working Back/Forward.
@@ -148,7 +148,7 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 **Use it your way**
 - **Review a config offline**: drop a `haproxy.cfg`, an `nginx.conf` or a **whole folder** (with `conf.d/` includes). Nothing is saved; it is analysed in memory and cleared with one click.
 - **Refresh from server**: point GateLight at the URL (or file) your config is served from and pull the current version with one click, with a summary of what changed. Read-only: `GET` only.
-- **Keep configs as named instances** and **Update config** whenever the file changes: the map, audit and URL map are rebuilt and anything that disappeared is dropped.
+- **Keep configs as named instances** and **Update config** whenever the file changes: the map, findings and routing tables are rebuilt and anything that disappeared is dropped.
 - **Connect from the browser**: add a server (URL, user, password) in the UI. Connections are private to the browser that added them.
 - **CI-ready CLI**: `gatelight audit haproxy.cfg --fail-on error`, with GitHub annotation output.
 
@@ -182,7 +182,6 @@ The **Traffic flow** page answers "if a client asks for this, where does it go, 
 - **Status filter**: show only what is **alive** (a healthy member), **not alive** (no healthy member or undefined backend) or **unused** (no traffic now, or a rule that can never match), on every tab. In *Domains* the servers inside each card are filtered one by one. Needs live stats.
 - **Port map**: every listener port, the frontend and pool it reaches, the backend port(s), and whether TLS ends at the proxy, is re-encrypted, or passes through.
 - **URI map**: for each routing rule, the match, the rewrites that run (`replace-path`, `set-path`, `set-uri`, `rewrite`, the URI part of `proxy_pass`, `proxy_set_header Host`), and an example such as `/api/users` becoming `/users`.
-- **Diagram**: listeners, rules and pools in three columns, with `listener→backend` ports on the lines.
 - **Try a request**: enter host, path, port and method and follow it step by step: the redirect or auth rule that fires, the rule that wins, the rewrite, the member ports it reaches.
 - **Routing findings**: rules that can never match because an earlier one catches everything, health checks that probe a different port than traffic, TLS spoken to `:80` or plain traffic sent to `:443`, a server that points at the proxy's own listener, the classic NGINX trailing-slash mismatch, `rewrite … break` silently ignoring the `proxy_pass` URI.
 - The same details appear in the Topology hover text and in the routing-rule inspector.
@@ -222,7 +221,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 <td width="50%"><img src="docs/img/graphs.png" alt="Graphs page with clickable legends and donut charts"><br><sub><b>Graphs</b>: zoom, pan, shared crosshair, clickable legends, donut charts for HTTP errors.</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/img/infrastructure.png" alt="Infrastructure: what sits behind the load balancer and whether it is alive"><br><sub><b>Infrastructure</b>: networks, hosts and services behind the load balancer, in a foldable hierarchy with aliveness.</sub></td>
+<td width="50%"><img src="docs/img/infrastructure.png" alt="Topology Network layout: what sits behind the load balancer and whether it is alive"><br><sub><b>Network layout</b> (Topology): networks, hosts and services behind the load balancer, in a foldable hierarchy with aliveness.</sub></td>
 <td width="50%"><img src="docs/img/services.png" alt="Services table with charts, IPs, ports, frontends and targets"><br><sub><b>Services</b>: IP, port, who reaches it, where it leads, with charts for the current filter.</sub></td>
 </tr>
 <tr>
@@ -234,7 +233,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 <td width="50%"></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/img/topology-nginx.png" alt="NGINX topology with URL map"><br><sub><b>NGINX too</b>: server blocks, locations and upstreams, plus a resizable URL map.</sub></td>
+<td width="50%"><img src="docs/img/topology-nginx.png" alt="NGINX topology"><br><sub><b>NGINX too</b>: server blocks, locations and upstreams, with ports and URL mappings one click away in Traffic flow.</sub></td>
 <td width="50%"><img src="docs/img/audit.png" alt="Configuration audit with charts and findings"><br><sub><b>Config audit</b>: every finding has a line number and a fix, with charts.</sub></td>
 </tr>
 <tr>
@@ -257,7 +256,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 | Keep several configs side by side | In the review header press **Save as instance…**, or upload a config in *Add instance* without a URL |
 | Refresh a saved config after editing it | **Update config** (header, Config page, or Settings): drop the new file or folder |
 | Look back in time | **Graphs**: pick a range (5 min to 7 days), drag a chart to zoom, ✋ to pan |
-| Find what is down | **Infrastructure** → *Only show what is not alive*, or **Overview** → *Down* |
+| Find what is down | **Topology → Network layout** → *Only show what is not alive*, or **Overview** → *Down* |
 | Get back to the overview | Click the **GateLight logo** at any time |
 
 ### Prepare your load balancers
