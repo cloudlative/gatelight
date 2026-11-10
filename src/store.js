@@ -85,6 +85,8 @@ function validateInput(body, ctx, existing) {
   const rawUrls = Array.isArray(b.configUrls) ? b.configUrls : typeof b.configUrls === 'string' ? b.configUrls.split(/\r?\n/) : [];
   const cfgUrls = rawUrls.map((u) => str(u, 2048)).filter(Boolean).slice(0, 50).map((u) => checkUrl('Config URL', u, ctx.allowedHosts));
   if (cfgUrls.length) def.configUrls = [...new Set(cfgUrls)];
+  // A HAProxy log is uploaded right after the instance is created; it can be the instance's only content.
+  if (type === 'haproxy' && b.logOnly === true) def.logOnly = true;
   if (type === 'nginx' && b.probe !== undefined) def.probe = Boolean(b.probe);
   // Config uploaded in the browser (replaces the old "put a file in config/" method). Stored with the instance.
   let files = cleanFiles(b.configFiles);
@@ -92,8 +94,8 @@ function validateInput(body, ctx, existing) {
   if (!files.length && b.keepConfig && existing && existing.configFiles && existing.configFiles.length) files = existing.configFiles;
   if (files.length) def.configFiles = files;
   if (type === 'nginx' && b.probe === undefined && !def.statsUrl && !def.plusApiUrl) def.probe = false; // config-only: never probe hosts named in an uploaded file
-  if (!def.statsUrl && !def.plusApiUrl && !def.socket && !(type === 'nginx' && def.probe) && !def.configFiles && !def.configUrls) {
-    throw new Error(type === 'haproxy' ? 'Enter the stats URL (e.g. http://host:8404/stats) or a Runtime API host:port, or upload a config to review it without a live connection' : 'Enter the stub_status URL or the NGINX Plus API URL, or upload a config to review it without a live connection');
+  if (!def.statsUrl && !def.plusApiUrl && !def.socket && !(type === 'nginx' && def.probe) && !def.configFiles && !def.configUrls && !def.logOnly) {
+    throw new Error(type === 'haproxy' ? 'Enter the stats URL (e.g. http://host:8404/stats) or a Runtime API host:port, or upload a config or a traffic log to look at it without a live connection' : 'Enter the stub_status URL or the NGINX Plus API URL, or upload a config to review it without a live connection');
   }
 
   const username = str(b.username, 256);

@@ -96,6 +96,7 @@
       <button data-live data-view="services"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Services</span><span class="badge" id="nav-down" hidden></span></button>
       <div class="nav-lbl" data-live>Monitor</div>
       <button data-live data-view="graphs"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg><span>Graphs</span></button>
+      <button data-live data-view="traffic"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/><path d="M19 8l-3 3"/></svg><span>Traffic statistics</span></button>
       <button data-live data-view="events"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Events</span></button>
       <div class="nav-lbl">Configuration</div>
       <button data-view="audit"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Config audit</span><span class="badge warn" id="nav-audit" hidden></span></button>
@@ -198,6 +199,7 @@
       <section class="view" id="view-audit"></section>
       <section class="view" id="view-validate"></section>
       <section class="view" id="view-flow"></section>
+      <section class="view" id="view-traffic"></section>
       <section class="view" id="view-events"></section>
 
       <section class="view" id="view-config">
@@ -242,6 +244,27 @@
           <span class="muted small cx-urlnote">GateLight only <b>GETs</b> these addresses (a location on the server that serves its own config, or a raw file in your config repository). It then shows <b>Refresh from server</b> on the Config page to pull new changes. Nothing is ever written to the server.</span>
           <textarea id="cx-cfgtext" spellcheck="false" rows="4" placeholder="…or paste haproxy.cfg / nginx.conf (a folder with conf.d/ includes works too)"></textarea>
           <span class="muted small" id="cx-cfgnote"></span>
+        </div>
+        <div class="fld cfg-block tr-up" data-cx-for="haproxy">
+          <span class="cfg-callout"><b>Traffic log</b> (optional): upload an HAProxy log to get the <b>Traffic statistics</b> dashboard. With no URL or config above it is saved as a <b>log-only instance</b></span>
+          <div class="row"><label class="btn small-btn">Choose log file<input type="file" id="cx-logfile" accept=".log,.txt,.gz,.out,text/plain,application/gzip,application/x-gzip" hidden></label><button type="button" class="btn small-btn" id="cx-logclear" hidden>Remove</button></div>
+          <span class="small" id="cx-lognote"></span>
+          <div class="tr-prog" id="cx-logprog" hidden><div class="tr-bar"><i></i></div><span class="muted small"></span></div>
+          <details class="tr-help" open>
+            <summary>Log too big? Split it first (one file per upload)</summary>
+            <p class="muted small">Maximum <b id="cx-logmax">50 MB</b> per file, plain text (<code>.log</code>, <code>.txt</code>) or gzip (<code>.gz</code>; the limit applies to the compressed size). Only the statistics are kept on the server, never the raw log. Run these on the machine that has the log:</p>
+            <div class="tr-cmds">
+              <div><span class="muted small">Last 200,000 lines (the most recent traffic)</span><code>tail -n 200000 haproxy.log &gt; haproxy-part.log</code></div>
+              <div><span class="muted small">First 200,000 lines</span><code>head -n 200000 haproxy.log &gt; haproxy-part.log</code></div>
+              <div><span class="muted small">Cut into ~40 MB pieces without breaking a line (haproxy-part-00, -01, …)</span><code>split -C 40M -d --additional-suffix=.log haproxy.log haproxy-part-</code></div>
+              <div><span class="muted small">Cut into pieces of 200,000 lines</span><code>split -l 200000 -d --additional-suffix=.log haproxy.log haproxy-part-</code></div>
+              <div><span class="muted small">Keep one day and hour (syslog format “Nov 10 08:…”)</span><code>grep -E '^Nov 10 08:' haproxy.log &gt; haproxy-8am.log</code></div>
+              <div><span class="muted small">Only one frontend, or only errors</span><code>grep ' famsapp~ ' haproxy.log &gt; part.log</code> <code>grep -E '" (5[0-9][0-9]) ' haproxy.log</code></div>
+              <div><span class="muted small">Compress a part (logs shrink about 10×)</span><code>gzip -k haproxy-part.log</code></div>
+              <div><span class="muted small">Check the size before uploading</span><code>ls -lh haproxy-part*</code></div>
+            </div>
+            <p class="muted small">Upload the pieces one at a time: each upload replaces the previous statistics of this instance. For a long period, create one instance per piece, or pick the busiest hours.</p>
+          </details>
         </div>
         <label class="check"><input type="checkbox" id="cx-insecure"> Skip TLS certificate verification (self-signed)</label>
         <details class="adv">
@@ -338,5 +361,6 @@
 
   <script src="vendor/vis-network.min.js"></script>
   <script src="app.js"></script>
+  <script src="traffic.js"></script>
 </body>
 </html>

@@ -14,6 +14,9 @@ const { auditConfig, summarize } = require('./audit');
 const { validateConfig, versions: kbVersions } = require('./validate');
 const { detect: detectVersion } = require('./validate/version');
 const { buildFlows, trace: traceFlow } = require('./flow');
+const { LogStore } = require('./logs/store');
+const { ingestStream, IngestError } = require('./logs/ingest');
+const { demoResultText } = require('./logs/demoLog');
 const { renderMetrics } = require('./metrics');
 const { securityHeaders, rateLimit } = require('./security');
 const { createAuth } = require('./login');
@@ -74,6 +77,7 @@ function createApp(settings) {
     historyPoints: settings.historyPoints,
     features: settings.features,
     canManage: settings.ui.enabled,
+    logMaxBytes: settings.logs.maxBytes,
     hostsRestricted: settings.ui.allowedHosts.length > 0,
     types: [...new Set(settings.instances.map((i) => i.type))],
   }));
@@ -92,6 +96,8 @@ function createApp(settings) {
   // --- Instances managed from the UI (opt-in: ALLOW_UI_INSTANCES=true) ---------------------------
   const ui = settings.ui;
   const store = new InstanceStore(ui.dir);
+  const logs = new LogStore(ui.dir);
+  let ingesting = 0; // log uploads being parsed right now (each is cheap, but there is no reason to allow a pile-up)
   // Connections added in the UI belong to the browser (cookie) that added them, unless UI_INSTANCES_SHARED=true.
   const canSee = (inst, req) => !inst.managed || ui.shared || inst.owner === req.owner;
   const touch = (p) => { p.lastSeen = Date.now(); };
@@ -104,7 +110,7 @@ function createApp(settings) {
   }, 3600000);
   sweep.unref();
   const validateCtx = { features: settings.features, allowedHosts: ui.allowedHosts };
-  const storedKeys = ['owner', 'type', 'name', 'statsUrl', 'plusApiUrl', 'socket', 'username', 'password', 'insecureTls', 'configFiles', 'configUrls', 'tags'];
+  const storedKeys = ['owner', 'type', 'name', 'statsUrl', 'plusApiUrl', 'socket', 'username', 'password', 'insecureTls', 'configFiles', 'configUrls', 'logOnly', 'tags'];
   const toDef = (inst) => ({ id: inst.id, ...Object.fromEntries(storedKeys.filter((k) => inst[k] != null && inst[k] !== false && inst[k] !== '').map((k) => [k, inst[k]])), ...(inst.type === 'nginx' ? { probe: Boolean(inst.probe) } : {}) });
   const persist = () => store.save([...registry.pollers.values()].filter((p) => p.instance.managed).map((p) => toDef(p.instance)));
   const manage = [
@@ -200,6 +206,7 @@ function createApp(settings) {
     if (!p || !p.instance.managed || !canSee(p.instance, req)) return res.status(404).json({ error: 'Not a UI-managed instance' });
     registry.remove(req.params.id);
     persist();
+    try { logs.remove(req.params.id); } catch { /* nothing stored */ }
     return res.json({ ok: true });
   });
 
@@ -300,6 +307,49 @@ function createApp(settings) {
       const out = validateConfig({ product: type, version: typeof body.version === 'string' ? body.version : null, config: text, files: cfgFiles, build: typeof body.build === 'string' ? body.build : undefined });
       return res.json(out);
     } catch (e) { return res.status(422).json({ error: `Could not validate configuration: ${e.message}` }); }
+  });
+
+  // Traffic statistics from an uploaded HAProxy log. One file per upload (raw request body), parsed as a stream; only
+  // aggregates are stored. Limits: LOG_MAX_MB, one log per instance (a new upload replaces the old one).
+  const logGuard = (req, res, next) => {
+    if (!ui.enabled) return res.status(403).json({ error: 'Uploading logs is disabled. Start GateLight with ALLOW_UI_INSTANCES=true.' });
+    const p = req.poller;
+    if (!p.instance.managed) return res.status(403).json({ error: 'Logs can only be uploaded to connections added in the UI.' });
+    if (p.instance.type !== 'haproxy') return res.status(400).json({ error: 'Only HAProxy logs are supported for now (NGINX logs are coming).' });
+    return next();
+  };
+  api.put('/instances/:id/logs', withInstance, logGuard, rateLimit({ max: 10 }), async (req, res) => {
+    const max = settings.logs.maxBytes; const maxMb = Math.round(max / 1048576);
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > max) { res.set('Connection', 'close'); return res.status(413).json({ error: `The file is ${(declared / 1048576).toFixed(1)} MB; the limit is ${maxMb} MB. Split it into smaller parts first (see the instructions next to the upload).` }); }
+    if (/^multipart\//i.test(String(req.headers['content-type'] || ''))) return res.status(415).json({ error: 'Send the file as the raw request body (one file per upload), not as a form.' });
+    if (ingesting >= 2) return res.status(429).json({ error: 'Another log is being processed. Try again in a few seconds.' });
+    ingesting++;
+    try {
+      const name = decodeURIComponent(String(req.query.filename || req.headers['x-filename'] || 'haproxy.log')).replace(/[^\w .()-]/g, '_').slice(0, 120);
+      const t0 = Date.now();
+      const result = await ingestStream(req, { maxBytes: max, filename: name });
+      logs.save(req.params.id, result);
+      touch(req.poller);
+      log.info('traffic log processed', { instance: req.params.id, lines: result.stats.lines, ms: Date.now() - t0 });
+      return res.json({ ok: true, ms: Date.now() - t0, source: result.source, stats: result.stats, range: result.range, unparsed: result.unparsed });
+    } catch (e) {
+      if (e instanceof IngestError) { res.set('Connection', 'close'); return res.status(e.status).json({ error: e.message, code: e.code }); }
+      log.warn('traffic log failed', { instance: req.params.id, error: e.message });
+      return res.status(500).json({ error: `Could not process the log: ${e.message}` });
+    } finally { ingesting--; }
+  });
+  api.get('/instances/:id/logs', withInstance, rateLimit({ max: 60 }), (req, res) => {
+    try {
+      const stored = logs.raw(req.params.id);
+      const raw = stored !== null ? stored : (req.poller.instance.demo && req.poller.instance.type === 'haproxy' ? demoResultText() : null); // demo mode shows a synthetic log
+      if (req.query.meta) { if (raw === null) return res.status(404).json({ error: 'No traffic log has been uploaded for this instance.' }); const j = JSON.parse(raw); return res.json({ generated: j.generated, source: j.source, range: j.range, stats: j.stats, bucketMs: j.bucketMs }); }
+      if (raw === null) return res.status(404).json({ error: 'No traffic log has been uploaded for this instance.' });
+      res.set('Cache-Control', 'no-store'); return res.type('application/json').send(raw);
+    } catch (e) { return res.status(500).json({ error: `Could not read the stored statistics: ${e.message}` }); }
+  });
+  api.delete('/instances/:id/logs', withInstance, logGuard, rateLimit({ max: 20 }), (req, res) => {
+    try { return res.json({ ok: logs.remove(req.params.id) }); } catch (e) { return res.status(500).json({ error: e.message }); }
   });
 
   // Read-only "refresh from server": re-fetch the config (GET its URL(s), or re-read the file) and report what changed.

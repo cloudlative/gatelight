@@ -79,6 +79,7 @@ const FILTER_RESETS = {
   events() { state.eventFilter = 'all'; },
   infrastructure() { lbi.problems = false; lbi.alive = false; },
   validate() { VAL.tab = 'all'; VAL.sev = 'all'; },
+  traffic() { if (typeof trResetFilters === 'function') trResetFilters(); },
   flow() { FLOW.fe = ''; FLOW.st = ''; FLOW.dq = ''; FLOW.sel = null; FLOW.trace = null; FLOW.traceErr = null; FLOW.req = { host: '', path: '/', port: '', method: 'GET' }; },
 };
 function resetFilters(view) { try { const f = FILTER_RESETS[view]; if (f) f(); } catch { /* a missing element must never break navigation */ } }
@@ -102,6 +103,7 @@ function switchView(view) {
   state.view = view;
   if (view === 'validate') setTimeout(() => valLoad(false), 0);
   if (view === 'flow' || view === 'topology') setTimeout(() => flowLoad(false), 0);
+  if (view === 'traffic') setTimeout(() => trLoad(false), 0);
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${view}`));
   $$('#nav button').forEach((b) => { const on = b.dataset.view === view; b.classList.toggle('active', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   const dkey = view === 'detail' && state.inspected && state.inspected.key ? `/${encodeURIComponent(state.inspected.key)}` : '';
@@ -143,7 +145,7 @@ function renderView(view) {
     if (view === 'overview') { if (state.current) $('#view-overview').innerHTML = '<div class="skeleton-cards"><i></i><i></i><i></i><i></i><i></i></div>'; else renderWelcome(); }
     return;
   }
-  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, validate: renderValidate, flow: renderFlow, events: renderEvents, config: renderConfig }[view] || (() => {}))();
+  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, validate: renderValidate, flow: renderFlow, traffic: () => renderTraffic(), events: renderEvents, config: renderConfig }[view] || (() => {}))();
 }
 
 // ---------- data loading ----------
@@ -2577,19 +2579,21 @@ async function cuSave(ev) {
 }
 
 // ---------- CONNECT A SERVER ----------
-const cx = { editing: null, hadPassword: false, hadConfig: false, files: [] };
+const cx = { editing: null, hadPassword: false, hadConfig: false, files: [], logFile: null };
 const cxType = () => document.querySelector('input[name="cx-type"]:checked').value;
 function cxSync() {
   const t = cxType();
   $$('#cx-form [data-cx-for]').forEach((el) => { el.hidden = el.dataset.cxFor !== t; });
   $('#cx-url-label').textContent = t === 'nginx' ? 'Status URL (stub_status)' : 'Stats URL';
   $('#cx-url').placeholder = t === 'nginx' ? 'http://host/nginx_status' : 'http://host:8404/stats';
-  const hasCfg = cx.files.length > 0 || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig;
+  const hasCfg = cx.files.length > 0 || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig || (t === 'haproxy' && cx.logFile);
   const live = $('#cx-url').value.trim() || ($('#cx-socket').value || '').trim() || ($('#cx-plus').value || '').trim();
   const configOnly = Boolean(hasCfg && !live);
   $('#cx-test').hidden = configOnly;
   $('#cx-url-opt').hidden = !hasCfg;
-  $('#cx-save').textContent = cx.editing ? 'Save changes' : configOnly ? 'Save config' : cx.inline ? 'Connect' : 'Save & connect';
+  const logOnly = configOnly && t === 'haproxy' && cx.logFile && !(cx.files.length || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig);
+  $('#cx-save').textContent = cx.editing ? (cx.logFile ? 'Save & upload log' : 'Save changes') : logOnly ? 'Save & analyse log' : configOnly ? 'Save config' : cx.inline ? 'Connect' : 'Save & connect';
+  $('#cx-logmax').textContent = fmtBytes((state.meta && state.meta.logMaxBytes) || 50 * 1048576);
 }
 function cxFilesNote() {
   $('#cx-cfgclear').hidden = !cx.files.length;
@@ -2612,6 +2616,7 @@ function cxBody() {
   };
   if (cx.files.length) b.configFiles = cx.files; else if ($('#cx-cfgtext').value.trim()) b.configText = $('#cx-cfgtext').value; else b.keepConfig = cx.hadConfig;
   b.configUrls = $('#cx-cfgurls').value;
+  if (t === 'haproxy' && cx.logFile) b.logOnly = true;
   if (t === 'haproxy') b.socket = $('#cx-socket').value;
   else { b.plusApiUrl = $('#cx-plus').value; if ($('#cx-url').value.trim() || $('#cx-plus').value.trim() || !(cx.files.length || $('#cx-cfgtext').value.trim() || cx.hadConfig)) b.probe = $('#cx-probe').checked; }
   if (cx.editing) b.id = cx.editing;
@@ -2623,7 +2628,7 @@ async function cxOpen(id, inline = false) {
   const form = $('#cx-form');
   if (inline) { $('#lp-form-slot').appendChild(form); form.classList.add('inline'); }
   else { $('#connect').appendChild(form); form.classList.remove('inline'); }
-  cx.editing = id || null; cx.hadPassword = false; cx.hadConfig = false; cx.hadNames = ''; cx.files = [];
+  cx.editing = id || null; cx.hadPassword = false; cx.hadConfig = false; cx.hadNames = ''; cx.files = []; cx.logFile = null; cxLogNote();
   $('#cx-form').reset();
   $('#cx-title').textContent = id ? 'Edit connection' : 'Connect a server';
   cxResult('');
@@ -2658,15 +2663,70 @@ async function cxTest() {
   } catch (e) { cxResult(`✗ ${e.message}`, 'err'); }
   $('#cx-test').disabled = false;
 }
+// ---- traffic log upload (shared by the Add instance form and the Traffic statistics page) ----
+const LOG_BAD_EXT = /\.(zip|tar|tgz|7z|rar|bz2|xz|zst|pdf|png|jpe?g|gif|xlsx?|docx?|pptx?|exe|dll|bin|iso|db|sqlite)$/i;
+/** null when the file may be uploaded, otherwise the message to show. */
+function logFileProblem(f) {
+  const max = (state.meta && state.meta.logMaxBytes) || 50 * 1048576;
+  if (!f) return null;
+  if (LOG_BAD_EXT.test(f.name)) return `“${f.name}” is not a text log. Upload the plain-text log (.log or .txt) or a gzip of it (.gz).`;
+  if (f.size === 0) return `“${f.name}” is empty.`;
+  if (f.size > max) return `“${f.name}” is ${fmtBytes(f.size)}, over the ${fmtBytes(max)} limit. Split it first with the commands below, then upload one part at a time.`;
+  return null;
+}
+/** PUT the file as the raw request body (streamed by the browser, parsed as a stream by the server). */
+function uploadLog(id, file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('PUT', `/api/instances/${encodeURIComponent(id)}/logs?filename=${encodeURIComponent(file.name)}`);
+    x.setRequestHeader('Content-Type', 'application/octet-stream');
+    x.upload.onprogress = (e) => { if (onProgress && e.lengthComputable) onProgress(e.loaded, e.total, false); };
+    x.upload.onload = () => { if (onProgress) onProgress(file.size, file.size, true); };
+    x.onload = () => {
+      let j = null; try { j = JSON.parse(x.responseText); } catch { /* not JSON */ }
+      if (x.status >= 200 && x.status < 300) resolve(j);
+      else if (x.status === 401) { location.replace(`/login?next=${encodeURIComponent(location.pathname)}${location.hash}`); reject(new Error('Signing in again…')); }
+      else reject(new Error((j && j.error) || `Upload failed (HTTP ${x.status})`));
+    };
+    x.onerror = () => reject(new Error('The upload was interrupted. If the file is larger than the server limit, split it into smaller parts first.'));
+    x.send(file);
+  });
+}
+function logProgressUi(box, loaded, total, done) {
+  box.hidden = false;
+  const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
+  box.querySelector('.tr-bar i').style.width = `${done ? 100 : pct}%`;
+  box.querySelector('.tr-bar').classList.toggle('busy', Boolean(done));
+  box.querySelector('span').textContent = done ? 'Uploaded. Processing the log…' : `Uploading ${fmtBytes(loaded)} of ${fmtBytes(total)} (${pct}%)`;
+}
+function cxLogNote() {
+  const n = $('#cx-lognote'); const c = $('#cx-logclear'); if (!n) return;
+  c.hidden = !cx.logFile;
+  n.className = 'small'; n.textContent = cx.logFile ? `${cx.logFile.name} · ${fmtBytes(cx.logFile.size)}` : '';
+}
+function cxPickLog(file) {
+  const bad = logFileProblem(file);
+  const n = $('#cx-lognote');
+  if (bad) { cx.logFile = null; cxLogNote(); n.className = 'small sev-error'; n.textContent = bad; cxSync(); return; }
+  cx.logFile = file || null; cxLogNote(); cxSync();
+}
 async function cxSave(ev) {
   ev.preventDefault();
   cxResult('Saving…', 'busy'); $('#cx-save').disabled = true;
   try {
     const r = await cxPost(cx.editing ? `/instances/${encodeURIComponent(cx.editing)}` : '/instances', cx.editing ? 'PUT' : 'POST');
     const wasEditing = cx.editing; const configOnly = $('#cx-test').hidden;
+    let logRes = null; let logErr = null;
+    if (cx.logFile) { // the instance exists now: send the log, with progress. A failed log never undoes the saved instance.
+      cxResult('Saved. Uploading the log…', 'busy');
+      try { logRes = await uploadLog(r.id, cx.logFile, (l, t, d) => logProgressUi($('#cx-logprog'), l, t, d)); } catch (e) { logErr = e.message; }
+      $('#cx-logprog').hidden = true;
+    }
     cxClose();
     await enterLive(r.id);
-    toast(wasEditing ? 'Instance updated' : configOnly ? 'Config saved as an instance (no live data)' : 'Connected: live data will appear in a few seconds', 'ok');
+    if (logRes) { toast(`Traffic log processed: ${fmtInt(logRes.stats.lines)} lines${logRes.stats.unparsed ? `, ${fmtInt(logRes.stats.unparsed)} skipped` : ''}`, 'ok', 5000); if (typeof TR !== 'undefined') { TR.inst = null; TR.data = null; } switchView('traffic'); }
+    else if (logErr) { toast(`Saved, but the log was not processed: ${logErr}`, 'err', 9000); if (typeof TR !== 'undefined') { TR.inst = null; TR.data = null; TR.upErr = logErr; } switchView('traffic'); }
+    else toast(wasEditing ? 'Instance updated' : configOnly ? 'Config saved as an instance (no live data)' : 'Connected: live data will appear in a few seconds', 'ok');
   } catch (e) { cxResult(`✗ ${e.message}`, 'err'); }
   $('#cx-save').disabled = false;
 }
@@ -2782,7 +2842,7 @@ function iselWire() {
   // Traffic flow diagram: instant tooltip that follows the pointer
   const tipEl = () => { let t = $('#fl-tip'); if (!t) { t = document.createElement('div'); t.id = 'fl-tip'; t.className = 'fl-tip'; t.hidden = true; document.body.appendChild(t); } return t; };
   const tipMove = (e) => {
-    const n = e.target.closest && e.target.closest('.flow-svg [data-tip]'); const t = tipEl();
+    const n = e.target.closest && e.target.closest('.flow-svg [data-tip], #view-traffic [data-tip]'); const t = tipEl();
     if (!n) { t.hidden = true; return; }
     if (t.dataset.for !== n.getAttribute('data-tip')) { t.textContent = n.getAttribute('data-tip'); t.dataset.for = n.getAttribute('data-tip'); }
     t.hidden = false;
@@ -2866,6 +2926,8 @@ function wire() {
   $('#cx-close').addEventListener('click', cxClose);
   $('#connect').addEventListener('mousedown', (e) => { if (e.target.id === 'connect') cxClose(); });
   $$('input[name="cx-type"]').forEach((r) => r.addEventListener('change', cxSync));
+  $('#cx-logfile').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; cxPickLog(f); });
+  $('#cx-logclear').addEventListener('click', () => { cx.logFile = null; cxLogNote(); cxSync(); });
   ['#cx-cfgfiles', '#cx-cfgfolder'].forEach((q) => $(q).addEventListener('change', async (e) => { const l = [...e.target.files]; e.target.value = ''; await cxPickFiles(l); }));
   $('#cx-cfgclear').addEventListener('click', () => { cx.files = []; $('#cx-cfgtext').value = ''; cxFilesNote(); cxSync(); });
   ['#cx-url', '#cx-socket', '#cx-plus', '#cx-cfgtext', '#cx-cfgurls'].forEach((q) => $(q).addEventListener('input', () => { if (q === '#cx-cfgtext' && $(q).value) cx.files = []; cxFilesNote(); cxSync(); }));

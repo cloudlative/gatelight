@@ -154,6 +154,8 @@ function loadSettings(env = process.env) {
     history: { enabled: String(env.HISTORY_DB || '').toLowerCase() !== 'off', file: env.HISTORY_DB && String(env.HISTORY_DB).toLowerCase() !== 'off' ? env.HISTORY_DB : null,
       rawMs: int(env.HISTORY_RAW_HOURS, 6, 1) * 3600e3, keepMs: int(env.HISTORY_KEEP_DAYS, 14, 1) * 86400e3 },
     eventLimit: int(env.EVENT_LIMIT, 500, 10),
+    // Traffic log upload: one file, at most LOG_MAX_MB (default 50, hard ceiling 500). Parsed as a stream, only aggregates are kept.
+    logs: { maxBytes: Math.min(int(env.LOG_MAX_MB, 50, 1), 500) * 1048576 },
     alerts: { webhookUrl: env.ALERT_WEBHOOK_URL || null, minFailures: int(env.ALERT_MIN_FAILURES, 2, 1), insecureTls: bool(env.ALERT_INSECURE_TLS) },
     demo, features, skipped, instances, instancesFile: file.file, ui, defaults,
   };

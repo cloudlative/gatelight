@@ -180,7 +180,7 @@ class InstancePoller {
       ts: now,
       ok: !error,
       stale: Boolean(error) && previousRows.length > 0,
-      error: error || (hasSource ? null : 'No stats source configured — showing configuration only'),
+      error: error || (hasSource || inst.logOnly ? null : 'No stats source configured — showing configuration only'),
       warnings,
       failures: this.failures,
       lastSuccess: this.lastSuccess,

@@ -188,6 +188,18 @@ The **Traffic flow** page answers "if a client asks for this, where does it go, 
 
 It follows the official semantics. In HAProxy, a server written without a port uses **the port the client connected to**, `10.0.0.1:+1000` adds 1000 to it, and the server `port` option only moves **health checks**; `use_backend` rules are first match, frontend `http-request` rules run before the backend is chosen and backend ones after. In NGINX, a URI in `proxy_pass` replaces the matched location prefix, `^~` stops regex checks, and `rewrite … break` keeps the rewritten URI. Conditions that depend on headers or source IP cannot be decided from host, path and port, so they are marked as skipped or "approximate" rather than guessed. API: `GET /api/instances/:id/flow`, `POST /api/instances/:id/flow/trace`, `POST /api/flow` (for a pasted config).
 
+## Traffic statistics from an HAProxy log
+
+Add instance → **Traffic log** (or the **Traffic statistics** page) accepts one HAProxy log (`option httplog` / `tcplog`), plain text or `.gz`. It is streamed, never kept: only aggregates are stored in `DATA_DIR/logs` (private, 0600), so a 350 MB log becomes under 1 MB. The default limit is 50 MB per file (`LOG_MAX_MB`, up to 500). For bigger logs split them first, the page shows the commands:
+
+```sh
+tail -n 200000 haproxy.log > part.log          # latest traffic
+split -C 40M -d --additional-suffix=.log haproxy.log part-   # ~40 MB pieces
+gzip -k part-00.log                             # logs shrink about 10x
+```
+
+You get KPIs, time charts, breakdowns, top URLs/clients, slow requests, errors and server events, filtered by time, frontend, backend, server, status and protocol. Lines that are not in the HAProxy format are skipped and counted. NGINX logs are planned; the parser is isolated for that. Uploads only work for connections added in the UI, and GateLight still never writes to your load balancers.
+
 ## Screenshots
 
 <table>
