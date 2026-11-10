@@ -9,6 +9,7 @@
 - **Topology**: with "Problems only", an "All layers" choice or a search, the links to dimmed nodes fade too.
 
 ### Fixed
+- Traffic Stats: an NGINX log uploaded to an instance that holds HAProxy logs (or the reverse) is detected and refused with a clear message and a **Replace the existing logs** button, instead of failing. Small byte counts no longer show long decimals.
 - Config Doctor: **auto-detect** now recognises NGINX files that are fragments or have no `;` line (for example a bare `add_header`, a `location` block, or `http { if (...) { } }`), and uploaded files are analysed right away. The "redacted copy" note no longer shows for files you upload.
 - Topology: the "All layers" dropdown and "Problems only" did not visibly dim anything since the new node icons.
 

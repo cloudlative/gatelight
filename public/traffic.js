@@ -5,7 +5,7 @@
  * To add a panel: write a function returning a card (see CARDS) and add it to the list; the data helpers are shared.
  * (An NGINX log can feed the same dashboard later by producing the same aggregate shape.)
  */
-const TR = { inst: null, data: null, loading: false, err: null, none: false, upErr: null, up: null, f: null, charts: {}, gen: 0 };
+const TR = { mix: null, inst: null, data: null, loading: false, err: null, none: false, upErr: null, up: null, f: null, charts: {}, gen: 0 };
 const TR_DEFAULTS = () => ({ range: 'all', from: null, to: null, fe: '', be: '', srv: '', cls: '', proto: '' });
 TR.f = TR_DEFAULTS();
 function trResetFilters() { TR.f = TR_DEFAULTS(); }
@@ -242,7 +242,7 @@ function trHeadHtml() {
   const sw = `<div class="tsw2" role="tablist" aria-label="Traffic source"><button type="button" role="tab" aria-selected="false" class="tab-live"${live ? ' data-goto="graphs"' : ' disabled title="This instance has no live statistics endpoint"'}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span><b>Live Metrics</b><small>Right now, from the stats endpoint</small></span></button><button type="button" role="tab" aria-selected="true" class="tab-log on" data-goto="traffic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg><span><b>From a Log File</b><small>Past traffic, from an uploaded access log</small></span></button></div>`;
   return `<div class="panel tr-top"><div class="tr-title"><div>${sw}<h2 class="tr-h2">Traffic from a Log File</h2><div class="tr-meta">${info}</div></div><span class="spacer"></span>
       ${can ? `<input type="file" id="tr-file" multiple accept=".log,.txt,.gz,.out,text/plain,application/gzip,application/x-gzip" hidden><button class="btn primary" type="button" data-tr-upload>${d ? 'Add log files' : 'Upload log files'}</button>${d ? '<button class="btn" type="button" data-tr-delete>Delete all</button>' : ''}` : ''}</div>
-    ${prog}${TR.upErr ? `<div class="tr-err" role="alert">${esc(TR.upErr)}</div>` : ''}</div>`;
+    ${prog}${TR.upErr ? `<div class="tr-err" role="alert">${esc(TR.upErr)}${TR.mix ? ` <button class="btn" type="button" data-tr-replace>Replace the existing logs with ${TR.mix.length > 1 ? 'these files' : 'this file'}</button>` : ''}</div>` : ''}</div>`;
 }
 function trEmptyHtml() {
   const can = trCanUpload();
@@ -388,9 +388,11 @@ async function trUpload(list) {
   }, false);
   TR.up = null;
   const errs = [...problems, ...r.failed.map((x) => `${x.name}: ${x.error}`)]; TR.upErr = errs.length ? errs.join(' · ') : null;
+  TR.mix = r.failed.length && r.failed.every((x) => /files already uploaded are/.test(x.error)) ? files : null; // an HAProxy log next to NGINX ones (or the reverse): offer to start over
   if (r.done.length) { trResetFilters(); logSummaryToast(r); await trLoad(true); } else renderTraffic();
 }
 document.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-tr-replace]') && TR.mix) { const files = TR.mix; TR.mix = null; TR.upErr = null; TR.up = { pct: 0, text: 'Replacing the existing logs…', done: false }; renderTraffic(); const r = await uploadLogs(state.current, files, (tag, f, l, tt, done) => { TR.up = { pct: Math.round((l / tt) * 100), done, text: done ? `${tag}${f.name} uploaded. Processing…` : `${tag}${f.name}: uploading ${fmtBytes(l)} of ${fmtBytes(tt)}` }; const p = $('#tr-prog'); if (p) logProgressUi(p, l, tt, done, `${tag}${f.name}: `); }, true); TR.up = null; TR.upErr = r.failed.length ? r.failed.map((x) => `${x.name}: ${x.error}`).join(' · ') : null; if (r.done.length) { trResetFilters(); logSummaryToast(r); await trLoad(true); } else renderTraffic(); return; }
   if (e.target.closest('[data-tr-upload]')) { const f = $('#tr-file'); if (f) f.click(); else { const i = document.createElement('input'); i.type = 'file'; i.accept = '.log,.txt,.gz,.out'; i.multiple = true; i.onchange = () => i.files.length && trUpload([...i.files]); i.click(); } return; }
   const rm = e.target.closest('[data-tr-rmpart]');
   if (rm) {

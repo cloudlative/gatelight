@@ -23,7 +23,7 @@ const fmtInt = (n) => (n == null ? '–' : Math.round(n).toLocaleString());
 const fmtRate = (n) => (n == null ? '–' : n >= 100 ? Math.round(n).toLocaleString() : n.toFixed(n < 10 ? 2 : 1));
 function fmtBytes(b) {
   if (b == null) return '–';
-  if (b < 1024) return `${b} B`;
+  if (b < 1024) return `${b < 10 ? +b.toFixed(1) : Math.round(b)} B`;
   const u = ['KB', 'MB', 'GB', 'TB', 'PB'];
   let i = -1; let v = b;
   do { v /= 1024; i++; } while (v >= 1024 && i < u.length - 1);
