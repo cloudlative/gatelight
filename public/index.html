@@ -246,12 +246,12 @@
           <span class="muted small" id="cx-cfgnote"></span>
         </div>
         <div class="fld cfg-block tr-up" data-cx-for="haproxy">
-          <span class="cfg-callout"><b>Traffic log</b> (optional): upload an HAProxy log to get the <b>Traffic statistics</b> dashboard. With no URL or config above it is saved as a <b>log-only instance</b></span>
-          <div class="row"><label class="btn small-btn">Choose log file<input type="file" id="cx-logfile" accept=".log,.txt,.gz,.out,text/plain,application/gzip,application/x-gzip" hidden></label><button type="button" class="btn small-btn" id="cx-logclear" hidden>Remove</button></div>
+          <span class="cfg-callout"><b>Traffic log</b> (optional): upload one or more HAProxy logs (shown combined) to get the <b>Traffic statistics</b> dashboard. With no URL or config above it is saved as a <b>log-only instance</b></span>
+          <div class="row"><label class="btn small-btn">Choose log files<input type="file" id="cx-logfile" multiple accept=".log,.txt,.gz,.out,text/plain,application/gzip,application/x-gzip" hidden></label><button type="button" class="btn small-btn" id="cx-logclear" hidden>Remove all</button></div>
           <span class="small" id="cx-lognote"></span>
           <div class="tr-prog" id="cx-logprog" hidden><div class="tr-bar"><i></i></div><span class="muted small"></span></div>
           <details class="tr-help" open>
-            <summary>Log too big? Split it first (one file per upload)</summary>
+            <summary>Log too big? Split it first, then select all the parts</summary>
             <p class="muted small">Maximum <b id="cx-logmax">50 MB</b> per file, plain text (<code>.log</code>, <code>.txt</code>) or gzip (<code>.gz</code>; the limit applies to the compressed size). Only the statistics are kept on the server, never the raw log. Run these on the machine that has the log:</p>
             <div class="tr-cmds">
               <div><span class="muted small">Last 200,000 lines (the most recent traffic)</span><code>tail -n 200000 haproxy.log &gt; haproxy-part.log</code></div>
@@ -263,7 +263,7 @@
               <div><span class="muted small">Compress a part (logs shrink about 10×)</span><code>gzip -k haproxy-part.log</code></div>
               <div><span class="muted small">Check the size before uploading</span><code>ls -lh haproxy-part*</code></div>
             </div>
-            <p class="muted small">Upload the pieces one at a time: each upload replaces the previous statistics of this instance. For a long period, create one instance per piece, or pick the busiest hours.</p>
+            <p class="muted small">Select several parts together (or add more later): they are processed one by one and shown <b>combined</b>. The same file cannot be added twice, and overlapping periods are added together.</p>
           </details>
         </div>
         <label class="check"><input type="checkbox" id="cx-insecure"> Skip TLS certificate verification (self-signed)</label>

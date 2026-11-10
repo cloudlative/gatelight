@@ -309,8 +309,8 @@ function createApp(settings) {
     } catch (e) { return res.status(422).json({ error: `Could not validate configuration: ${e.message}` }); }
   });
 
-  // Traffic statistics from an uploaded HAProxy log. One file per upload (raw request body), parsed as a stream; only
-  // aggregates are stored. Limits: LOG_MAX_MB, one log per instance (a new upload replaces the old one).
+  // Traffic statistics from an uploaded HAProxy log. One file per request (raw request body), parsed as a stream; only
+  // aggregates are stored. Limits: LOG_MAX_MB per file. Files are added to the instance and shown combined (?mode=replace starts over).
   const logGuard = (req, res, next) => {
     if (!ui.enabled) return res.status(403).json({ error: 'Uploading logs is disabled. Start GateLight with ALLOW_UI_INSTANCES=true.' });
     const p = req.poller;
@@ -329,11 +329,14 @@ function createApp(settings) {
       const name = decodeURIComponent(String(req.query.filename || req.headers['x-filename'] || 'haproxy.log')).replace(/[^\w .()-]/g, '_').slice(0, 120);
       const t0 = Date.now();
       const result = await ingestStream(req, { maxBytes: max, filename: name });
-      logs.save(req.params.id, result);
+      const replace = req.query.mode === 'replace';
+      const added = logs.add(req.params.id, result, { replace });
       touch(req.poller);
       log.info('traffic log processed', { instance: req.params.id, lines: result.stats.lines, ms: Date.now() - t0 });
-      return res.json({ ok: true, ms: Date.now() - t0, source: result.source, stats: result.stats, range: result.range, unparsed: result.unparsed });
+      const c = added.combined;
+      return res.json({ ok: true, ms: Date.now() - t0, part: added.part, source: result.source, stats: result.stats, range: result.range, unparsed: result.unparsed, combined: { files: c.source.files.length, lines: c.stats.lines, range: c.range } });
     } catch (e) {
+      if (e && (e.code === 'DUPLICATE' || e.code === 'TOO_MANY')) return res.status(e.status).json({ error: e.message, code: e.code });
       if (e instanceof IngestError) { res.set('Connection', 'close'); return res.status(e.status).json({ error: e.message, code: e.code }); }
       log.warn('traffic log failed', { instance: req.params.id, error: e.message });
       return res.status(500).json({ error: `Could not process the log: ${e.message}` });
@@ -349,7 +352,7 @@ function createApp(settings) {
     } catch (e) { return res.status(500).json({ error: `Could not read the stored statistics: ${e.message}` }); }
   });
   api.delete('/instances/:id/logs', withInstance, logGuard, rateLimit({ max: 20 }), (req, res) => {
-    try { return res.json({ ok: logs.remove(req.params.id) }); } catch (e) { return res.status(500).json({ error: e.message }); }
+    try { if (req.query.part) return res.json({ ok: logs.removePart(req.params.id, String(req.query.part)) }); return res.json({ ok: logs.remove(req.params.id) }); } catch (e) { return res.status(500).json({ error: e.message }); }
   });
 
   // Read-only "refresh from server": re-fetch the config (GET its URL(s), or re-read the file) and report what changed.

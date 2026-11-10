@@ -190,7 +190,7 @@ It follows the official semantics. In HAProxy, a server written without a port u
 
 ## Traffic statistics from an HAProxy log
 
-Add instance → **Traffic log** (or the **Traffic statistics** page) accepts one HAProxy log (`option httplog` / `tcplog`), plain text or `.gz`. It is streamed, never kept: only aggregates are stored in `DATA_DIR/logs` (private, 0600), so a 350 MB log becomes under 1 MB. The default limit is 50 MB per file (`LOG_MAX_MB`, up to 500). For bigger logs split them first, the page shows the commands:
+Add instance → **Traffic log** (or the **Traffic statistics** page) accepts HAProxy logs, one or many at once or added one by one, always shown combined (max 20 files per instance, no duplicates; remove any file with its ×). Each is one HAProxy log (`option httplog` / `tcplog`), plain text or `.gz`. It is streamed, never kept: only aggregates are stored in `DATA_DIR/logs` (private, 0600), so a 350 MB log becomes under 1 MB. The default limit is 50 MB per file, so split bigger logs and upload the parts (`LOG_MAX_MB`, up to 500). For bigger logs split them first, the page shows the commands:
 
 ```sh
 tail -n 200000 haproxy.log > part.log          # latest traffic

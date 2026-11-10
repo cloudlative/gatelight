@@ -28,9 +28,9 @@ const LOG_CMDS = [
 ];
 function logHelpHtml() {
   const max = fmtBytes((state.meta && state.meta.logMaxBytes) || 50 * 1048576);
-  return `<p class="muted small">Maximum <b>${esc(max)}</b> per file, one file per upload: plain text (<code>.log</code>, <code>.txt</code>) or gzip (<code>.gz</code>, the limit applies to the compressed size). Only the statistics are kept on the server, never the raw log. Run these where the log lives:</p>
+  return `<p class="muted small">Maximum <b>${esc(max)}</b> per file; select several files at once and they are shown combined: plain text (<code>.log</code>, <code>.txt</code>) or gzip (<code>.gz</code>, the limit applies to the compressed size). Only the statistics are kept on the server, never the raw log. Run these where the log lives:</p>
     <div class="tr-cmds">${LOG_CMDS.map(([t, c]) => `<div><span class="muted small">${esc(t)}</span><span class="tr-cmd"><code>${esc(c)}</code><button type="button" class="btn icon" data-copy="${esc(c)}" title="Copy" aria-label="Copy command">⧉</button></span></div>`).join('')}</div>
-    <p class="muted small">Upload the pieces one at a time: a new upload replaces the previous statistics of the same instance. To keep several periods side by side, save each one as its own instance.</p>`;
+    <p class="muted small">Select all the pieces together, or add more later: each file is processed on its own and the statistics are shown <b>combined</b>. The same file cannot be added twice; overlapping periods are added together. Remove a file with its × next to the title.</p>`;
 }
 (function fillAddForm() { const h = document.getElementById('cx-loghelp'); if (h) h.innerHTML = logHelpHtml(); })();
 
@@ -223,19 +223,21 @@ function renderTraffic() {
 function trHeadHtml() {
   const d = TR.data; const can = trCanUpload();
   const src = d && d.source ? d.source : null;
-  const info = src ? `<span class="tr-file"><b>${esc(src.filename || 'log')}</b>${src.demo ? ' <span class="tag">demo data</span>' : ''} · ${src.bytes ? `${esc(fmtBytes(src.bytes))}${src.gzip ? ' (gz)' : ''} · ` : ''}${fmtInt(src.lines)} lines · ${d.range ? `${esc(trTimeS(d.range.from))} → ${esc(trTimeS(d.range.to))}` : ''}${d.generated && !src.demo ? ` · processed ${esc(new Date(d.generated).toLocaleString())}` : ''}</span>` : '<span class="muted small">No log uploaded yet</span>';
+  const files = src && src.files ? src.files : [];
+  const chips = can && !(src && src.demo) && files.length ? `<div class="tr-chips">${files.map((f) => `<span class="tr-chip" title="${esc(`${f.filename}: ${fmtInt(f.lines)} lines${f.range ? `, ${trTimeS(f.range.from)} to ${trTimeS(f.range.to)}` : ''}`)}">${esc(f.filename)} <span class="muted">${esc(fmtBytes(f.bytes || 0))}</span><button type="button" data-tr-rmpart="${esc(f.part)}" title="Remove this file from the statistics" aria-label="Remove ${esc(f.filename)}">×</button></span>`).join('')}</div>` : '';
+  const info = src ? `<span class="tr-file"><b>${esc(src.filename || 'log')}</b>${src.demo ? ' <span class="tag">demo data</span>' : ''} · ${src.bytes ? `${esc(fmtBytes(src.bytes))}${src.gzip ? ' (gz)' : ''} · ` : ''}${fmtInt(src.lines)} lines · ${d.range ? `${esc(trTimeS(d.range.from))} → ${esc(trTimeS(d.range.to))}` : ''}${d.generated && !src.demo ? ` · processed ${esc(new Date(d.generated).toLocaleString())}` : ''}</span>${chips}` : '<span class="muted small">No log uploaded yet</span>';
   const up = TR.up;
   const prog = up ? `<div class="tr-prog" id="tr-prog"><div class="tr-bar${up.done ? ' busy' : ''}"><i style="width:${up.done ? 100 : up.pct}%"></i></div><span class="muted small">${esc(up.text)}</span></div>` : '';
   return `<div class="panel tr-top"><div class="tr-title"><div><h2 class="tr-h2">Traffic statistics</h2><div class="tr-meta">${info}</div></div><span class="spacer"></span>
-      ${can ? `<input type="file" id="tr-file" accept=".log,.txt,.gz,.out,text/plain,application/gzip,application/x-gzip" hidden><button class="btn primary" type="button" data-tr-upload>${d ? 'Upload another log' : 'Upload a log'}</button>${d ? '<button class="btn" type="button" data-tr-delete>Delete statistics</button>' : ''}` : ''}</div>
+      ${can ? `<input type="file" id="tr-file" multiple accept=".log,.txt,.gz,.out,text/plain,application/gzip,application/x-gzip" hidden><button class="btn primary" type="button" data-tr-upload>${d ? 'Add log files' : 'Upload log files'}</button>${d ? '<button class="btn" type="button" data-tr-delete>Delete all</button>' : ''}` : ''}</div>
     ${prog}${TR.upErr ? `<div class="tr-err" role="alert">${esc(TR.upErr)}</div>` : ''}</div>`;
 }
 function trEmptyHtml() {
   const can = trCanUpload();
-  return `<div class="panel tr-empty-p"><h3>${can ? 'Upload an HAProxy log to see the traffic' : 'No traffic log for this instance'}</h3>
-    <p class="muted">${can ? 'Pick a complete log or a part of it (<code>option httplog</code> / <code>tcplog</code> lines). You get requests, response times, errors, status codes, servers, URLs, clients and more, with filters.' : 'Traffic statistics come from an HAProxy log uploaded to a connection added in the UI (Add instance → Traffic log).'}</p>
-    ${can ? '<button class="btn primary" type="button" data-tr-upload>Choose a log file</button>' : ''}
-    <details class="tr-help" ${can ? 'open' : ''}><summary>Log too big? Split it first (one file per upload)</summary>${logHelpHtml()}</details></div>`;
+  return `<div class="panel tr-empty-p"><h3>${can ? 'Upload HAProxy logs to see the traffic' : 'No traffic log for this instance'}</h3>
+    <p class="muted">${can ? 'Pick a complete log, or several parts at once, to be shown combined (<code>option httplog</code> / <code>tcplog</code> lines). You get requests, response times, errors, status codes, servers, URLs, clients and more, with filters.' : 'Traffic statistics come from an HAProxy log uploaded to a connection added in the UI (Add instance → Traffic log).'}</p>
+    ${can ? '<button class="btn primary" type="button" data-tr-upload>Choose log files</button>' : ''}
+    <details class="tr-help" ${can ? 'open' : ''}><summary>Log too big? Split it first, then select all the parts</summary>${logHelpHtml()}</details></div>`;
 }
 function trFiltersHtml(d, f, sel, A) {
   const opt = (v, t, cur) => `<option value="${esc(v)}"${cur === v ? ' selected' : ''}>${esc(t)}</option>`;
@@ -354,21 +356,31 @@ function trEvents(d, sel) {
 }
 
 // ------------------------------------------------------------------------------------------------ interaction
-async function trUpload(file) {
-  const bad = logFileProblem(file);
-  if (bad) { TR.upErr = bad; renderTraffic(); return; }
-  TR.upErr = null; TR.up = { pct: 0, text: `Uploading ${fmtBytes(file.size)}…`, done: false }; renderTraffic();
-  try {
-    const r = await uploadLog(state.current, file, (l, t, done) => { TR.up = { pct: Math.round((l / t) * 100), done, text: done ? 'Uploaded. Processing the log…' : `Uploading ${fmtBytes(l)} of ${fmtBytes(t)}` }; const p = $('#tr-prog'); if (p) logProgressUi(p, l, t, done); });
-    TR.up = null; trResetFilters(); toast(`Log processed: ${fmtInt(r.stats.lines)} lines in ${(r.ms / 1000).toFixed(1)} s${r.stats.unparsed ? ` (${fmtInt(r.stats.unparsed)} skipped)` : ''}`, 'ok', 5000);
-    await trLoad(true);
-  } catch (e) { TR.up = null; TR.upErr = e.message; renderTraffic(); }
+async function trUpload(list) {
+  const files = []; const problems = [];
+  for (const f of list) { const bad = logFileProblem(f); if (bad) problems.push(bad); else files.push(f); }
+  TR.upErr = problems.length ? problems.join(' · ') : null;
+  if (!files.length) { renderTraffic(); return; }
+  TR.up = { pct: 0, text: `Uploading ${files.length > 1 ? `${files.length} files` : fmtBytes(files[0].size)}…`, done: false }; renderTraffic();
+  const r = await uploadLogs(state.current, files, (tag, f, l, t, done) => {
+    TR.up = { pct: Math.round((l / t) * 100), done, text: done ? `${tag}${f.name} uploaded. Processing…` : `${tag}${f.name}: uploading ${fmtBytes(l)} of ${fmtBytes(t)}` };
+    const p = $('#tr-prog'); if (p) logProgressUi(p, l, t, done, `${tag}${f.name}: `);
+  }, false);
+  TR.up = null;
+  const errs = [...problems, ...r.failed.map((x) => `${x.name}: ${x.error}`)]; TR.upErr = errs.length ? errs.join(' · ') : null;
+  if (r.done.length) { trResetFilters(); logSummaryToast(r); await trLoad(true); } else renderTraffic();
 }
 document.addEventListener('click', async (e) => {
-  if (e.target.closest('[data-tr-upload]')) { const f = $('#tr-file'); if (f) f.click(); else { const i = document.createElement('input'); i.type = 'file'; i.accept = '.log,.txt,.gz,.out'; i.onchange = () => i.files[0] && trUpload(i.files[0]); i.click(); } return; }
+  if (e.target.closest('[data-tr-upload]')) { const f = $('#tr-file'); if (f) f.click(); else { const i = document.createElement('input'); i.type = 'file'; i.accept = '.log,.txt,.gz,.out'; i.multiple = true; i.onchange = () => i.files.length && trUpload([...i.files]); i.click(); } return; }
+  const rm = e.target.closest('[data-tr-rmpart]');
+  if (rm) {
+    try { await api(`/instances/${encodeURIComponent(state.current)}/logs?part=${encodeURIComponent(rm.dataset.trRmpart)}`, { method: 'DELETE' }); await trLoad(true).catch(() => {}); } catch (err) { toast(err.message, 'err', 6000); }
+    if (TR.data && TR.data.source && !(TR.data.source.files || []).length) { TR.data = null; TR.none = true; }
+    return;
+  }
   if (e.target.closest('[data-tr-reset]')) { trResetFilters(); renderTraffic(); return; }
   if (e.target.closest('[data-tr-delete]')) {
-    const ok = await confirmDialog({ title: 'Delete the traffic statistics?', message: 'The statistics of this instance are removed from the server. The instance itself stays. You can upload a log again at any time.', confirmText: 'Delete', danger: true });
+    const ok = await confirmDialog({ title: 'Delete all the traffic statistics?', message: 'The statistics of every uploaded file of this instance are removed from the server. The instance itself stays. You can upload a log again at any time.', confirmText: 'Delete', danger: true });
     if (!ok) return;
     try { await api(`/instances/${encodeURIComponent(state.current)}/logs`, { method: 'DELETE' }); TR.data = null; TR.none = true; trResetFilters(); renderTraffic(); toast('Traffic statistics deleted', 'ok'); } catch (err) { toast(err.message, 'err', 6000); }
     return;
@@ -377,7 +389,7 @@ document.addEventListener('click', async (e) => {
   if (cp) { try { await navigator.clipboard.writeText(cp.dataset.copy); const t = cp.textContent; cp.textContent = '✓'; setTimeout(() => { cp.textContent = t; }, 1200); } catch { toast('Copy is not available in this browser', 'err'); } }
 });
 document.addEventListener('change', (e) => {
-  if (e.target.id === 'tr-file') { const f = e.target.files[0]; e.target.value = ''; if (f) trUpload(f); return; }
+  if (e.target.id === 'tr-file') { const f = [...e.target.files]; e.target.value = ''; if (f.length) trUpload(f); return; }
   const k = e.target.dataset && e.target.dataset.trf; if (!k) return;
   const v = e.target.value; const f = TR.f;
   if (k === 'range') { f.range = v; f.from = f.to = null; } else f[k] = v;

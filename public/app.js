@@ -2579,20 +2579,20 @@ async function cuSave(ev) {
 }
 
 // ---------- CONNECT A SERVER ----------
-const cx = { editing: null, hadPassword: false, hadConfig: false, files: [], logFile: null };
+const cx = { editing: null, hadPassword: false, hadConfig: false, files: [], logFiles: [] };
 const cxType = () => document.querySelector('input[name="cx-type"]:checked').value;
 function cxSync() {
   const t = cxType();
   $$('#cx-form [data-cx-for]').forEach((el) => { el.hidden = el.dataset.cxFor !== t; });
   $('#cx-url-label').textContent = t === 'nginx' ? 'Status URL (stub_status)' : 'Stats URL';
   $('#cx-url').placeholder = t === 'nginx' ? 'http://host/nginx_status' : 'http://host:8404/stats';
-  const hasCfg = cx.files.length > 0 || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig || (t === 'haproxy' && cx.logFile);
+  const hasCfg = cx.files.length > 0 || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig || (t === 'haproxy' && cx.logFiles.length);
   const live = $('#cx-url').value.trim() || ($('#cx-socket').value || '').trim() || ($('#cx-plus').value || '').trim();
   const configOnly = Boolean(hasCfg && !live);
   $('#cx-test').hidden = configOnly;
   $('#cx-url-opt').hidden = !hasCfg;
-  const logOnly = configOnly && t === 'haproxy' && cx.logFile && !(cx.files.length || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig);
-  $('#cx-save').textContent = cx.editing ? (cx.logFile ? 'Save & upload log' : 'Save changes') : logOnly ? 'Save & analyse log' : configOnly ? 'Save config' : cx.inline ? 'Connect' : 'Save & connect';
+  const logOnly = configOnly && t === 'haproxy' && cx.logFiles.length && !(cx.files.length || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig);
+  $('#cx-save').textContent = cx.editing ? (cx.logFiles.length ? `Save & upload ${cx.logFiles.length > 1 ? 'logs' : 'log'}` : 'Save changes') : logOnly ? 'Save & analyse logs' : configOnly ? 'Save config' : cx.inline ? 'Connect' : 'Save & connect';
   $('#cx-logmax').textContent = fmtBytes((state.meta && state.meta.logMaxBytes) || 50 * 1048576);
 }
 function cxFilesNote() {
@@ -2616,7 +2616,7 @@ function cxBody() {
   };
   if (cx.files.length) b.configFiles = cx.files; else if ($('#cx-cfgtext').value.trim()) b.configText = $('#cx-cfgtext').value; else b.keepConfig = cx.hadConfig;
   b.configUrls = $('#cx-cfgurls').value;
-  if (t === 'haproxy' && cx.logFile) b.logOnly = true;
+  if (t === 'haproxy' && cx.logFiles.length) b.logOnly = true;
   if (t === 'haproxy') b.socket = $('#cx-socket').value;
   else { b.plusApiUrl = $('#cx-plus').value; if ($('#cx-url').value.trim() || $('#cx-plus').value.trim() || !(cx.files.length || $('#cx-cfgtext').value.trim() || cx.hadConfig)) b.probe = $('#cx-probe').checked; }
   if (cx.editing) b.id = cx.editing;
@@ -2628,7 +2628,7 @@ async function cxOpen(id, inline = false) {
   const form = $('#cx-form');
   if (inline) { $('#lp-form-slot').appendChild(form); form.classList.add('inline'); }
   else { $('#connect').appendChild(form); form.classList.remove('inline'); }
-  cx.editing = id || null; cx.hadPassword = false; cx.hadConfig = false; cx.hadNames = ''; cx.files = []; cx.logFile = null; cxLogNote();
+  cx.editing = id || null; cx.hadPassword = false; cx.hadConfig = false; cx.hadNames = ''; cx.files = []; cx.logFiles = []; cxLogNote();
   $('#cx-form').reset();
   $('#cx-title').textContent = id ? 'Edit connection' : 'Connect a server';
   cxResult('');
@@ -2671,14 +2671,14 @@ function logFileProblem(f) {
   if (!f) return null;
   if (LOG_BAD_EXT.test(f.name)) return `“${f.name}” is not a text log. Upload the plain-text log (.log or .txt) or a gzip of it (.gz).`;
   if (f.size === 0) return `“${f.name}” is empty.`;
-  if (f.size > max) return `“${f.name}” is ${fmtBytes(f.size)}, over the ${fmtBytes(max)} limit. Split it first with the commands below, then upload one part at a time.`;
+  if (f.size > max) return `“${f.name}” is ${fmtBytes(f.size)}, over the ${fmtBytes(max)} limit. Split it first with the commands below, then select the parts together.`;
   return null;
 }
 /** PUT the file as the raw request body (streamed by the browser, parsed as a stream by the server). */
-function uploadLog(id, file, onProgress) {
+function uploadLog(id, file, onProgress, mode) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open('PUT', `/api/instances/${encodeURIComponent(id)}/logs?filename=${encodeURIComponent(file.name)}`);
+    x.open('PUT', `/api/instances/${encodeURIComponent(id)}/logs?filename=${encodeURIComponent(file.name)}${mode ? `&mode=${mode}` : ''}`);
     x.setRequestHeader('Content-Type', 'application/octet-stream');
     x.upload.onprogress = (e) => { if (onProgress && e.lengthComputable) onProgress(e.loaded, e.total, false); };
     x.upload.onload = () => { if (onProgress) onProgress(file.size, file.size, true); };
@@ -2692,24 +2692,43 @@ function uploadLog(id, file, onProgress) {
     x.send(file);
   });
 }
-function logProgressUi(box, loaded, total, done) {
+function logProgressUi(box, loaded, total, done, prefix = '') {
   box.hidden = false;
   const pct = total ? Math.min(100, Math.round((loaded / total) * 100)) : 0;
   box.querySelector('.tr-bar i').style.width = `${done ? 100 : pct}%`;
   box.querySelector('.tr-bar').classList.toggle('busy', Boolean(done));
-  box.querySelector('span').textContent = done ? 'Uploaded. Processing the log…' : `Uploading ${fmtBytes(loaded)} of ${fmtBytes(total)} (${pct}%)`;
+  box.querySelector('span').textContent = done ? `${prefix}uploaded. Processing…` : `${prefix}uploading ${fmtBytes(loaded)} of ${fmtBytes(total)} (${pct}%)`;
 }
 function cxLogNote() {
   const n = $('#cx-lognote'); const c = $('#cx-logclear'); if (!n) return;
-  c.hidden = !cx.logFile;
-  n.className = 'small'; n.textContent = cx.logFile ? `${cx.logFile.name} · ${fmtBytes(cx.logFile.size)}` : '';
+  c.hidden = !cx.logFiles.length;
+  n.className = 'small';
+  n.innerHTML = cx.logFiles.map((f, i) => `<span class="tr-chip">${esc(f.name)} <span class="muted">${esc(fmtBytes(f.size))}</span><button type="button" data-cx-logrm="${i}" title="Remove" aria-label="Remove ${esc(f.name)}">×</button></span>`).join('');
 }
-function cxPickLog(file) {
-  const bad = logFileProblem(file);
-  const n = $('#cx-lognote');
-  if (bad) { cx.logFile = null; cxLogNote(); n.className = 'small sev-error'; n.textContent = bad; cxSync(); return; }
-  cx.logFile = file || null; cxLogNote(); cxSync();
+/** Add the chosen files to the list; files that cannot be uploaded are reported and skipped. */
+function cxPickLog(files) {
+  const list = [...(files || [])]; const problems = [];
+  for (const f of list) {
+    const bad = logFileProblem(f);
+    if (bad) problems.push(bad); else if (cx.logFiles.some((x) => x.name === f.name && x.size === f.size)) problems.push(`“${f.name}” is already in the list.`); else cx.logFiles.push(f);
+  }
+  cxLogNote();
+  if (problems.length) { const n = $('#cx-lognote'); const e = document.createElement('div'); e.className = 'small sev-error'; e.innerHTML = problems.map((x) => esc(x)).join('<br>'); n.appendChild(e); }
+  cxSync();
 }
+/** Upload files one after the other (the server takes one file per request) and add them to the combined statistics. */
+async function uploadLogs(id, files, onStatus, replaceFirst) {
+  const done = []; const failed = [];
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i]; const tag = files.length > 1 ? `File ${i + 1} of ${files.length}: ` : '';
+    try { done.push({ name: f.name, res: await uploadLog(id, f, (l, t, d) => onStatus(tag, f, l, t, d), replaceFirst && i === 0 ? 'replace' : 'add') }); } catch (e) { failed.push({ name: f.name, error: e.message }); }
+  }
+  return { done, failed };
+}
+const logSummaryToast = (r) => {
+  const lines = r.done.reduce((a, d) => a + d.res.stats.lines, 0); const skipped = r.done.reduce((a, d) => a + d.res.stats.unparsed, 0);
+  if (r.done.length) toast(`${r.done.length} log${r.done.length > 1 ? 's' : ''} processed: ${fmtInt(lines)} lines${skipped ? `, ${fmtInt(skipped)} skipped` : ''}${r.failed.length ? `; ${r.failed.length} failed` : ''}`, r.failed.length ? 'err' : 'ok', 6000);
+};
 async function cxSave(ev) {
   ev.preventDefault();
   cxResult('Saving…', 'busy'); $('#cx-save').disabled = true;
@@ -2717,15 +2736,15 @@ async function cxSave(ev) {
     const r = await cxPost(cx.editing ? `/instances/${encodeURIComponent(cx.editing)}` : '/instances', cx.editing ? 'PUT' : 'POST');
     const wasEditing = cx.editing; const configOnly = $('#cx-test').hidden;
     let logRes = null; let logErr = null;
-    if (cx.logFile) { // the instance exists now: send the log, with progress. A failed log never undoes the saved instance.
-      cxResult('Saved. Uploading the log…', 'busy');
-      try { logRes = await uploadLog(r.id, cx.logFile, (l, t, d) => logProgressUi($('#cx-logprog'), l, t, d)); } catch (e) { logErr = e.message; }
-      $('#cx-logprog').hidden = true;
+    if (cx.logFiles.length) { // the instance exists now: send the logs one by one, with progress. A failed log never undoes the saved instance.
+      cxResult('Saved. Uploading the logs…', 'busy');
+      logRes = await uploadLogs(r.id, cx.logFiles, (tag, f, l, t, d) => logProgressUi($('#cx-logprog'), l, t, d, `${tag}${f.name}: `), false);
+      $('#cx-logprog').hidden = true; if (!logRes.done.length) { logErr = logRes.failed.map((x) => `${x.name}: ${x.error}`).join(' · '); logRes = null; }
     }
     cxClose();
     await enterLive(r.id);
-    if (logRes) { toast(`Traffic log processed: ${fmtInt(logRes.stats.lines)} lines${logRes.stats.unparsed ? `, ${fmtInt(logRes.stats.unparsed)} skipped` : ''}`, 'ok', 5000); if (typeof TR !== 'undefined') { TR.inst = null; TR.data = null; } switchView('traffic'); }
-    else if (logErr) { toast(`Saved, but the log was not processed: ${logErr}`, 'err', 9000); if (typeof TR !== 'undefined') { TR.inst = null; TR.data = null; TR.upErr = logErr; } switchView('traffic'); }
+    if (logRes) { logSummaryToast(logRes); if (typeof TR !== 'undefined') { TR.inst = null; TR.data = null; TR.upErr = logRes.failed.length ? logRes.failed.map((x) => `${x.name}: ${x.error}`).join(' · ') : null; } switchView('traffic'); }
+    else if (logErr) { toast(`Saved, but the logs were not processed: ${logErr}`, 'err', 9000); if (typeof TR !== 'undefined') { TR.inst = null; TR.data = null; TR.upErr = logErr; } switchView('traffic'); }
     else toast(wasEditing ? 'Instance updated' : configOnly ? 'Config saved as an instance (no live data)' : 'Connected: live data will appear in a few seconds', 'ok');
   } catch (e) { cxResult(`✗ ${e.message}`, 'err'); }
   $('#cx-save').disabled = false;
@@ -2926,8 +2945,9 @@ function wire() {
   $('#cx-close').addEventListener('click', cxClose);
   $('#connect').addEventListener('mousedown', (e) => { if (e.target.id === 'connect') cxClose(); });
   $$('input[name="cx-type"]').forEach((r) => r.addEventListener('change', cxSync));
-  $('#cx-logfile').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; cxPickLog(f); });
-  $('#cx-logclear').addEventListener('click', () => { cx.logFile = null; cxLogNote(); cxSync(); });
+  $('#cx-logfile').addEventListener('change', (e) => { const f = [...e.target.files]; e.target.value = ''; cxPickLog(f); });
+  $('#cx-lognote').addEventListener('click', (e) => { const b = e.target.closest('[data-cx-logrm]'); if (b) { cx.logFiles.splice(+b.dataset.cxLogrm, 1); cxLogNote(); cxSync(); } });
+  $('#cx-logclear').addEventListener('click', () => { cx.logFiles = []; cxLogNote(); cxSync(); });
   ['#cx-cfgfiles', '#cx-cfgfolder'].forEach((q) => $(q).addEventListener('change', async (e) => { const l = [...e.target.files]; e.target.value = ''; await cxPickFiles(l); }));
   $('#cx-cfgclear').addEventListener('click', () => { cx.files = []; $('#cx-cfgtext').value = ''; cxFilesNote(); cxSync(); });
   ['#cx-url', '#cx-socket', '#cx-plus', '#cx-cfgtext', '#cx-cfgurls'].forEach((q) => $(q).addEventListener('input', () => { if (q === '#cx-cfgtext' && $(q).value) cx.files = []; cxFilesNote(); cxSync(); }));

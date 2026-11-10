@@ -130,3 +130,29 @@ test('API: log-only instance, upload, stats, replace, delete; size limit, bad fi
     assert.ok(!fs.existsSync(path.join(t.settings.ui.dir, 'logs', `${id}.json`)));
   } finally { await t.close(); }
 });
+
+test('API: several files are combined, duplicates refused, one file can be removed, replace starts over', async () => {
+  const { mergeResults } = require('../src/logs/merge');
+  const t = await startApp({ INSTANCES_FILE: emptyInst(), DATA_DIR: tmp(), ALLOW_UI_INSTANCES: 'true', LOG_MAX_MB: '1' });
+  try {
+    const made = await fetch(`${t.base}/api/instances`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...A }, body: JSON.stringify({ type: 'haproxy', name: 'multi', logOnly: true }) });
+    const id = (await made.json()).id; const base = `/api/instances/${id}/logs`;
+    const L = String(LOG).split('\n').filter(Boolean); const second = L.slice(0, 120).join('\n');
+    const a = await put(t.base, `${base}?filename=a.log`, LOG); assert.equal(a.status, 200);
+    const b = await put(t.base, `${base}?filename=b.log`, second); assert.equal(b.status, 200, JSON.stringify(b.json));
+    assert.equal(b.json.combined.files, 2); assert.equal(b.json.combined.lines, a.json.stats.lines + b.json.stats.lines);
+    const full = (await get(t.base, base, A)).json;
+    assert.equal(full.source.files.length, 2); assert.equal(full.stats.http + full.stats.tcp, a.json.stats.http + a.json.stats.tcp + b.json.stats.http + b.json.stats.tcp);
+    const sumN = full.facts.n.reduce((x, y) => x + y, 0); assert.equal(sumN, full.stats.http + full.stats.tcp); // facts add up to the combined count
+    assert.equal((await put(t.base, `${base}?filename=b.log`, second)).status, 409); // same file again
+    const rm = await fetch(`${t.base}${base}?part=${full.source.files[0].part}`, { method: 'DELETE', headers: A }); assert.equal((await rm.json()).ok, true);
+    const after = (await get(t.base, base, A)).json; assert.equal(after.source.files.length, 1); assert.equal(after.source.filename, 'b.log');
+    const rep = await put(t.base, `${base}?filename=c.log&mode=replace`, LOG); assert.equal(rep.json.combined.files, 1);
+    assert.equal((await get(t.base, base, A)).json.source.filename, 'c.log');
+  } finally { await t.close(); }
+  // merging is order independent for the totals
+  const mk = (txt) => { const g = createAggregator(); String(txt).split('\n').forEach((l) => g.push(l)); return JSON.parse(JSON.stringify(g.finish({ source: { filename: 'x', bytes: 1, lines: 1 } }))); };
+  const r1 = mk(LOG); const r2 = mk(String(LOG).split('\n').slice(0, 50).join('\n'));
+  const ab = mergeResults([r1, r2]); const ba = mergeResults([r2, r1]);
+  assert.equal(ab.stats.http, ba.stats.http); assert.equal(ab.facts.n.reduce((x, y) => x + y, 0), ba.facts.n.reduce((x, y) => x + y, 0));
+});
