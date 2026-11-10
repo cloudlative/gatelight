@@ -182,6 +182,7 @@ The **Traffic flow** page answers "if a client asks for this, where does it go, 
 - **Status filter**: show only what is **alive** (a healthy member), **not alive** (no healthy member or undefined backend) or **unused** (no traffic now, or a rule that can never match), on every tab. In *Domains* the servers inside each card are filtered one by one. Needs live stats.
 - **Port map**: every listener port, the frontend and pool it reaches, the backend port(s), and whether TLS ends at the proxy, is re-encrypted, or passes through.
 - **URI map**: for each routing rule, the match, the rewrites that run (`replace-path`, `set-path`, `set-uri`, `rewrite`, the URI part of `proxy_pass`, `proxy_set_header Host`), and an example such as `/api/users` becoming `/users`.
+- **Diagram**: listeners, rules and pools in three columns, with `listener→backend` ports on the lines; click one to see only its relationships.
 - **Try a request**: enter host, path, port and method and follow it step by step: the redirect or auth rule that fires, the rule that wins, the rewrite, the member ports it reaches.
 - **Routing findings**: rules that can never match because an earlier one catches everything, health checks that probe a different port than traffic, TLS spoken to `:80` or plain traffic sent to `:443`, a server that points at the proxy's own listener, the classic NGINX trailing-slash mismatch, `rewrite … break` silently ignoring the `proxy_pass` URI.
 - The same details appear in the Topology hover text and in the routing-rule inspector.
@@ -233,7 +234,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 <td width="50%"></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/img/topology-nginx.png" alt="NGINX topology"><br><sub><b>NGINX too</b>: server blocks, locations and upstreams, with ports and URL mappings one click away in Traffic flow.</sub></td>
+<td width="50%"><img src="docs/img/topology-nginx.png" alt="NGINX topology"><br><sub><b>NGINX too</b>: server blocks, locations and upstreams, plus a resizable URL map.</sub></td>
 <td width="50%"><img src="docs/img/audit.png" alt="Configuration audit with charts and findings"><br><sub><b>Config audit</b>: every finding has a line number and a fix, with charts.</sub></td>
 </tr>
 <tr>
