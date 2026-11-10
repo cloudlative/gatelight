@@ -131,6 +131,8 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 
 **See**
 - **Relationship map**: frontends / `server {}` blocks → routing rules (`use_backend … if acl`, `location /x`) → backends / upstreams → servers. Live status colours, traffic-weighted edges, orphans and broken routes highlighted, click a node to focus its path, double-click for its details page, PNG export, full-screen mode.
+- **L7 and L4 at a glance**: every frontend and pool is labelled **L7** (HTTP: host, path, headers, rewrites) or **L4** (TCP: ports and TLS SNI only, dashed), with a layer filter and tooltips explaining what each layer can and cannot see.
+- **Traffic flow**: follow a request from listener port to backend `ip:port`, where TLS ends or restarts, and the exact path your backend receives after rewrites. Each relationship is marked **active / idle / down / never used**, and *Try a request* traces any URL through the config.
 - **Four layouts**: *Layers*, *Flow*, *Mind map* (shows the URIs each node handles) and *Tree* (a `tree`-style outline you can fold and copy).
 - **Infrastructure**: the infrastructure behind the load balancer with an aliveness status per server, as a foldable hierarchy (load balancer → networks → hosts → services), or grouped by pool or by host, with "only alive" / "only not alive" filters.
 - **Graphs**: Grafana-style charts for requests/s, session rate, sessions, 5xx, throughput, response time and servers up/down, plus a chart per server, pool and frontend. Drag to zoom, ✋ to pan, step through time, shared crosshair, clickable legends with per-series stats, full-screen. HTTP response and error **donut charts** per instance and per backend.
@@ -145,11 +147,13 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 
 **Use it your way**
 - **Review a config offline**: drop a `haproxy.cfg`, an `nginx.conf` or a **whole folder** (with `conf.d/` includes). Nothing is saved; it is analysed in memory and cleared with one click.
+- **Refresh from server**: point GateLight at the URL (or file) your config is served from and pull the current version with one click, with a summary of what changed. Read-only: `GET` only.
 - **Keep configs as named instances** and **Update config** whenever the file changes: the map, audit and URL map are rebuilt and anything that disappeared is dropped.
 - **Connect from the browser**: add a server (URL, user, password) in the UI. Connections are private to the browser that added them.
 - **CI-ready CLI**: `gatelight audit haproxy.cfg --fail-on error`, with GitHub annotation output.
 
 **Built for real teams**
+- **Read-only toward your load balancers, enforced in code**: only `GET`/`HEAD`, only `show stat` / `show info` on the HAProxy Runtime API, config files never written. Covered by tests.
 - Password **sign-in** (hashed passwords supported), a profile page, multi-instance fleet view, secret redaction everywhere, strict CSP, no CDN dependencies (works air-gapped), light and dark themes, command palette (`Ctrl/⌘ K`), keyboard shortcuts.
 
 
@@ -200,6 +204,10 @@ It follows the official semantics. In HAProxy, a server written without a port u
 <tr>
 <td width="50%"><img src="docs/img/topology-nginx.png" alt="NGINX topology with URL map"><br><sub><b>NGINX too</b>: server blocks, locations and upstreams, plus a resizable URL map.</sub></td>
 <td width="50%"><img src="docs/img/audit.png" alt="Configuration audit with charts and findings"><br><sub><b>Config audit</b>: every finding has a line number and a fix, with charts.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/img/traffic-flow-diagram.png" alt="Traffic flow diagram: listeners, rules and pools with ports, member IPs and live status"><br><sub><b>Traffic flow</b>: listener → rule → pool with backend IPs and ports, and live / idle / never-used relationships.</sub></td>
+<td width="50%"><img src="docs/img/traffic-flow.png" alt="Try a request: every step, the winning rule and the rewritten path"><br><sub><b>Try a request</b>: follow any URL step by step through the config.</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/img/details.png" alt="Details page for a backend"><br><sub><b>Details</b>: a page per item, not a panel in the way.</sub></td>
