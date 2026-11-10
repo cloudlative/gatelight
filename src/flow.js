@@ -415,14 +415,68 @@ function portMatrix(flows) {
   return [...rows.values()].sort((a, b) => Number(a.listener) - Number(b.listener) || a.frontend.localeCompare(b.frontend));
 }
 
+
+// ------------------------------------------------------------------------------------------------ domains
+const domainKind = (n) => (n === '_' || n === '(any host)' ? 'catchall' : /^\(dynamic/.test(n) ? 'dynamic' : n.startsWith('~') ? 'regex' : n.startsWith('*.') || n.startsWith('.') || n.endsWith('.*') ? 'wildcard' : 'exact');
+const DOM_ORDER = { exact: 0, wildcard: 1, regex: 2, dynamic: 3, catchall: 4 };
+
+/** Domain-first view: for each host name, the listeners it is served on, what it redirects to or routes to, and where that leads. */
+function buildDomains(product, sections, flows) {
+  const map = new Map(); const findings = []; const seen = new Map();
+  const get = (name) => { let d = map.get(name); if (!d) { d = { name, kind: domainKind(name), frontends: [], listeners: [], isDefault: false, redirects: [], rules: [], local: false, dynamic: false }; map.set(name, d); } return d; };
+  const addL = (d, ls, fe) => { if (fe && !d.frontends.includes(fe)) d.frontends.push(fe); for (const l of ls) if (l.port && !d.listeners.some((x) => x.port === l.port && x.tls === l.tls)) d.listeners.push({ port: l.port, tls: l.tls }); };
+  const summary = (f) => ({
+    index: f.match.index, frontend: f.frontend, type: f.match.type, text: f.match.type === 'default' ? 'everything else' : (f.match.text || 'any request'), path: f.match.path || null,
+    pool: f.pool.name, undefined: Boolean(f.pool.undefined), dynamic: Boolean(f.pool.dynamic),
+    targets: [...new Set(f.portMap.flatMap((p) => p.targets))], ports: [...new Set(f.portMap.flatMap((p) => p.out))], tls: f.tls, example: f.example || null, shadowedBy: f.shadowedBy || null, mode: f.mode,
+    listeners: f.portMap.map((p) => ({ port: p.in, tls: p.listenerTls })), tlsKinds: f.portMap.map((p) => ({ port: p.in, tls: p.tls })),
+    // domain -> server -> port mapping: where each member is reached, per listener port
+    servers: f.members.map((m) => ({ name: m.name, address: m.address, ssl: m.ssl, backup: m.backup, disabled: m.disabled, checkPort: m.checkPort, count: m.count,
+      maps: f.portMap.map((p) => ({ in: p.in, tls: p.listenerTls, target: m.addr.kind === 'socket' ? m.address : `${m.addr.host}${m.addr.mode === 'env' ? '' : `:${resolvePort(m.addr, p.in) == null ? '?' : resolvePort(m.addr, p.in)}`}` })) })),
+  });
+  if (product === 'nginx') {
+    for (const sec of sections.filter((x) => x.type === 'frontend' && !x.isStream)) {
+      const names = (sec.serverNames && sec.serverNames.length ? sec.serverNames : ['_']).filter(Boolean);
+      const ls = listenersOf(sec);
+      // a redirect that answers every request of this block: a server-level `return 30x`, or `location / { return 30x ...; }`
+      let red = (sec.directives || []).find((x) => x.keyword === 'return' && (x.within || []).length === 0 && /^30[12378]$/.test(x.args[0] || ''));
+      if (!red) { const rl = (sec.locations || []).find((l) => l.kind === 'return' && l.path === '/' && !/^~/.test(l.modifier || '') && /^30[12378]\b/.test(l.detail || '')); if (rl) { const a = rl.detail.split(/\s+/); red = { args: a, line: rl.line }; } }
+      const dflt = (sec.binds || []).some((b) => (b.flags || []).includes('default_server'));
+      const mine = flows.filter((f) => f.frontend === sec.name);
+      for (const n of names) {
+        const d = get(n); addL(d, ls, sec.name);
+        if (dflt) d.isDefault = true;
+        if (red && !mine.length) d.redirects.push({ ports: [...new Set(ls.map((l) => l.port).filter(Boolean))], code: red.args[0], to: red.args.slice(1).join(' '), line: red.line });
+        for (const f of mine) d.rules.push(summary(f));
+        for (const l of ls) { const k = `${n}|${l.port}`; if (seen.has(k) && seen.get(k) !== sec.name && n !== '_') findings.push({ id: 'flow-domain-duplicate', severity: 'warning', category: 'routing', section: sec.name, line: sec.line, title: `"${n}" is served by two server blocks on :${l.port}`, detail: `${seen.get(k)} and ${sec.name} both declare server_name ${n} on port ${l.port}. NGINX uses the first one and ignores the other for this name (and warns about a conflicting server name).`, fix: 'Keep the name in one server block, or give the blocks different listen addresses.' }); else seen.set(k, sec.name); }
+      }
+    }
+  } else {
+    for (const f of flows) {
+      if (f.pool.dynamic) { const d = get('(dynamic host routing)'); d.dynamic = true; addL(d, f.listeners, f.frontend); d.rules.push({ ...summary(f), text: `${f.pool.name} (resolved at runtime)` }); continue; }
+      const hosts = f.match.hosts && f.match.hosts.length ? f.match.hosts : ['(any host)'];
+      for (const h of hosts) { const d = get(h); addL(d, f.listeners, f.frontend); d.rules.push(summary(f)); }
+    }
+  }
+  for (const d of map.values()) {
+    d.local = product === 'nginx' && !d.rules.length && !d.redirects.length;
+    d.tls = d.listeners.some((l) => l.tls); d.plainOnly = d.listeners.length > 0 && !d.tls;
+    d.pools = [...new Set(d.rules.map((r) => r.pool))]; d.targets = [...new Set(d.rules.flatMap((r) => r.targets))];
+    if (d.kind === 'exact' && d.plainOnly && d.rules.length) findings.push({ id: 'flow-domain-plain-only', severity: 'info', category: 'routing', section: d.frontends[0], line: d.rules[0] ? undefined : undefined, title: `"${d.name}" is served over plain HTTP only`, detail: `No TLS listener serves ${d.name}: traffic to it is not encrypted between the client and the load balancer.`, fix: 'Add an `ssl` listener for it and redirect :80 to HTTPS, unless it is an internal-only name.' });
+  }
+  const list = [...map.values()].sort((a, b) => DOM_ORDER[a.kind] - DOM_ORDER[b.kind] || a.name.localeCompare(b.name));
+  return { list, findings };
+}
+
 function buildFlows(product, sections) {
   const flows = product === 'nginx' ? ngxFlows(sections) : hapFlows(sections);
   const findings = analyse(product, flows, sections);
+  const dom = buildDomains(product, sections, flows); findings.push(...dom.findings);
   const strip = (s) => ({ applies: s.applies, stage: s.stage, scope: s.scope, action: s.action, args: s.args, cond: s.cond || '', condText: s.condText || '', line: s.line, text: s.text, kind: s.kind, note: s.note });
   const out = flows.map((f) => ({ ...f, chain: f.chain.map(strip), match: { ...f.match, matchers: undefined, raw: f.match.raw } }));
   return {
-    product, flows: out, portMatrix: portMatrix(flows), findings,
-    summary: { flows: out.length, listeners: new Set(flows.flatMap((f) => f.ports)).size, rewrites: out.filter((f) => f.chain.some((s) => s.kind === 'path')).length, findings: findings.length },
+    product, flows: out, domains: dom.list, portMatrix: portMatrix(flows), findings,
+    summary: { domains: dom.list.length, flows: out.length, listeners: new Set(flows.flatMap((f) => f.ports)).size, rewrites: out.filter((f) => f.chain.some((s) => s.kind === 'path')).length, findings: findings.length },
   };
 }
 

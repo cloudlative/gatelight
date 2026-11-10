@@ -176,6 +176,7 @@ The **Traffic flow** page answers "if a client asks for this, where does it go, 
 
 <img src="docs/img/traffic-flow.png" alt="Traffic flow: try a request, see every step, the backend port and the rewritten URI" width="100%">
 
+- **Domains**: one card per host name (`server_name` or a host ACL, including wildcard, default and catch-all names): the ports it is served on, redirects (`:80 → 301 https://…`), the rules that route it, and for every pool each **server with the address and port each listener port ends up at**, with live status. A *Trace* button runs the request for that domain. Findings: the same name in two server blocks on one port, names served over plain HTTP only.
 - **Port map**: every listener port, the frontend and pool it reaches, the backend port(s), and whether TLS ends at the proxy, is re-encrypted, or passes through.
 - **URI map**: for each routing rule, the match, the rewrites that run (`replace-path`, `set-path`, `set-uri`, `rewrite`, the URI part of `proxy_pass`, `proxy_set_header Host`), and an example such as `/api/users` becoming `/users`.
 - **Diagram**: listeners, rules and pools in three columns, with `listener→backend` ports on the lines.
@@ -206,6 +207,7 @@ It follows the official semantics. In HAProxy, a server written without a port u
 <td width="50%"><img src="docs/img/audit.png" alt="Configuration audit with charts and findings"><br><sub><b>Config audit</b>: every finding has a line number and a fix, with charts.</sub></td>
 </tr>
 <tr>
+<td width="50%"><img src="docs/img/traffic-flow-domains.png" alt="Domains: each host name with its ports, redirects, rules and servers with their addresses"><br><sub><b>Domains</b>: domain → listener port → server address and port, with redirects and live status.</sub></td>
 <td width="50%"><img src="docs/img/traffic-flow-diagram.png" alt="Traffic flow diagram: listeners, rules and pools with ports, member IPs and live status"><br><sub><b>Traffic flow</b>: listener → rule → pool with backend IPs and ports, and live / idle / never-used relationships.</sub></td>
 <td width="50%"><img src="docs/img/traffic-flow.png" alt="Try a request: every step, the winning rule and the rewritten path"><br><sub><b>Try a request</b>: follow any URL step by step through the config.</sub></td>
 </tr>

@@ -30,7 +30,7 @@
     ['Graphs', 'Zoom by dragging, pan with the hand tool, one shared crosshair, clickable legends and donut charts for HTTP errors. Up to 7 days of history.'],
     ['Infrastructure', 'Load balancer, networks, hosts and services in a foldable hierarchy, each with its aliveness.'],
     ['Topology', 'Frontends, routing rules, pools and servers with live traffic. Click a node to focus its path.'],
-    ['Traffic flow', 'Listener to rule to pool, with backend IPs and ports, where TLS ends, the path your backend receives, and which relationships are live.'],
+    ['Traffic flow', 'Every domain with its listener ports, redirects, rules and servers (address and port), where TLS ends, the path your backend receives, and which relationships are live.'],
     ['Mind map', 'The same map as a radial mind map, with the URIs each node handles written on it.'],
     ['Tree', 'The whole estate as an outline, like the tree command. Fold it, copy it as text.'],
     ['NGINX', 'NGINX too: server blocks, locations and upstreams, plus a resizable URL map.'],

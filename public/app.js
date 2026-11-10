@@ -1297,7 +1297,7 @@ function renderValidate() {
 
 
 // ---------- TRAFFIC FLOW: listener port -> backend port, and what happens to the URI on the way ----------
-const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'ports' };
+const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'domains', dq: '' };
 const TLS_LABEL = { terminate: 'TLS ended here → plain', 're-encrypt': 'TLS → TLS (re-encrypted)', upgrade: 'plain → TLS', plain: 'plain → plain', passthrough: 'TCP passthrough' };
 async function flowLoad(force) {
   if (FLOW.loading) return;
@@ -1396,6 +1396,36 @@ function flowSvg(flows) {
   // <title> tooltips are slow and unreliable: carry the text in data-tip and show it with our own instant tooltip
   return `${out}</svg>`.replace(/<g( class="[^"]*")?><title>([\s\S]*?)<\/title>/g, (_m, c, t) => `<g${c || ''} data-tip="${t}">`);
 }
+
+// Domain -> listener -> rule -> pool -> server:port. One card per host name.
+function flowDomainsHtml(d, hap) {
+  const q = FLOW.dq.trim().toLowerCase(); const rows = state.snapshot && state.snapshot.rows ? state.snapshot.rows : [];
+  const KIND = { wildcard: 'wildcard', regex: 'regex', catchall: hap ? 'no host condition' : 'catch-all (_)', dynamic: 'resolved at runtime' };
+  const list = (d.domains || []).filter((m) => (!FLOW.fe || m.frontends.includes(FLOW.fe)) && (!q || `${m.name} ${m.pools.join(' ')} ${m.targets.join(' ')} ${m.rules.flatMap((r) => r.servers.map((v) => v.name)).join(' ')}`.toLowerCase().includes(q)));
+  if (!list.length) return '<div class="panel"><div class="empty">No domains match</div></div>';
+  const lis = (m) => m.listeners.slice().sort((a, b) => Number(a.port) - Number(b.port)).map((l) => portTxt(l.port, l.tls)).join(' ');
+  const card = (m) => {
+    const tags = [KIND[m.kind] ? `<span class="tag">${esc(KIND[m.kind])}</span>` : '', m.isDefault ? '<span class="tag">default server</span>' : '', m.plainOnly && m.rules.length ? '<span class="tag until" title="No TLS listener serves this name">HTTP only</span>' : '', m.local ? '<span class="tag">answers itself (no proxy_pass)</span>' : ''].filter(Boolean).join(' ');
+    const rules = m.rules.map((r) => {
+      const st = r.shadowedBy ? { k: 'dead' } : poolStatus(r.pool, r.undefined);
+      const srv = r.servers.length ? `<table class="grid dom-srv"><thead><tr><th>Server</th><th>Listener port → server address</th><th></th></tr></thead><tbody>${r.servers.map((v) => {
+        const row = rows.find((x) => x.proxy === r.pool && x.kind === 'server' && x.name === v.name);
+        return `<tr><td>${row ? stBadge(row.state, row.status) : ''} <b>${esc(v.name)}</b>${v.count > 1 ? ` <span class="muted small">×${v.count}</span>` : ''}</td>
+          <td>${v.maps.map((mp) => `<span class="pt${mp.tls ? ' tls' : ''}">${mp.tls ? '🔒 ' : ''}:${esc(mp.in)}</span> → <span class="pt${v.ssl ? ' tls' : ''}">${v.ssl ? '🔒 ' : ''}${esc(mp.target)}</span>`).join('<br>')}</td>
+          <td class="small">${v.backup ? '<span class="tag">backup</span> ' : ''}${v.disabled ? '<span class="tag until">disabled</span> ' : ''}${v.checkPort != null ? `<span class="muted">check :${v.checkPort}</span>` : ''}</td></tr>`; }).join('')}</tbody></table>`
+        : `<div class="muted small dom-nosrv">${r.undefined ? '<span class="sev-error">Backend not defined</span>: requests get a 503' : r.dynamic ? 'Pool is chosen at runtime from a request value' : 'No servers listed'}</div>`;
+      const ex = r.example && r.example.changed ? ` <span class="muted small">backend receives <code>${esc(r.example.in)}</code> → <code>${esc(r.example.out)}</code></span>` : '';
+      const tlsK = [...new Set((r.tlsKinds || []).map((x) => TLS_LABEL[x.tls] || x.tls))].join(' · ');
+      return `<div class="dom-rule${r.shadowedBy ? ' dim' : ''}"><div class="dom-rt">${stDot(st.k)} <span class="mono">${esc(r.text)}</span> <span class="muted">→</span> <b>${esc(r.pool)}</b> ${tlsK ? `<span class="tag">${esc(tlsK)}</span>` : ''}${r.shadowedBy ? ` <span class="tag until">shadowed by #${r.shadowedBy}</span>` : ''}${ex}</div>${srv}</div>`;
+    }).join('');
+    const red = (m.redirects || []).map((x) => `<div class="dom-red">↪ ${x.ports.map((p) => `<span class="pt">:${esc(p)}</span>`).join(' ')} <b>${esc(x.code)}</b> redirect to <code>${esc(x.to)}</code> <span class="muted small">(never reaches a backend)</span></div>`).join('');
+    const first = m.listeners.find((l) => l.tls) || m.listeners[0];
+    return `<div class="panel dom-card"><div class="dom-h"><span class="dom-n mono">${esc(m.name)}</span> ${tags}<span class="spacer"></span><span class="dom-l">${lis(m)}</span>
+      <button type="button" class="btn small-btn" data-flow-dom="${esc(m.name)}|${esc(first ? first.port : '')}|${first && first.tls ? 1 : 0}" title="Trace a request for this domain">Trace</button></div>
+      ${m.frontends.length ? `<div class="muted small dom-fe">${esc(lbl('frontend'))}: ${m.frontends.map(esc).join(', ')}</div>` : ''}${red}${rules}</div>`;
+  };
+  return `<p class="muted small flow-note">One card per domain (host name): the ports it is served on, what it redirects or routes to, and for each pool every server with the address and port each listener port ends up at.</p>${list.map(card).join('')}`;
+}
 function flowTraceHtml() {
   const t = FLOW.trace;
   if (FLOW.traceErr) return `<div class="flow-trace"><div class="empty">${esc(FLOW.traceErr)}</div></div>`;
@@ -1429,11 +1459,12 @@ function renderFlow() {
       <label>Method<select id="flow-method">${['GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS'].map((m) => `<option${rq.method === m ? ' selected' : ''}>${m}</option>`).join('')}</select></label>
       <button class="btn primary" type="button" data-flow-trace>${FLOW.tracing ? 'Tracing…' : 'Trace'}</button></div>${flowTraceHtml()}</div>`;
   const sum = d.summary;
-  const stats = `<div class="panel val-sum"><div class="val-counts"><span><b>${sum.listeners}</b> listener ports</span><span><b>${sum.flows}</b> routing rules</span><span><b>${sum.rewrites}</b> rewrite the URI</span><span><b class="${sum.findings ? 'sev-warning' : ''}">${sum.findings}</b> routing findings</span></div></div>`;
-  const tabs = [['ports', 'Port map'], ['uri', 'URI map'], ['diagram', 'Diagram']];
-  const chips = `<div class="chips">${tabs.map(([k, t]) => `<span class="chip ${FLOW.tab === k ? 'on' : ''}" data-flow-tab="${k}">${t}</span>`).join('')}${fes.length > 1 ? `<span class="muted">|</span><select id="flow-fe" aria-label="Filter by ${esc(lbl('frontend').toLowerCase())}"><option value="">All ${esc(lbl('frontend').toLowerCase())}s</option>${fes.map((x) => `<option value="${esc(x)}"${FLOW.fe === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}</div>`;
+  const stats = `<div class="panel val-sum"><div class="val-counts"><span><b>${sum.domains}</b> domain${sum.domains === 1 ? '' : 's'}</span><span><b>${sum.listeners}</b> listener ports</span><span><b>${sum.flows}</b> routing rules</span><span><b>${sum.rewrites}</b> rewrite the URI</span><span><b class="${sum.findings ? 'sev-warning' : ''}">${sum.findings}</b> routing findings</span></div></div>`;
+  const tabs = [['domains', 'Domains'], ['ports', 'Port map'], ['uri', 'URI map'], ['diagram', 'Diagram']];
+  const chips = `<div class="chips">${tabs.map(([k, t]) => `<span class="chip ${FLOW.tab === k ? 'on' : ''}" data-flow-tab="${k}">${t}</span>`).join('')}${FLOW.tab === 'domains' ? `<input id="flow-dq" type="search" placeholder="Filter domains, pools, servers, IPs…" value="${esc(FLOW.dq)}" aria-label="Filter domains" autocomplete="off">` : ''}${fes.length > 1 ? `<span class="muted">|</span><select id="flow-fe" aria-label="Filter by ${esc(lbl('frontend').toLowerCase())}"><option value="">All ${esc(lbl('frontend').toLowerCase())}s</option>${fes.map((x) => `<option value="${esc(x)}"${FLOW.fe === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}</div>`;
   let body = '';
-  if (FLOW.tab === 'ports') {
+  if (FLOW.tab === 'domains') body = flowDomainsHtml(d, hap);
+  else if (FLOW.tab === 'ports') {
     const rows = d.portMatrix.filter((r) => !FLOW.fe || r.frontend === FLOW.fe);
     body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend address(es)</th><th>Status</th><th>Layer</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
       ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td>${(() => { const st = poolStatus(r.pool, r.undefined); return `<span class="st-chip" title="${esc(st.text)}">${stDot(st.k)} ${esc(FLOW_ST[st.k])}</span>`; })()}</td><td><span class="tag layer-${r.mode === 'tcp' ? 'l4' : 'l7'}">${r.mode === 'tcp' ? 'L4' : 'L7'}</span></td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No listeners found</td></tr>'}</tbody></table></div>
@@ -2707,7 +2738,7 @@ function iselWire() {
   document.addEventListener('mouseleave', () => { const t = $('#fl-tip'); if (t) t.hidden = true; });
   // Traffic flow page: keep the form values, filter by entry point, Enter runs the trace
   const flowSync = () => { FLOW.req = { host: ($('#flow-host') || {}).value || '', path: ($('#flow-path') || {}).value || '/', port: ($('#flow-port') || {}).value || '', method: ($('#flow-method') || {}).value || 'GET' }; };
-  document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('.flow-form')) flowSync(); });
+  document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('.flow-form')) flowSync(); if (e.target.id === 'flow-dq') { FLOW.dq = e.target.value; const pos = e.target.selectionStart; renderFlow(); const n = $('#flow-dq'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } } });
   document.addEventListener('change', (e) => { if (e.target.id === 'flow-fe') { FLOW.fe = e.target.value; renderFlow(); } else if (e.target.closest && e.target.closest('.flow-form')) flowSync(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.closest && e.target.closest('.flow-form') && e.target.tagName === 'INPUT') { e.preventDefault(); flowSync(); flowTrace(); } });
   $('#instance-select').addEventListener('change', iselSync);
@@ -2866,6 +2897,8 @@ function wire() {
     if (e.target.closest('[data-val-run]')) { const v = $('#val-version'); VAL.version = v ? v.value.trim() : ''; const b = $('#val-build'); if (b) VAL.build = b.value.trim(); valLoad(true); return; }
     if (e.target.closest('[data-val-build]')) { const b = $('#val-build'); if (b) VAL.build = b.value; VAL.buildOpen = !VAL.buildOpen; renderValidate(); return; }
     if (e.target.closest('[data-flow-trace]')) { FLOW.req = { host: ($('#flow-host') || {}).value || '', path: ($('#flow-path') || {}).value || '/', port: ($('#flow-port') || {}).value || '', method: ($('#flow-method') || {}).value || 'GET' }; flowTrace(); return; }
+    const fd = e.target.closest('[data-flow-dom]');
+    if (fd) { const [name, port, tls] = fd.dataset.flowDom.split('|'); const host = name.startsWith('*.') ? `test${name.slice(1)}` : name.startsWith('.') ? `www${name}` : /^[(_~]/.test(name) || name.endsWith('.*') ? '' : name; FLOW.req = { host, path: '/', port, method: 'GET' }; FLOW.trace = null; flowTrace().then(() => { const el = $('.flow-try'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); return; }
     const ft = e.target.closest('[data-flow-tab]'); if (ft) { FLOW.tab = ft.dataset.flowTab; renderFlow(); return; }
     const vt = e.target.closest('[data-val-tab]'); if (vt) { VAL.tab = vt.dataset.valTab; renderValidate(); return; }
     const vs = e.target.closest('[data-val-sev]'); if (vs) { VAL.sev = vs.dataset.valSev; renderValidate(); return; }

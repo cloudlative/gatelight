@@ -180,3 +180,45 @@ test('flows and the port map carry the layer: tcp mode is L4, http mode is L7', 
   const n = buildFlows('nginx', parseNginxFiles([{ name: 'nginx.conf', content: 'events {}\nstream { upstream q { server 10.0.0.1:1883; } server { listen 1883; proxy_pass q; } }\nhttp { server { listen 80; location / { proxy_pass http://127.0.0.1:8080; } } }' }]).sections);
   assert.deepEqual(n.portMatrix.map((x) => `${x.listener}:${x.mode}`).sort(), ['1883:tcp', '80:http']);
 });
+
+test('domains: names, wildcard / default / catch-all kinds, redirect-only names, duplicates and plain-HTTP-only', () => {
+  const nx = parseNginxFiles([{ name: 'nginx.conf', content: [
+    'events {}', 'http {', ' upstream api { server 10.0.0.1:9000; server 10.0.0.2:9000; }',
+    ' server { listen 443 ssl; listen 80; server_name shop.example.com www.example.com; location /api/ { proxy_pass http://api/v1/; } location / { proxy_pass http://10.0.0.9:8080; } }',
+    ' server { listen 80; server_name old.example.com; return 301 https://shop.example.com$request_uri; }',
+    ' server { listen 80; server_name *.cdn.example.com; location / { proxy_pass http://api; } }',
+    ' server { listen 80 default_server; server_name _; location / { return 404; } }',
+    ' server { listen 80; server_name old.example.com; location / { proxy_pass http://api; } }',
+    ' server { listen 8080; server_name internal.example.com; location / { proxy_pass http://api; } }', '}',
+  ].join('\n') }]).sections;
+  const r = buildFlows('nginx', nx);
+  const by = (n) => r.domains.find((d) => d.name === n);
+  assert.deepEqual(by('shop.example.com').listeners.map((l) => `${l.port}${l.tls ? 'tls' : ''}`).sort(), ['443tls', '80']);
+  assert.deepEqual(by('shop.example.com').rules.map((x) => x.pool).sort(), ['10.0.0.9:8080', 'api']);
+  const api = by('shop.example.com').rules.find((x) => x.pool === 'api');
+  assert.deepEqual(api.servers.map((v) => [v.name, v.maps.map((m) => `${m.in}>${m.target}`).sort().join(' ')]), [['10.0.0.1:9000', '443>10.0.0.1:9000 80>10.0.0.1:9000'], ['10.0.0.2:9000', '443>10.0.0.2:9000 80>10.0.0.2:9000']]); // domain -> server -> port
+  assert.deepEqual(by('shop.example.com').targets.sort(), ['10.0.0.1:9000', '10.0.0.2:9000', '10.0.0.9:8080']);
+  assert.equal(by('old.example.com').redirects[0].code, '301'); // NGINX uses the first block for a duplicated name, so the redirect is what happens
+  assert.equal(by('*.cdn.example.com').kind, 'wildcard');
+  assert.equal(by('_').kind, 'catchall'); assert.equal(by('_').isDefault, true);
+  assert.equal(r.domains.map((d) => d.kind).join(',').replace(/(\w+)(,\1)+/g, '$1'), 'exact,wildcard,catchall');
+  assert.ok(r.findings.some((f) => f.id === 'flow-domain-duplicate' && /old\.example\.com/.test(f.title)));
+  assert.ok(r.findings.some((f) => f.id === 'flow-domain-plain-only' && /internal\.example\.com/.test(f.title)));
+  assert.ok(!r.findings.some((f) => f.id === 'flow-domain-plain-only' && /shop\.example\.com/.test(f.title))); // has a TLS listener
+  const red = buildFlows('nginx', parseNginxFiles([{ name: 'nginx.conf', content: 'events {}\nhttp { server { listen 80; server_name www.a.com; return 301 https://a.com$request_uri; } }' }]).sections).domains.find((d) => d.name === 'www.a.com');
+  assert.deepEqual([red.redirects[0].code, red.redirects[0].to, red.redirects[0].ports], ['301', 'https://a.com$request_uri', ['80']]);
+  const loc = buildFlows('nginx', parseNginxFiles([{ name: 'nginx.conf', content: 'events {}\nhttp { upstream u { server 10.0.0.1:80; } server { listen 80; server_name a.com; location / { return 301 https://$host$request_uri; } } server { listen 443 ssl; server_name a.com; location / { proxy_pass http://u; } } }' }]).sections).domains.find((d) => d.name === 'a.com');
+  assert.equal(loc.redirects[0].ports.join(), '80'); assert.equal(loc.rules.length, 1); assert.equal(loc.local, false); // :80 redirects, :443 routes
+});
+
+test('domains (HAProxy): host ACLs become domains, rules without a host are "(any host)", dynamic host routing is flagged', () => {
+  const s = parseConfig(['frontend f', ' bind :80', ' bind :443 ssl crt /x.pem', ' acl a hdr(host) -i a.example.com b.example.com', ' acl api path_beg /api', ' use_backend pa if a api', ' use_backend pb if a', ' use_backend %[req.hdr(host),lower,map(/m.map)]', ' default_backend d',
+    'backend pa', ' server s 10.0.0.1:81', 'backend pb', ' server s 10.0.0.2:82', 'backend d', ' server s 10.0.0.3:83'].join('\n'));
+  const r = buildFlows('haproxy', s);
+  const by = (n) => r.domains.find((d) => d.name === n);
+  assert.deepEqual(by('a.example.com').rules.map((x) => x.pool), ['pa', 'pb']);
+  assert.deepEqual(by('b.example.com').targets.sort(), ['10.0.0.1:443', '10.0.0.1:81', '10.0.0.2:443', '10.0.0.2:82'].filter((t) => !/:443$/.test(t)).sort());
+  assert.deepEqual(by('(any host)').rules.map((x) => x.pool), ['d']);
+  assert.equal(by('(dynamic host routing)').dynamic, true);
+  assert.equal(r.domains[r.domains.length - 1].kind, 'catchall');
+});

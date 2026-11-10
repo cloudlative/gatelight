@@ -1006,3 +1006,10 @@ ul.tree, .tree ul { list-style: none; margin: 0; padding: 0; } .tree ul { margin
 .cx-urls textarea { width: 100%; font-family: var(--mono); font-size: 12.5px; } .cx-urlnote { display: block; margin: 4px 0 10px; }
 #cfg-refresh[disabled] { opacity: .6; }
 .fs-tb { font-weight: 600; } .fs-sp { fill: var(--cyan); font-family: var(--mono); }
+
+/* ---- Domains ---- */
+.dom-card { margin-bottom: 12px; } .dom-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .dom-n { font-size: 15px; font-weight: 700; } .dom-l { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.dom-fe { margin: 4px 0 2px; } .dom-red { margin: 8px 0 2px; padding: 6px 10px; border-left: 3px solid var(--amber); background: var(--bg-3); border-radius: 6px; } .dom-red code { overflow-wrap: anywhere; }
+.dom-rule { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line); } .dom-rule.dim { opacity: .65; } .dom-rt { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
+.dom-srv { width: 100%; margin: 2px 0 4px; } .dom-srv td { white-space: normal; vertical-align: top; } .dom-nosrv { padding: 4px 2px; }
+#flow-dq { background: var(--bg-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 12.5px; min-width: 240px; flex: 1 1 240px; }
