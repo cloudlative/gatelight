@@ -18,6 +18,7 @@
 - Read-only toward load balancers is now enforced in code: only `GET`/`HEAD` (no body) to servers, only `show stat` / `show info` on the HAProxy Runtime API, tests prevent any other write path.
 
 ### Changed
+- Filters now reset when you navigate: leaving a page (or switching instance) clears that page's search, status, layer, severity and focus filters, so coming back never shows a half-filtered list. Links that open a page with a preset filter (for example an Overview card) still apply it.
 - The app header no longer shows the tagline (it stays on the sign-in page and the website).
 
 ## 3.0.0 — first open-source release

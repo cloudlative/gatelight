@@ -67,6 +67,23 @@ const snapshotType = () => (state.snapshot ? state.snapshot.instance.type : 'hap
 const feLike = (s) => s.type === 'frontend' || s.type === 'listen';
 const beLike = (s) => s.type === 'backend' || s.type === 'listen';
 
+// ---------- filters reset when you navigate ----------
+// Filters belong to the page you are looking at: leaving a page (or switching instance) clears them, so coming back never
+// shows a half-filtered list. Pages opened from a link that sets a filter keep it, because only the page being left is reset.
+const FILTER_RESETS = {
+  topology() { const q = $('#topo-search'); if (q) q.value = ''; const p = $('#topo-problems'); if (p) p.checked = false; const l = $('#topo-layer'); if (l) { l.value = ''; l.dataset.sig = ''; } const u = $('#topo-urls'); if (u) u.checked = true; state.focus = null; state.topoFor = null; const t = $('#topo-sel'); if (t) { t.hidden = true; t.innerHTML = ''; } },
+  services() { for (const id of ['svc-search', 'svc-kind', 'svc-state']) { const e = $(`#${id}`); if (e) e.value = ''; } },
+  graphs() { gr.q = ''; gr.pool = ''; gr.focus.clear(); gr.sig = ''; const e = $('#gr-search'); if (e) e.value = ''; const pl = $('#gr-pool'); if (pl) pl.value = ''; },
+  config() { const e = $('#cfg-search'); if (e) e.value = ''; state.cfgFilter = ''; cfgRendered = null; },
+  audit() { state.auditFilter = { sev: 'all', cat: 'all' }; },
+  events() { state.eventFilter = 'all'; },
+  infrastructure() { lbi.problems = false; lbi.alive = false; },
+  validate() { VAL.tab = 'all'; VAL.sev = 'all'; },
+  flow() { FLOW.fe = ''; FLOW.st = ''; FLOW.dq = ''; FLOW.trace = null; FLOW.traceErr = null; FLOW.req = { host: '', path: '/', port: '', method: 'GET' }; },
+};
+function resetFilters(view) { try { const f = FILTER_RESETS[view]; if (f) f(); } catch { /* a missing element must never break navigation */ } }
+const resetAllFilters = () => Object.keys(FILTER_RESETS).forEach(resetFilters);
+
 // ---------- navigation ----------
 let navReady = false; let navFromHistory = false; // push history entries only after start-up, and never while replaying one
 const REVIEW_VIEWS = ['topology', 'flow', 'audit', 'validate', 'config'];
@@ -76,6 +93,7 @@ function switchView(view) {
   view = VIEW_ALIAS[view] || view;
   if (state.mode === 'review' && !REVIEW_VIEWS.includes(view)) view = 'topology';
   if (state.mode === 'live' && !state.snapshot && !state.current && !['overview', 'connect', 'settings'].includes(view)) view = 'overview';
+  if (state.view !== view) resetFilters(state.view); // leaving a page clears its filters
   if (state.view === 'connect' && view !== 'connect') mountConnect(false);
   if (view === 'connect' && state.view !== 'connect') mountConnect(true);
   if (state.view !== view && document.body.classList.contains('topo-fs')) setTopoFs(false);
@@ -2779,6 +2797,7 @@ async function openInstance(id) {
 function wire() {
   $('#nav').addEventListener('click', (e) => { const b = e.target.closest('button[data-view]'); if (b) switchView(b.dataset.view); });
   $('#instance-select').addEventListener('change', async (e) => {
+    resetAllFilters(); // another server: nothing from the previous one carries over
     state.current = e.target.value; state.snapshot = null; state.series = []; cfgRendered = null; state.cfgFile = null; state.focus = null; closeInspector(); state.events = [];
     if (network) { network.destroy(); network = null; }
     clearTimeout(state.timer);
