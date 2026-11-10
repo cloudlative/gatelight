@@ -57,7 +57,7 @@ function assessConfig(o) {
     const fam = COVERED[f.id];
     const hit = fam && forge.find((c) => c.kind !== 'optional' && familyHas(fam, c.rule) && (WHOLE.has(String(c.section).split(' ')[0]) || !f.section || /^(location |server$|upstream$|http$|main$)/.test(f.section) || sameSection(c.section, f.section)));
     if (hit) { if (!hit.sources.includes(f.source)) hit.sources.push(f.source); (hit.alsoFlagged = hit.alsoFlagged || []).push(`${f.source}: ${f.id}`); continue; }
-    kept.push({ key: `${f.source}:${f.id}:${f.section || ''}:${f.line || ''}`, rule: f.id, id: f.id, category: CAT[f.category] || f.category || 'hygiene', severity: SEV[f.severity] || 'info', title: f.title, detail: f.detail || '', why: f.detail || '', fix: f.fix || '', section: f.section || '', line: f.line || null, file: f.file || null, sources: [f.source], kind: 'problem', auto: false, on: false, applied: false, diff: [] });
+    kept.push({ key: `${f.source}:${f.id}:${f.section || ''}:${f.line || ''}`, rule: f.id, id: f.id, category: CAT[f.category] || f.category || 'hygiene', severity: SEV[f.severity] || 'info', title: f.title, detail: f.detail || '', why: f.detail || '', fix: f.fix || '', section: f.section || '', line: f.line || null, file: f.file || null, sources: [f.source], kind: 'problem', auto: false, on: false, applied: false, diff: [], docs: f.docs || null, since: f.since || null, until: f.until || null });
   }
   // the same legacy finding can arrive from both audit and validate: keep one
   const seen = new Set(); const problems = kept.filter((f) => { const k = `${f.rule}|${f.section}|${f.line}`; if (seen.has(k)) return false; seen.add(k); return true; });

@@ -143,7 +143,7 @@
           <label class="check"><input type="checkbox" id="topo-problems"> Problems only</label>
           <label class="check" data-graph-only><input type="checkbox" id="topo-servers" checked> Members</label>
           <label class="check" data-graph-only title="Show the URL / host each route matches on the connecting lines"><input type="checkbox" id="topo-urls" checked> URL labels</label>
-          <button class="btn" id="topo-urlmap" type="button" title="Open Traffic flow: every host / path → target mapping, ports, rewrites and a request tracer">URL map &amp; trace →</button>
+          <button class="btn" id="topo-urlmap" type="button" title="Table of every host / path → target mapping">URL map</button>
           <button class="btn" data-graph-only id="topo-expand" title="Show every pool and member">▾ Expand all</button>
           <button class="btn" data-graph-only id="topo-collapse" title="Fold every entry point and pool (shift-click a node to fold just one)">▸ Collapse all</button>
           <button class="btn" data-graph-only id="topo-fit">Fit</button>
@@ -158,6 +158,7 @@
         <div id="graph-wrap"><div id="graph"></div><div id="topo-sel" class="topo-sel" hidden></div><div id="graph-hint" class="graph-hint">Click a node to focus its path · shift-click to collapse or expand it · double-click it for full details · click empty space to reset · scroll to zoom</div></div>
         <div id="tree" class="treemap" hidden></div>
         <div id="infra" class="lbi-wrap" hidden></div>
+        <div id="urlmap" class="urlmap" hidden></div>
       </section>
 
       <section class="view" id="view-graphs">
