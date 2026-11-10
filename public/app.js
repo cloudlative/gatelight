@@ -87,13 +87,13 @@ const resetAllFilters = () => Object.keys(FILTER_RESETS).forEach(resetFilters);
 
 // ---------- navigation ----------
 let navReady = false; let navFromHistory = false; // push history entries only after start-up, and never while replaying one
-const REVIEW_VIEWS = ['topology', 'flow', 'audit', 'validate', 'config'];
+const REVIEW_VIEWS = ['topology', 'flow', 'audit', 'validate', 'forge', 'config'];
 const visibleNav = () => $$('#nav button').filter((b) => !b.hidden && b.offsetParent !== null);
 const VIEW_ALIAS = { lbinfra: 'infrastructure' }; // old links keep working
 function switchView(view) {
   view = VIEW_ALIAS[view] || view;
   if (state.mode === 'review' && !REVIEW_VIEWS.includes(view)) view = 'topology';
-  if (state.mode === 'live' && !state.snapshot && !state.current && !['overview', 'connect', 'settings'].includes(view)) view = 'overview';
+  if (state.mode === 'live' && !state.snapshot && !state.current && !['overview', 'connect', 'settings', 'forge'].includes(view)) view = 'overview';
   if (state.view !== view) resetFilters(state.view); // leaving a page clears its filters
   if (state.view === 'connect' && view !== 'connect') mountConnect(false);
   if (view === 'connect' && state.view !== 'connect') mountConnect(true);
@@ -141,11 +141,12 @@ function renderWelcome() {
 function renderView(view) {
   if (view === 'connect') return;
   if (view === 'settings') { renderSettings(); return; }
+  if (view === 'forge') { renderForge(); return; } // works without an instance: paste or upload any config
   if (!state.snapshot) {
     if (view === 'overview') { if (state.current) $('#view-overview').innerHTML = '<div class="skeleton-cards"><i></i><i></i><i></i><i></i><i></i></div>'; else renderWelcome(); }
     return;
   }
-  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, validate: renderValidate, flow: renderFlow, traffic: () => renderTraffic(), events: renderEvents, config: renderConfig }[view] || (() => {}))();
+  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, validate: renderValidate, forge: () => renderForge(), flow: renderFlow, traffic: () => renderTraffic(), events: renderEvents, config: renderConfig }[view] || (() => {}))();
 }
 
 // ---------- data loading ----------

@@ -12,6 +12,7 @@ const { detectType } = require('./detect');
 const { parseStatsCsv, statusClass } = require('./statsParser');
 const { auditConfig, summarize } = require('./audit');
 const { validateConfig, versions: kbVersions } = require('./validate');
+const { improveConfig } = require('./improve');
 const { detect: detectVersion } = require('./validate/version');
 const { buildFlows, trace: traceFlow } = require('./flow');
 const { LogStore } = require('./logs/store');
@@ -307,6 +308,25 @@ function createApp(settings) {
       const out = validateConfig({ product: type, version: typeof body.version === 'string' ? body.version : null, config: text, files: cfgFiles, build: typeof body.build === 'string' ? body.build : undefined });
       return res.json(out);
     } catch (e) { return res.status(422).json({ error: `Could not validate configuration: ${e.message}` }); }
+  });
+
+  // Config Forge: assess a configuration and rewrite it to best practice (src/improve). Read-only: nothing is sent to any server.
+  const improveReply = (res, o) => {
+    try { return res.json(improveConfig(o)); } catch (e) { return res.status(e.status || 422).json({ error: e.status ? e.message : `Could not improve the configuration: ${e.message}` }); }
+  };
+  api.post('/improve', express.json({ limit: '8mb' }), rateLimit({ max: 60 }), (req, res) => {
+    const body = req.body || {};
+    const files = Array.isArray(body.files) ? body.files.filter((f) => f && typeof f.content === 'string' && typeof f.name === 'string' && !/\.csv$/i.test(f.name)).slice(0, 300) : [];
+    const type = ['haproxy', 'nginx'].includes(body.type) ? body.type : undefined;
+    return improveReply(res, { product: type, version: typeof body.version === 'string' ? body.version : null, config: typeof body.config === 'string' ? body.config : '', files, toggles: body.toggles });
+  });
+  api.post('/instances/:id/improve', withInstance, express.json({ limit: '1mb' }), rateLimit({ max: 30 }), (req, res) => {
+    const p = req.poller; const cache = p.configCache;
+    if (!cache || !cache.files || !cache.files.length) return res.status(404).json({ error: 'This instance has no configuration loaded to improve.' });
+    const body = req.body || {}; const info = (p.snapshot && p.snapshot.info) || {};
+    const version = typeof body.version === 'string' && body.version.trim() ? body.version.trim() : detectVersion(info.version);
+    const files = cache.files.map((f) => ({ name: f.name, content: f.raw }));
+    return improveReply(res, { product: p.instance.type, version, files, toggles: body.toggles });
   });
 
   // Traffic statistics from an uploaded HAProxy log. One file per request (raw request body), parsed as a stream; only

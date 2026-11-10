@@ -200,6 +200,18 @@ gzip -k part-00.log                             # logs shrink about 10x
 
 You get KPIs, time charts, breakdowns, top URLs/clients, slow requests, errors and server events, filtered by time, frontend, backend, server, status and protocol. Lines that are not in the HAProxy format are skipped and counted. NGINX logs are planned; the parser is isolated for that. Uploads only work for connections added in the UI, and GateLight still never writes to your load balancers.
 
+## Config Forge: assess and rewrite a configuration
+
+The **Config Forge** page takes a HAProxy or NGINX configuration (paste it, drop files or a folder, or use an instance's own) and returns a scored assessment plus a **rewritten, best-practice version**. It is rule-based and deterministic: no network access, no model, and nothing is ever sent to a load balancer.
+
+- **Every change is explained and switchable.** Each one shows the reason, the exact lines it adds or changes, its category (security, reliability, performance, observability, compatibility) and severity. Turn individual changes off, apply only the recommended set, or opt into the optional ones (rate limiting, extra headers, compression). The score, the improved file and the diff update immediately.
+- **Version-aware.** Pick your HAProxy or NGINX version: the output only uses what that release supports (`ssl-min-ver` on 1.8+, `http2 on;` on NGINX 1.25.1+, no `ssl_reject_handshake` before 1.19.4, removed keywords such as `reqadd` or `nbproc` converted).
+- **Safe by construction.** NGINX inheritance is respected (a location with its own `proxy_set_header` or `add_header` gets the complete set, because it would not inherit the server's), existing values are never overwritten silently, comments are kept, and the result is checked by running the rules again on it: a correct rewrite proposes nothing new.
+- **What it improves:** TLS floor, ciphers and tickets; HSTS and security headers; HTTP to HTTPS redirects; timeouts (connect, client, server, slow clients); health checks; logging; client IP and scheme forwarding; upstream keep-alive; HTTP/2; catch-all servers; dotfiles, directory listings and open status pages; legacy syntax. What needs information only you have (stats passwords, certificates, application health URLs) is listed under **Needs your input**.
+- **Output:** the improved file(s) with changed lines highlighted, a diff, copy and download, and the commands to test (`haproxy -c -f`, `nginx -t`) and reload.
+
+API: `POST /api/improve` and `POST /api/instances/:id/improve`.
+
 ## Screenshots
 
 <table>
@@ -214,6 +226,10 @@ You get KPIs, time charts, breakdowns, top URLs/clients, slow requests, errors a
 <tr>
 <td width="50%"><img src="docs/img/topology-mindmap.png" alt="Mind map layout showing the URIs each node handles"><br><sub><b>Mind map</b>: every node shows the URIs it handles.</sub></td>
 <td width="50%"><img src="docs/img/topology-tree.png" alt="Tree layout like the tree command"><br><sub><b>Tree</b>: the whole estate as a foldable outline, copyable as text.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/img/config-forge.png" alt="Config Forge: score, switchable changes and the rewritten configuration"><br><sub><b>Config Forge</b>: assess a config and get a rewritten best-practice version, every change explained.</sub></td>
+<td width="50%"></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/img/topology-nginx.png" alt="NGINX topology with URL map"><br><sub><b>NGINX too</b>: server blocks, locations and upstreams, plus a resizable URL map.</sub></td>
