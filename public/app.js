@@ -557,8 +557,38 @@ function topoSelect(node, route) {
   if (route) { title = `${route.fe} → ${route.target}`; sub = `Routing rule · ${routeSummary(route)}`; }
   else if (node._key) { const r = indexRows(state.snapshot.rows).get(node._key); title = r && r.kind === 'server' ? node._key.replace('/', ' / ') : node._key.split('/')[0]; sub = `${r ? lbl(r.kind) : node._kind}${r && r.ratePerSec != null ? ` · ${fmtRate(r.ratePerSec)} req/s` : ''}`; st = r ? stBadge(r.state, r.status) : ''; }
   else { title = node.id.slice(8); sub = 'Broken route: not defined'; }
-  el.innerHTML = `<div class="ts-t"><b>${esc(title)}</b> ${st}<div class="muted small">${esc(sub)}</div></div><button type="button" class="btn primary" data-topo-open>Open details →</button><button type="button" class="btn icon" data-topo-sel-x aria-label="Clear selection">✕</button>`;
+  el.innerHTML = `<div class="ts-t"><b>${esc(title)}</b> ${st}<div class="muted small">${esc(sub)}</div></div>${node && /^(fe|be):/.test(node.id) ? `<button type="button" class="btn" data-topo-toggle="${esc(node.id)}" title="Same as shift-click on the node">${collapsedSet().has(node.id) ? '＋ Expand' : '－ Collapse'}</button>` : ''}<button type="button" class="btn primary" data-topo-open>Open details →</button><button type="button" class="btn icon" data-topo-sel-x aria-label="Clear selection">✕</button>`;
   el.hidden = false;
+}
+/** Fold the parts of the map the user collapsed (shift-click a node, or Collapse all): a collapsed entry point hides the pools only it reaches, a collapsed pool hides its members. */
+function collapseGraph(nodes, edges) {
+  const col = collapsedSet();
+  if (!col.size) return { nodes, edges };
+  const hidden = new Set(); const srcs = new Map();
+  edges.filter((e) => String(e.id).startsWith('r:')).forEach((e) => (srcs.get(e.to) || srcs.set(e.to, []).get(e.to)).push(e.from));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [pool, from] of srcs) if (!hidden.has(pool) && from.every((f) => col.has(f) || hidden.has(f))) { hidden.add(pool); changed = true; }
+  }
+  const parent = new Map(edges.filter((e) => String(e.id).startsWith('e:sv:')).map((e) => [e.to, e.from]));
+  nodes.forEach((n) => { if (n._kind === 'server') { const pa = parent.get(n.id); if (pa && (col.has(pa) || hidden.has(pa))) hidden.add(n.id); } });
+  const direct = new Map();
+  edges.forEach((e) => { if (col.has(e.from) && hidden.has(e.to)) direct.set(e.from, (direct.get(e.from) || 0) + 1); });
+  const out = nodes.filter((n) => !hidden.has(n.id));
+  out.forEach((n) => { if (col.has(n.id)) { n._collapsed = true; const k = direct.get(n.id) || 0; n.label += `\n▸ ${k ? `+${k} hidden` : 'collapsed'}`; n.borderWidth = 3; } });
+  return { nodes: out, edges: edges.filter((e) => !hidden.has(e.from) && !hidden.has(e.to)) };
+}
+const collapsedSet = () => (state.collapsed || (state.collapsed = new Set()));
+function toggleCollapse(id) {
+  if (!/^(fe|be):/.test(id)) return;
+  const c = collapsedSet(); if (c.has(id)) c.delete(id); else c.add(id);
+  renderTopology();
+}
+function topoCollapseAll(collapse) {
+  const c = collapsedSet(); c.clear();
+  if (collapse) { cfgSections().forEach((x) => { if (feLike(x) && x.routes.length) c.add(`fe:${x.name}`); else if (beLike(x) && x.type !== 'listen' && x.servers.some((v) => !v.commented)) c.add(`be:${x.name}`); }); }
+  else { $('#topo-servers').checked = true; }
+  state.focus = null; topoSelect(null); renderTopology();
 }
 function buildGraph() {
   NODE_COLORS = isLight() ? LIGHT_NODES : DARK_NODES;
@@ -631,7 +661,7 @@ function buildGraph() {
           color: col, font: { color: FG, size: 12, face: 'system-ui', strokeWidth: 4, strokeColor: BG }, level: 2, _kind: 'server', _key: `${be.name}/${sv.name}`, _section: be.name, _layer: layerOf(be),
           _problem: st === 'down' || st === 'degraded',
         });
-        edges.push({ id: `e:${id}`, from: serverParent(be), to: id, color: { color: st === 'down' ? '#f87171' : '#334155' }, width: 1, arrows: '' });
+        edges.push({ id: `e:${id}`, from: serverParent(be), to: id, color: { color: st === 'down' ? '#f87171' : '#475569' }, width: 1, arrows: { to: { enabled: true, scaleFactor: 0.45 } } });
       });
     });
   }
@@ -660,7 +690,7 @@ function buildGraph() {
       const br = rows.get(`${rt.target}/BACKEND`);
       const w = br && br.ratePerSec ? 1.5 + Math.min(6, Math.log10(br.ratePerSec + 1) * 2) : 1.5;
       edges.push({
-        id: `r:${fe.name}:${i}`, from: `fe:${fe.name}`, to: target, arrows: 'to', width: rt.commented ? 1 : w,
+        id: `r:${fe.name}:${i}`, from: `fe:${fe.name}`, to: target, arrows: { to: { enabled: true, scaleFactor: 0.8 } }, width: rt.commented ? 1 : w,
         dashes: rt.commented || rt.type === 'default', color: { color: rt.commented ? '#94a3b8' : (isLight() ? '#0891b2' : '#22d3ee'), opacity: rt.commented ? 0.5 : 0.75 },
         title: routeTitle(fe, rt),
         label: urlLabels && routeCount <= 60 && !mindmap ? (rt.type === 'default' ? 'default' : (rt.short || rt.condition.replace(/^location /, '')).slice(0, 38)) : undefined, font: { size: 11, color: isLight() ? '#0e7490' : '#67e8f9', strokeWidth: 4, strokeColor: BG, align: 'middle' }, _route: { fe: fe.name, ...rt }, smooth: { type: 'cubicBezier', roundness: 0.4 },
@@ -702,7 +732,7 @@ function buildGraph() {
     for (const n of nodes) if (!keep.has(n.id)) { n.opacity = 0.1; n.font = { ...n.font, color: 'rgba(148,163,184,.2)' }; }
     for (const e of edges) if (!(keep.has(e.from) && keep.has(e.to))) { e.color = { ...(e.color || {}), opacity: 0.06 }; e.label = undefined; }
   }
-  return { nodes, edges };
+  return collapseGraph(nodes, edges);
 }
 
 function updateLegend() {
@@ -723,10 +753,10 @@ function renderTopology() {
   }
   if (state.topoFor !== state.current && state.snapshot) {
     // Many members make the map unreadable once fitted to the screen: start collapsed, expand on focus.
-    state.topoFor = state.current;
+    state.topoFor = state.current; collapsedSet().clear();
     const total = cfgSections().reduce((n, x) => n + x.servers.filter((v) => !v.commented).length, 0);
     $('#topo-servers').checked = total <= 18;
-    $('#graph-hint').textContent = total <= 18 ? 'Click a node to focus its path · double-click or “Open details” for the full page · click empty space to reset · scroll to zoom'
+    $('#graph-hint').textContent = total <= 18 ? 'Click a node to focus its path · shift-click to collapse or expand it · double-click or “Open details” for the full page · click empty space to reset · scroll to zoom'
       : `${total} members are collapsed — click a ${lbl('backend').toLowerCase()} to expand it, or tick “Members” to show all · scroll to zoom`;
     $('#graph-hint').style.opacity = 1;
   }
@@ -756,7 +786,8 @@ function renderTopology() {
     network.on('beforeDrawing', drawLayerGuides);
     network.on('click', (p) => {
       if (p.nodes.length) {
-        const n = visNodes.get(p.nodes[0]);
+        const n = visNodes.get(p.nodes[0]); const ev = p.event && p.event.srcEvent;
+        if (ev && (ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey) && /^(fe|be):/.test(n.id)) { toggleCollapse(n.id); return; }
         state.focus = n.id; topoSelect(n);
         renderTopology();
       } else if (p.edges.length) { const e = visEdges.get(p.edges[0]); if (e && e._route) topoSelect(null, e._route); }
@@ -1003,7 +1034,7 @@ function layoutLayers(nodes, edges) {
   edges.filter((e) => String(e.id).startsWith('e:sv:')).forEach((e) => { if (byId.has(e.from) && byId.has(e.to)) (members.get(e.from) || members.set(e.from, []).get(e.from)).push(byId.get(e.to)); });
   const wired = new Set();
   routeEdges.forEach((e) => { wired.add(e.from); wired.add(e.to); });
-  nodes.filter((n) => n._pool).forEach((n) => wired.add(n.id)); // a `listen` with servers is its own pool
+  nodes.filter((n) => n._pool || n._collapsed).forEach((n) => wired.add(n.id)); // a `listen` with servers is its own pool; a collapsed entry point keeps its place
   const isMember = (n) => n.id.startsWith('sv:');
 
   const stray = nodes.filter((n) => !isMember(n) && !wired.has(n.id));
@@ -3098,6 +3129,9 @@ function wire() {
   });
   $('#topo-fs').addEventListener('click', toggleTopoFs);
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.body.classList.contains('topo-fs')) setTopoFs(false); });
+  $('#topo-expand').addEventListener('click', () => topoCollapseAll(false));
+  $('#topo-collapse').addEventListener('click', () => topoCollapseAll(true));
+  document.addEventListener('click', (e) => { const b = e.target.closest('[data-topo-toggle]'); if (b) { toggleCollapse(b.dataset.topoToggle); const n = visNodes && visNodes.get(b.dataset.topoToggle); if (n) topoSelect(n); } });
   $('#topo-fit').addEventListener('click', () => network && network.fit({ animation: { duration: 400 } }));
   ['svc-search', 'svc-kind', 'svc-state'].forEach((id) => $(`#${id}`).addEventListener('input', renderServices));
   $('#svc-export').addEventListener('click', exportCsv);
