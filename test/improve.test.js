@@ -127,3 +127,21 @@ test('robust: garbage never crashes the engine, and big configs stay fast', () =
   const t = Date.now(); const r = improveConfig({ config: h, version: '2.8' });
   assert.ok(Date.now() - t < 4000, 'a 3,600 line config must finish in a few seconds'); assert.equal(r.summary.stable, true);
 });
+
+test('assess: audit, validate and forge are merged, each problem appears once', () => {
+  const { assessConfig } = require('../src/improve/assess');
+  const r = assessConfig({ config: ex('haproxy', 'haproxy.cfg'), version: '2.8' });
+  const by = (rule) => r.findings.filter((f) => f.rule === rule);
+  // covered by Forge: reported once, with the other checks listed as sources
+  assert.equal(by('hap-hsts').length, 1); assert.ok(by('hap-hsts')[0].sources.includes('validate'));
+  assert.equal(by('rec-hsts').length, 0); assert.equal(by('server-no-check').length, 0); assert.ok(by('hap-check')[0].sources.includes('audit'));
+  // only the audit knows these: they must survive the merge
+  for (const id of ['undefined-backend', 'orphan-backend', 'plaintext-userlist-password']) assert.equal(by(id).length, 1, id);
+  assert.ok(by('undefined-backend')[0].kind === 'problem' && by('undefined-backend')[0].severity === 'high');
+  assert.ok(r.summary.merged > 3 && r.score.after > r.score.before);
+  // nginx
+  const files = readDir(path.join(__dirname, '..', 'examples', 'nginx')); const n = assessConfig({ product: 'nginx', files, version: '1.24.0' });
+  assert.equal(n.findings.filter((f) => f.rule === 'ngx-tokens' || f.rule === 'nginx-server-tokens').length, 1);
+  assert.equal(new Set(n.findings.map((f) => f.key)).size, n.findings.length);
+  assert.ok(!n.findings.some((f) => f.kind === 'problem' && /^(nginx-(server-tokens|autoindex|weak-tls)|rec-nginx-(hsts|weak-ciphers))$/.test(f.rule))); // those are Forge findings now
+});

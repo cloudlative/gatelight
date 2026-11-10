@@ -47,7 +47,7 @@ Open **http://localhost:3000**, then:
    The user is `admin`. Prefer your own? Put `AUTH_PASS=...` in a `.env` file next to the compose file (see [Environment](#environment)).
 2. **Add an instance** (Overview → *Add an instance*). Pick HAProxy or NGINX, enter the stats URL, username and password, press *Test connection*, then *Save & connect*.
    Running on the same machine as Docker? Use `http://host.docker.internal:PORT/stats` instead of `localhost`.
-3. **Explore.** Overview, Topology, Infrastructure, Graphs, Services and Config audit fill in right away.
+3. **Explore.** Overview, Topology, Infrastructure, Graphs, Services and Config Forge fill in right away.
 
 **Upgrading later?** `docker compose pull && docker compose up -d`: your connections, history and sign-in are kept in a Docker volume ([details below](#upgrading-is-one-command-and-your-data-stays)).
 
@@ -141,7 +141,7 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 
 **Know**
 - **Live health**: HAProxy via the stats CSV or the Runtime API; NGINX via `stub_status`, the NGINX Plus API, and/or an active TCP probe of every upstream (so even open-source NGINX gets per-server health).
-- **Config audit (39 rules)**: undefined backends/upstreams, orphaned pools, missing health checks, single points of failure, weak or plaintext credentials, exposed stats / `stub_status`, legacy TLS, path-traversal-prone `alias`, deprecated directives, **config drift** (file ≠ running process), and more. Charts show where the findings cluster.
+- **Config audit (39 rules, shown in Config Forge)**: undefined backends/upstreams, orphaned pools, missing health checks, single points of failure, weak or plaintext credentials, exposed stats / `stub_status`, legacy TLS, path-traversal-prone `alias`, deprecated directives, **config drift** (file ≠ running process), and more. Charts show where the findings cluster.
 - **History that survives restarts**: samples and events are stored in SQLite (raw for 6 hours, then 1-minute averages for 14 days).
 - **Alerting & observability**: Slack / Mattermost / Teams-compatible webhooks on down and recovery; Prometheus `/metrics`.
 
@@ -159,7 +159,9 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 
 ## Validate a config against a specific version
 
-The **Validate** page checks a configuration against the official documentation of the exact release you run (or plan to run), and adds recommendations that depend on that version.
+> The Validate, Config audit and Config Forge pages are now one page, **Config Forge** (see below): one list of findings with every problem reported once, plus the rewrite. Old `#…/audit` and `#…/validate` links open it.
+
+The version checks (in Config Forge, with the version picker) compare a configuration against the official documentation of the exact release you run (or plan to run), and adds recommendations that depend on that version.
 
 - **HAProxy 1.7 → 3.4** and **NGINX up to the latest release**; pick the target version, or let GateLight use the one the running instance reports.
 - Checks every keyword, section/context, bind and server option, rule action, sample fetch and converter, parameter, variable and `%[...]` expression, not only the ones the map understands. It handles line continuations, quoting, `${ENV}`, HAProxy `.if version_atleast(...)` blocks, nested NGINX contexts, `include`d files, `stream`/`mail`, regex captures and third-party (Lua/njs) blocks.
@@ -202,7 +204,7 @@ You get KPIs, time charts, breakdowns, top URLs/clients, slow requests, errors a
 
 ## Config Forge: assess and rewrite a configuration
 
-The **Config Forge** page takes a HAProxy or NGINX configuration (paste it, drop files or a folder, or use an instance's own) and returns a scored assessment plus a **rewritten, best-practice version**. It is rule-based and deterministic: no network access, no model, and nothing is ever sent to a load balancer.
+The **Config Forge** page is the one place for configuration quality. It takes a HAProxy or NGINX configuration (an instance's own, loaded automatically; or paste it, or drop files or a folder) and returns **one list of findings** with a score, plus a **rewritten, best-practice version**. It merges three engines: the structural audit (undefined backends, orphans, drift, credentials), the version validator (unknown, removed or too-new directives for your release) and the rewrite rules. Where they report the same thing it appears once, with the other checks noted, so you never compare three pages. Problems that need a decision of yours (an undefined backend, a stats password) stay in the list marked "need your decision". It is rule-based and deterministic: no network access, no model, and nothing is ever sent to a load balancer.
 
 - **Every change is explained and switchable.** Each one shows the reason, the exact lines it adds or changes, its category (security, reliability, performance, observability, compatibility) and severity. Turn individual changes off, apply only the recommended set, or opt into the optional ones (rate limiting, extra headers, compression). The score, the improved file and the diff update immediately.
 - **Version-aware.** Pick your HAProxy or NGINX version: the output only uses what that release supports (`ssl-min-ver` on 1.8+, `http2 on;` on NGINX 1.25.1+, no `ssl_reject_handshake` before 1.19.4, removed keywords such as `reqadd` or `nbproc` converted).
@@ -210,7 +212,7 @@ The **Config Forge** page takes a HAProxy or NGINX configuration (paste it, drop
 - **What it improves:** TLS floor, ciphers and tickets; HSTS and security headers; HTTP to HTTPS redirects; timeouts (connect, client, server, slow clients); health checks; logging; client IP and scheme forwarding; upstream keep-alive; HTTP/2; catch-all servers; dotfiles, directory listings and open status pages; legacy syntax. What needs information only you have (stats passwords, certificates, application health URLs) is listed under **Needs your input**.
 - **Output:** the improved file(s) with changed lines highlighted, a diff, copy and download, and the commands to test (`haproxy -c -f`, `nginx -t`) and reload.
 
-API: `POST /api/improve` and `POST /api/instances/:id/improve`.
+API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged findings and the rewrite. `POST /api/validate`, `/api/analyze` and the `gatelight audit` CLI keep working unchanged.
 
 ## Screenshots
 

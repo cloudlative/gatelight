@@ -4,19 +4,20 @@
  * version with every change explained and switchable. All the analysis happens on the server (src/improve); this file
  * is the page. Nothing is ever sent to a load balancer.
  */
-const FG = { src: 'paste', text: '', files: [], product: '', version: '', data: null, loading: false, err: null, tab: 'changes', cat: 'all', kind: 'all', toggles: {}, file: 0, req: null, versions: null, timer: null, srcNote: '' };
-const FG_CATS = { security: 'Security', reliability: 'Reliability', performance: 'Performance', observability: 'Observability', compatibility: 'Compatibility', hygiene: 'Hygiene' };
-const FG_CAT_ICON = { security: '🛡', reliability: '⛑', performance: '⚡', observability: '🔍', compatibility: '♻', hygiene: '✦' };
+const FG = { src: 'paste', text: '', files: [], product: '', version: '', build: '', buildOpen: false, data: null, loading: false, err: null, tab: 'findings', cat: 'all', sev: 'all', kind: 'all', toggles: {}, auto: false, file: 0, req: null, versions: null, timer: null, srcNote: '' };
+const FG_CATS = { security: 'Security', reliability: 'Reliability', correctness: 'Correctness', performance: 'Performance', observability: 'Observability', compatibility: 'Compatibility', hygiene: 'Hygiene', drift: 'Drift' };
+const FG_CAT_ICON = { security: '🛡', reliability: '⛑', correctness: '✔', performance: '⚡', observability: '🔍', compatibility: '♻', hygiene: '✦', drift: '⇄' };
+const FG_SRC = { audit: 'Audit', validate: 'Validate' };
 const FG_SEV = { high: 'High', medium: 'Medium', low: 'Low', info: 'Note' };
 const FG_NGINX_V = ['1.31', '1.30', '1.28', '1.26', '1.24', '1.22', '1.20', '1.18', '1.16', '1.14'];
 
-function forgeReset() { Object.assign(FG, { data: null, err: null, loading: false, toggles: {}, tab: 'changes', cat: 'all', kind: 'all', file: 0 }); }
+function forgeReset() { Object.assign(FG, { data: null, err: null, loading: false, toggles: {}, tab: 'findings', cat: 'all', sev: 'all', kind: 'all', file: 0 }); }
 /** Leaving the page or changing instance starts clean. */
 function forgeClear() { forgeReset(); FG.text = ''; FG.files = []; FG.req = null; FG.srcNote = ''; }
 
 // ------------------------------------------------------------------------------------------------ request
 function forgeBody() {
-  const b = { type: FG.product || undefined, version: FG.version || undefined, toggles: FG.toggles };
+  const b = { type: FG.product || undefined, version: FG.version || undefined, build: FG.build || undefined, toggles: FG.toggles };
   if (FG.files.length) b.files = FG.files; else b.config = FG.text;
   return b;
 }
@@ -27,9 +28,10 @@ async function forgeRun(opts = {}) {
   try {
     if (!FG.versions) { try { FG.versions = await api('/validate/versions'); } catch { FG.versions = false; } }
     const url = FG.req === 'instance' && state.current && state.mode === 'live' ? `/instances/${encodeURIComponent(state.current)}/improve` : '/improve';
-    const body = FG.req === 'instance' ? { version: FG.version || undefined, toggles: FG.toggles } : forgeBody();
+    const body = FG.req === 'instance' ? { version: FG.version || undefined, build: FG.build || undefined, toggles: FG.toggles } : forgeBody();
     if (url === '/improve' && !body.config && !(body.files && body.files.length)) throw new Error('Paste or upload a configuration first.');
     FG.data = await api(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (FG.data.versionDetected && !FG.version) FG.version = FG.data.target; // show what was detected; the user can change it
     if (!FG.product) FG.detected = FG.data.product; else FG.detected = null;
     if (FG.file >= FG.data.files.length) FG.file = 0;
   } catch (e) { FG.err = e.message; FG.data = null; }
@@ -40,7 +42,11 @@ const forgeAgain = () => { clearTimeout(FG.timer); FG.timer = setTimeout(() => f
 // ------------------------------------------------------------------------------------------------ page
 function renderForge() {
   const el = $('#view-forge'); if (!el) return;
-  if (FG.inst !== state.current && state.mode === 'live') { FG.inst = state.current; if (FG.req === 'instance') { forgeClear(); FG.src = 'paste'; } }
+  if (FG.inst !== state.current) { FG.inst = state.current; forgeClear(); FG.src = 'paste'; FG.auto = false; }
+  if (!FG.auto && !FG.data && !FG.loading && !FG.err) { // an instance or a reviewed config is already loaded: assess it straight away
+    if (state.mode === 'review' && state.analysisCfg && state.analysisCfg.files && state.analysisCfg.files.length) { FG.auto = true; FG.src = 'upload'; FG.files = state.analysisCfg.files.map((f) => ({ name: f.name, content: f.content != null ? f.content : f.raw })).filter((f) => typeof f.content === 'string'); FG.product = state.analysisCfg.type || ''; FG.req = 'files'; if (FG.files.length) setTimeout(() => forgeRun(), 0); }
+    else if (state.mode === 'live' && state.snapshot && state.current) { FG.auto = true; FG.src = 'instance'; FG.req = 'instance'; FG.srcNote = 'This is the redacted copy of the configuration that GateLight holds. Secrets appear as placeholders: restore them before you deploy.'; setTimeout(() => forgeRun(), 0); }
+  }
   const live = state.mode === 'live' && state.snapshot && state.current;
   const tab = (id, label) => `<button type="button" class="fg-src${FG.src === id ? ' on' : ''}" data-fg-src="${id}">${label}</button>`;
   const prodTyped = FG.product || (FG.data && FG.data.product) || '';
@@ -52,7 +58,9 @@ function renderForge() {
     <div class="fg-input">${forgeInputHtml()}</div>
     <div class="fg-opts"><label>Product<select id="fg-product"><option value="">Auto-detect</option><option value="haproxy"${FG.product === 'haproxy' ? ' selected' : ''}>HAProxy</option><option value="nginx"${FG.product === 'nginx' ? ' selected' : ''}>NGINX</option></select></label>
       <label>Target version${verSel}</label><span class="spacer"></span>
+      ${prodTyped === 'nginx' ? `<button class="link" type="button" data-fg-build>${FG.buildOpen ? 'Hide' : 'Add'} build info</button>` : ''}
       <button class="btn primary" type="button" data-fg-run${FG.loading ? ' disabled' : ''}>${FG.loading ? 'Working…' : (FG.data ? 'Analyze again' : 'Analyze & improve')}</button></div></div>
+    ${prodTyped === 'nginx' && FG.buildOpen ? `<textarea id="fg-build" rows="3" spellcheck="false" placeholder="Paste the output of  nginx -V  to also check which modules your build contains">${esc(FG.build)}</textarea>` : ''}
     <div id="forge-res"></div>`;
   renderForgeResults();
 }
@@ -75,41 +83,50 @@ function renderForgeResults() {
   if (FG.err) { el.innerHTML = `<div class="panel"><div class="empty">${esc(FG.err)}</div></div>`; return; }
   if (!d) { el.innerHTML = ''; return; }
   const s = d.summary; const f = d.files[FG.file] || d.files[0];
-  const cats = Object.entries(s.byCategory).filter(([, v]) => v.total);
-  const head = `<div class="panel fg-score"><div class="fg-sc">${fgRing(d.score.after, d.score.gradeAfter)}<div><div class="fg-sct">After</div><div class="muted small">was <b>${d.score.before}</b> (${esc(d.score.gradeBefore)})</div></div></div>
-      <div class="fg-stats"><div><b>${s.applied}</b><span>changes applied</span></div><div><b>${s.optional}</b><span>optional, off</span></div><div><b>${s.advice}</b><span>need your input</span></div><div><b>${d.files.reduce((a, x) => a + x.diff.added, 0)}</b><span>lines added</span></div></div>
-      <div class="fg-cats">${cats.map(([k, v]) => `<div class="fg-cat" title="${esc(FG_CATS[k])}: ${v.applied} of ${v.total} applied"><span>${FG_CAT_ICON[k]} ${esc(FG_CATS[k])}</span><span class="fg-cbar"><i style="width:${v.total ? (v.applied / v.total) * 100 : 0}%"></i></span><b>${v.applied}/${v.total}</b></div>`).join('')}</div></div>`;
+  const open = d.findings.filter((x) => x.kind !== 'optional');
+  const cats = Object.entries(open.reduce((m, x) => { const c = m[x.category] || (m[x.category] = { total: 0, fixed: 0 }); c.total++; if (x.applied) c.fixed++; return m; }, {}));
+  const added = d.files.reduce((a, x) => a + x.diff.added, 0); const removed = d.files.reduce((a, x) => a + x.diff.removed, 0);
+  const head = `<div class="panel fg-score"><div class="fg-sc">${fgRing(d.score.after, d.score.gradeAfter)}<div><div class="fg-sct">After the rewrite</div><div class="muted small">now <b>${d.score.before}</b> (${esc(d.score.gradeBefore)})</div></div></div>
+      <div class="fg-stats"><div><b>${open.length}</b><span>findings</span></div><div><b>${s.applied}</b><span>fixed by the rewrite</span></div><div><b>${s.advice + s.problems}</b><span>need your decision</span></div><div><b>${s.optional}</b><span>optional extras</span></div></div>
+      <div class="fg-cats">${cats.map(([k, v]) => `<div class="fg-cat" title="${esc(FG_CATS[k] || k)}: ${v.fixed} of ${v.total} fixed by the rewrite"><span>${FG_CAT_ICON[k] || '•'} ${esc(FG_CATS[k] || k)}</span><span class="fg-cbar"><i style="width:${v.total ? (v.fixed / v.total) * 100 : 0}%"></i></span><b>${v.fixed}/${v.total}</b></div>`).join('')}</div></div>`;
   const notes = [...d.notes, ...(FG.srcNote ? [FG.srcNote] : []), ...(d.files.some((x) => x.formatting) ? ['Indentation and spacing were normalised (4 spaces, one blank line between blocks); the diff ignores that and shows only real changes.'] : [])];
-  const tabs = [['changes', `Changes (${s.auto})`], ['config', 'Improved config'], ['diff', `Diff (+${d.files.reduce((a, x) => a + x.diff.added, 0)} −${d.files.reduce((a, x) => a + x.diff.removed, 0)})`], ['advice', `Needs your input (${s.advice})`]];
+  const tabs = [['findings', `Findings (${open.length + s.optional})`], ['config', 'Improved config'], ['diff', `Diff (+${added} −${removed})`]];
   const fileSel = d.files.length > 1 ? `<select id="fg-file" aria-label="File">${d.files.map((x, i) => `<option value="${i}"${i === FG.file ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : '';
-  let body = '';
-  if (FG.tab === 'changes') body = forgeChanges(d);
-  else if (FG.tab === 'config') body = forgeConfig(d, f);
-  else if (FG.tab === 'diff') body = forgeDiff(d, f);
-  else body = forgeAdvice(d);
+  const body = FG.tab === 'findings' ? forgeFindings(d) : FG.tab === 'config' ? forgeConfig(d, f) : forgeDiff(d, f);
   el.innerHTML = `${head}${notes.length ? `<div class="fg-notes">${notes.map((n) => `<div>ⓘ ${esc(n)}</div>`).join('')}</div>` : ''}
-    <div class="fg-tabs"><div class="chips">${tabs.map(([id, t]) => `<span class="chip ${FG.tab === id ? 'on' : ''}" data-fg-tab="${id}">${esc(t)}</span>`).join('')}</div>${FG.tab === 'config' || FG.tab === 'diff' ? fileSel : ''}${FG.loading ? '<span class="muted small">updating…</span>' : ''}</div>${body}`;
+    <div class="fg-tabs"><div class="chips">${tabs.map(([id, t]) => `<span class="chip ${FG.tab === id ? 'on' : ''}" data-fg-tab="${id}">${esc(t)}</span>`).join('')}</div>${FG.tab !== 'findings' ? fileSel : ''}${FG.loading ? '<span class="muted small">updating…</span>' : ''}</div>${body}`;
 }
-function forgeChanges(d) {
-  const auto = d.changes.filter((c) => c.auto);
-  const cats = [...new Set(auto.map((c) => c.category))];
-  const kinds = [['all', 'All'], ['on', 'Applied'], ['off', 'Off / optional']];
-  let list = auto.filter((c) => (FG.cat === 'all' || c.category === FG.cat) && (FG.kind === 'all' || (FG.kind === 'on' ? c.applied : !c.applied)));
-  const ctl = `<div class="fg-ctl"><div class="chips"><span class="chip ${FG.cat === 'all' ? 'on' : ''}" data-fg-cat="all">All categories</span>${cats.map((c) => `<span class="chip ${FG.cat === c ? 'on' : ''}" data-fg-cat="${c}">${FG_CAT_ICON[c]} ${esc(FG_CATS[c])} (${auto.filter((x) => x.category === c).length})</span>`).join('')}</div>
-      <div class="chips">${kinds.map(([k, t]) => `<span class="chip ${FG.kind === k ? 'on' : ''}" data-fg-kind="${k}">${t}</span>`).join('')}<span class="spacer"></span><button class="btn" type="button" data-fg-all="rec">Recommended only</button><button class="btn" type="button" data-fg-all="all">Apply everything</button><button class="btn" type="button" data-fg-all="none">Apply nothing</button></div></div>`;
-  if (!list.length) return `${ctl}<div class="panel"><div class="empty">${auto.length ? 'Nothing matches this filter.' : '✓ Nothing to change automatically. This configuration already follows the recommendations that can be applied safely.'}</div></div>`;
-  return `${ctl}<div class="fg-list">${list.map((c) => forgeCard(c)).join('')}</div>`;
+const FG_KINDS = [['all', 'All'], ['auto', 'Fixed by rewrite'], ['input', 'Need your decision'], ['optional', 'Optional extras']];
+const fgKind = (x) => (x.kind === 'problem' ? 'input' : x.kind);
+function forgeFindings(d) {
+  const all = d.findings;
+  const cats = [...new Set(all.map((c) => c.category))]; const sevs = ['high', 'medium', 'low', 'info'];
+  const list = all.filter((c) => (FG.cat === 'all' || c.category === FG.cat) && (FG.sev === 'all' || c.severity === FG.sev) && (FG.kind === 'all' || fgKind(c) === FG.kind));
+  const cnt = (fn) => all.filter(fn).length;
+  const ctl = `<div class="fg-ctl"><div class="chips">${FG_KINDS.map(([k, t]) => `<span class="chip ${FG.kind === k ? 'on' : ''}" data-fg-kind="${k}">${t} (${k === 'all' ? all.length : cnt((c) => fgKind(c) === k)})</span>`).join('')}<span class="spacer"></span><button class="btn" type="button" data-fg-all="rec">Recommended only</button><button class="btn" type="button" data-fg-all="all">Apply everything</button><button class="btn" type="button" data-fg-all="none">Apply nothing</button><button class="btn" type="button" data-fg-export>Export JSON</button></div>
+      <div class="chips"><span class="chip ${FG.sev === 'all' ? 'on' : ''}" data-fg-sev="all">Any severity</span>${sevs.map((v) => `<span class="chip ${FG.sev === v ? 'on' : ''}" data-fg-sev="${v}">${FG_SEV[v]} (${cnt((c) => c.severity === v)})</span>`).join('')}<span class="muted">|</span><span class="chip ${FG.cat === 'all' ? 'on' : ''}" data-fg-cat="all">All categories</span>${cats.map((c) => `<span class="chip ${FG.cat === c ? 'on' : ''}" data-fg-cat="${c}">${FG_CAT_ICON[c] || ''} ${esc(FG_CATS[c] || c)} (${cnt((x) => x.category === c)})</span>`).join('')}</div></div>`;
+  if (!list.length) return `${ctl}<div class="panel"><div class="empty">${all.length ? 'Nothing matches this filter.' : '✓ No findings. This configuration already follows the recommendations.'}</div></div>`;
+  // many occurrences of one rule fold into a group so a single noisy rule does not bury the rest
+  const groups = new Map(); list.forEach((c) => { const g = groups.get(c.rule) || groups.set(c.rule, []).get(c.rule); g.push(c); });
+  const out = [];
+  for (const [rule, items] of groups) {
+    if (items.length >= 4 && items.every((x) => x.kind === items[0].kind)) {
+      const x = items[0]; const on = items.every((i) => i.applied);
+      out.push(`<details class="fg-grp"><summary><b>${esc(x.title)}</b> <span class="fg-sev sev-${x.severity}">${esc(FG_SEV[x.severity])}</span> <span class="tag">${FG_CAT_ICON[x.category] || ''} ${esc(FG_CATS[x.category] || x.category)}</span> <span class="tag">${items.length} places</span>${items[0].auto ? `<label class="fg-all-sw" title="Apply to all"><input type="checkbox" data-fg-grp="${esc(rule)}"${on ? ' checked' : ''}> all</label>` : ''}</summary><p class="fg-why">${esc(x.why)}</p><div class="fg-list">${items.map(forgeCard).join('')}</div></details>`);
+    } else items.forEach((c) => out.push(forgeCard(c)));
+  }
+  return `${ctl}<div class="fg-list">${out.join('')}</div>`;
 }
 function forgeCard(c) {
-  const diff = c.diff.slice(0, 8).map((x) => (x.k === 'add' ? `<div class="fg-d add"><i>+</i><code>${esc(x.after)}</code></div>` : x.k === 'del' ? `<div class="fg-d del"><i>−</i><code>${esc(x.before)}</code></div>` : `<div class="fg-d del"><i>−</i><code>${esc(x.before)}</code></div><div class="fg-d add"><i>+</i><code>${esc(x.after)}</code></div>`)).join('');
-  return `<article class="fg-card${c.applied ? '' : ' off'}"><label class="fg-sw" title="${c.applied ? 'Applied: click to leave it out' : 'Not applied: click to include it'}"><input type="checkbox" data-fg-t="${esc(c.key)}"${c.applied ? ' checked' : ''}><span></span></label>
-    <div class="fg-cb"><div class="fg-ct"><b>${esc(c.title)}</b> <span class="fg-sev sev-${c.severity}">${esc(FG_SEV[c.severity])}</span> <span class="tag">${FG_CAT_ICON[c.category]} ${esc(FG_CATS[c.category])}</span>${c.on ? '' : ' <span class="tag">optional</span>'}</div>
-      <div class="muted small">${esc(c.section)}${c.line ? ` · line ${c.line}` : ''}</div><p class="fg-why">${esc(c.why)}</p><div class="fg-diff">${diff}${c.diff.length > 8 ? `<div class="muted small">+ ${c.diff.length - 8} more lines</div>` : ''}</div></div></article>`;
-}
-function forgeAdvice(d) {
-  const list = d.changes.filter((c) => !c.auto);
-  if (!list.length) return '<div class="panel"><div class="empty">✓ Nothing needs a decision from you.</div></div>';
-  return `<p class="muted">These need information only you have (a certificate, a password, an application URL), so they are not changed automatically.</p><div class="fg-list">${list.map((c) => `<article class="fg-card adv"><div class="fg-cb"><div class="fg-ct"><b>${esc(c.title)}</b> <span class="fg-sev sev-${c.severity}">${esc(FG_SEV[c.severity])}</span> <span class="tag">${FG_CAT_ICON[c.category]} ${esc(FG_CATS[c.category])}</span></div><div class="muted small">${esc(c.section)}${c.line ? ` · line ${c.line}` : ''}</div><p class="fg-why">${esc(c.why)}</p></div></article>`).join('')}</div>`;
+  const fixable = c.kind === 'auto' || c.kind === 'optional';
+  const diff = (c.diff || []).slice(0, 8).map((x) => (x.k === 'add' ? `<div class="fg-d add"><i>+</i><code>${esc(x.after)}</code></div>` : x.k === 'del' ? `<div class="fg-d del"><i>−</i><code>${esc(x.before)}</code></div>` : `<div class="fg-d del"><i>−</i><code>${esc(x.before)}</code></div><div class="fg-d add"><i>+</i><code>${esc(x.after)}</code></div>`)).join('');
+  const where = `${esc(c.section)}${c.line ? ` · ${FG.req === 'instance' || state.mode === 'review' ? `<a ${loc(c)}>line ${c.line}</a>` : `line ${c.line}`}` : ''}`;
+  const srcs = (c.sources || []).filter((x) => x !== 'forge').map((x) => `<span class="tag" title="${esc((c.alsoFlagged || []).join(', ') || 'Also reported by this check')}">also ${esc(FG_SRC[x] || x)}</span>`).join(' ')
+    + ((c.sources || []).length === 1 && c.sources[0] !== 'forge' ? `<span class="tag">${esc(FG_SRC[c.sources[0]] || c.sources[0])}</span>` : '');
+  const lead = fixable ? `<label class="fg-sw" title="${c.applied ? 'Applied: click to leave it out' : 'Not applied: click to include it'}"><input type="checkbox" data-fg-t="${esc(c.key)}"${c.applied ? ' checked' : ''}><span></span></label>` : '<span class="fg-dot" title="Needs your decision"></span>';
+  return `<article class="fg-card${c.applied || !fixable ? '' : ' off'}${fixable ? '' : ' adv'}">${lead}
+    <div class="fg-cb"><div class="fg-ct"><b>${esc(c.title)}</b> <span class="fg-sev sev-${c.severity}">${esc(FG_SEV[c.severity])}</span> <span class="tag">${FG_CAT_ICON[c.category] || ''} ${esc(FG_CATS[c.category] || c.category)}</span>${c.kind === 'optional' ? ' <span class="tag">optional</span>' : ''}${srcs}</div>
+      <div class="muted small">${where}</div><p class="fg-why">${esc(c.why || c.detail)}</p>${!fixable && c.fix ? `<div class="fg-fix">Fix: ${esc(c.fix)}</div>` : ''}${diff ? `<div class="fg-diff">${diff}${c.diff.length > 8 ? `<div class="muted small">+ ${c.diff.length - 8} more lines</div>` : ''}</div>` : ''}</div></article>`;
 }
 function forgeConfig(d, f) {
   const added = new Set(); f.diff.hunks.forEach((h) => h.rows.forEach((r) => { if (r.t === '+') added.add(r.b); }));
@@ -145,7 +162,8 @@ async function fgReadFiles(list) {
 document.addEventListener('click', async (e) => {
   const t = e.target; if (!t.closest || !t.closest('#view-forge')) return;
   const src = t.closest('[data-fg-src]'); if (src) { FG.src = src.dataset.fgSrc; renderForge(); return; }
-  if (t.closest('[data-fg-run]')) { const p = $('#fg-product'); FG.product = p ? p.value : ''; const v = $('#fg-version'); FG.version = v ? v.value.trim() : ''; const tx = $('#fg-text'); if (tx) FG.text = tx.value; FG.req = FG.src === 'instance' ? 'instance' : FG.files.length && FG.src === 'upload' ? 'files' : 'paste'; if (FG.src === 'paste') FG.files = []; forgeRun(); return; }
+  if (t.closest('[data-fg-run]')) { const bi = $('#fg-build'); if (bi) FG.build = bi.value.trim(); const p = $('#fg-product'); FG.product = p ? p.value : ''; const v = $('#fg-version'); FG.version = v ? v.value.trim() : ''; const tx = $('#fg-text'); if (tx) FG.text = tx.value; FG.req = FG.src === 'instance' ? 'instance' : FG.files.length && FG.src === 'upload' ? 'files' : 'paste'; if (FG.src === 'paste') FG.files = []; forgeRun(); return; }
+  if (t.closest('[data-fg-build]')) { const b = $('#fg-build'); if (b) FG.build = b.value; FG.buildOpen = !FG.buildOpen; renderForge(); return; }
   const pick = t.closest('[data-fg-pick]'); if (pick) { const i = $(pick.dataset.fgPick === 'dir' ? '#fg-dir' : '#fg-files'); if (i) i.click(); return; }
   const rm = t.closest('[data-fg-rm]'); if (rm) { FG.files.splice(+rm.dataset.fgRm, 1); renderForge(); return; }
   if (t.closest('[data-fg-inst]')) { FG.req = 'instance'; FG.src = 'instance'; FG.srcNote = 'This is the redacted copy of the configuration that GateLight holds. Secrets appear as placeholders: restore them before you deploy.'; forgeReset(); forgeRun(); return; }
@@ -154,8 +172,10 @@ document.addEventListener('click', async (e) => {
   const tb = t.closest('[data-fg-tab]'); if (tb) { FG.tab = tb.dataset.fgTab; renderForgeResults(); return; }
   const ct = t.closest('[data-fg-cat]'); if (ct) { FG.cat = ct.dataset.fgCat; renderForgeResults(); return; }
   const kd = t.closest('[data-fg-kind]'); if (kd) { FG.kind = kd.dataset.fgKind; renderForgeResults(); return; }
+  const sv = t.closest('[data-fg-sev]'); if (sv) { FG.sev = sv.dataset.fgSev; renderForgeResults(); return; }
+  if (t.closest('[data-fg-export]') && FG.data) { download('config-forge-findings.json', JSON.stringify({ product: FG.data.product, target: FG.data.target, score: FG.data.score, findings: FG.data.findings.map(({ key, rule, kind, severity, category, title, why, fix, section, line, sources }) => ({ rule, kind, severity, category, title, why, fix, section, line, sources })) }, null, 2), 'application/json'); return; }
   const all = t.closest('[data-fg-all]');
-  if (all && FG.data) { const m = all.dataset.fgAll; FG.toggles = {}; FG.data.changes.filter((c) => c.auto).forEach((c) => { FG.toggles[c.key] = m === 'all' ? true : m === 'none' ? false : c.on; }); forgeAgain(); return; }
+  if (all && FG.data) { const m = all.dataset.fgAll; FG.toggles = {}; FG.data.findings.filter((c) => c.auto).forEach((c) => { FG.toggles[c.key] = m === 'all' ? true : m === 'none' ? false : c.on; }); forgeAgain(); return; }
   if (t.closest('[data-fg-copy]')) { try { await navigator.clipboard.writeText(fgText()); toast('Copied the improved configuration', 'ok'); } catch { toast('Copy is not available in this browser', 'err'); } return; }
   if (t.closest('[data-fg-dl]') && FG.data) { const f = FG.data.files[FG.file]; download(f.name.split('/').pop(), f.improved); return; }
   if (t.closest('[data-fg-dlall]') && FG.data) { FG.data.files.forEach((f, i) => setTimeout(() => download(f.name.split('/').pop(), f.improved), i * 250)); return; }
@@ -163,7 +183,8 @@ document.addEventListener('click', async (e) => {
 });
 document.addEventListener('change', (e) => {
   const t = e.target; if (!t.closest || !t.closest('#view-forge')) return;
-  if (t.matches('[data-fg-t]') && FG.data) { FG.toggles = { ...FG.toggles, [t.dataset.fgT]: t.checked }; const c = FG.data.changes.find((x) => x.key === t.dataset.fgT); if (c) c.applied = t.checked; forgeAgain(); return; }
+  if (t.matches('[data-fg-t]') && FG.data) { FG.toggles = { ...FG.toggles, [t.dataset.fgT]: t.checked }; const c = FG.data.findings.find((x) => x.key === t.dataset.fgT); if (c) c.applied = t.checked; forgeAgain(); return; }
+  if (t.matches('[data-fg-grp]') && FG.data) { FG.data.findings.filter((x) => x.rule === t.dataset.fgGrp && x.auto).forEach((x) => { FG.toggles[x.key] = t.checked; x.applied = t.checked; }); forgeAgain(); return; }
   if (t.id === 'fg-file') { FG.file = +t.value; renderForgeResults(); return; }
   if (t.id === 'fg-files' || t.id === 'fg-dir') { fgReadFiles([...t.files]); t.value = ''; return; }
   if (t.id === 'fg-product') { FG.product = t.value; FG.version = ''; renderForge(); return; }

@@ -8,7 +8,7 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const state = {
   instances: [], current: null, snapshot: null, events: [], view: 'overview',
   series: [], timer: null, sort: { key: 'default', desc: false }, analysis: null,
-  inspected: null, cfgFilter: '', auditFilter: { sev: 'all', cat: 'all' }, eventFilter: 'all',
+  inspected: null, cfgFilter: '', eventFilter: 'all',
   meta: { features: { haproxy: true, nginx: true }, types: [] }, cfgFile: null, focus: null, mode: 'landing',
   hiddenTypes: loadPref('gatelight.hiddenTypes', []),
 };
@@ -75,10 +75,8 @@ const FILTER_RESETS = {
   services() { for (const id of ['svc-search', 'svc-kind', 'svc-state']) { const e = $(`#${id}`); if (e) e.value = ''; } },
   graphs() { gr.q = ''; gr.pool = ''; gr.focus.clear(); gr.sig = ''; const e = $('#gr-search'); if (e) e.value = ''; const pl = $('#gr-pool'); if (pl) pl.value = ''; },
   config() { const e = $('#cfg-search'); if (e) e.value = ''; state.cfgFilter = ''; cfgRendered = null; },
-  audit() { state.auditFilter = { sev: 'all', cat: 'all' }; },
   events() { state.eventFilter = 'all'; },
   infrastructure() { lbi.problems = false; lbi.alive = false; },
-  validate() { VAL.tab = 'all'; VAL.sev = 'all'; },
   traffic() { if (typeof trResetFilters === 'function') trResetFilters(); },
   flow() { FLOW.fe = ''; FLOW.st = ''; FLOW.dq = ''; FLOW.sel = null; FLOW.trace = null; FLOW.traceErr = null; FLOW.req = { host: '', path: '/', port: '', method: 'GET' }; },
 };
@@ -87,9 +85,9 @@ const resetAllFilters = () => Object.keys(FILTER_RESETS).forEach(resetFilters);
 
 // ---------- navigation ----------
 let navReady = false; let navFromHistory = false; // push history entries only after start-up, and never while replaying one
-const REVIEW_VIEWS = ['topology', 'flow', 'audit', 'validate', 'forge', 'config'];
+const REVIEW_VIEWS = ['topology', 'flow', 'forge', 'config'];
 const visibleNav = () => $$('#nav button').filter((b) => !b.hidden && b.offsetParent !== null);
-const VIEW_ALIAS = { lbinfra: 'infrastructure' }; // old links keep working
+const VIEW_ALIAS = { lbinfra: 'infrastructure', audit: 'forge', validate: 'forge' }; // old links keep working
 function switchView(view) {
   view = VIEW_ALIAS[view] || view;
   if (state.mode === 'review' && !REVIEW_VIEWS.includes(view)) view = 'topology';
@@ -101,7 +99,6 @@ function switchView(view) {
   if (view === 'detail' && !state.inspected) view = (state.detailFrom && state.detailFrom !== 'detail') ? state.detailFrom : 'overview';
   if (state.view === 'detail' && view !== 'detail') state.inspected = null;
   state.view = view;
-  if (view === 'validate') setTimeout(() => valLoad(false), 0);
   if (view === 'flow' || view === 'topology') setTimeout(() => flowLoad(false), 0);
   if (view === 'traffic') setTimeout(() => trLoad(false), 0);
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${view}`));
@@ -146,7 +143,7 @@ function renderView(view) {
     if (view === 'overview') { if (state.current) $('#view-overview').innerHTML = '<div class="skeleton-cards"><i></i><i></i><i></i><i></i><i></i></div>'; else renderWelcome(); }
     return;
   }
-  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, validate: renderValidate, forge: () => renderForge(), flow: renderFlow, traffic: () => renderTraffic(), events: renderEvents, config: renderConfig }[view] || (() => {}))();
+  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, forge: () => renderForge(), flow: renderFlow, traffic: () => renderTraffic(), events: renderEvents, config: renderConfig }[view] || (() => {}))();
 }
 
 // ---------- data loading ----------
@@ -449,7 +446,7 @@ const CARD_GO = {
   rate: { view: 'services', kind: 'backend', st: '', sort: 'ratePerSec', desc: true },
   err5xx: { view: 'services', kind: 'backend', st: '', sort: 'err5xxPerSec', desc: true },
   bytes: { view: 'services', kind: 'backend', st: '', sort: 'bout', desc: true },
-  findings: { view: 'audit' },
+  findings: { view: 'forge' },
 };
 function openCard(id) {
   const g = CARD_GO[id]; if (!g) return;
@@ -1246,114 +1243,6 @@ function cycleTheme() {
   const next = order[(order.indexOf(cur) + 1) % 3];
   savePref('gatelight.theme', next); applyTheme(next); toast(`Theme: ${next}`);
 }
-
-// ---------- AUDIT ----------
-function renderAudit() {
-  const s = state.snapshot; const { sev, cat } = state.auditFilter;
-  const cats = ['all', ...new Set(s.findings.map((f) => f.category))];
-  const list = s.findings.filter((f) => (sev === 'all' || f.severity === sev) && (cat === 'all' || f.category === cat));
-  const f = s.findingsSummary;
-  $('#view-audit').innerHTML = `
-    <div class="chips">
-      ${['all', 'error', 'warning', 'info'].map((x) => `<span class="chip ${sev === x ? 'on' : ''}" data-sev="${x}">${x === 'all' ? `All (${f.total})` : `${x} (${f[x]})`}</span>`).join('')}
-      <span class="muted">|</span>
-      ${cats.map((x) => `<span class="chip ${cat === x ? 'on' : ''}" data-cat="${x}">${esc(x)}</span>`).join('')}
-      <span class="spacer"></span><button class="btn" id="audit-export">Export JSON</button>
-    </div>
-    ${auditFilterBar()}${auditCharts(list, s.findings)}
-    ${groupFindings(list).map((g) => (g.items.length >= 4 ? `<details class="finding ${esc(g.severity)}"><summary class="ft"><span class="sev-${esc(g.severity)}">${esc(g.severity.toUpperCase())}</span> · ${esc(g.rule)} <span class="tag">${g.items.length} occurrences</span> <span class="tag">${esc(g.category)}</span></summary>
-        <div class="fm">${esc(g.items[0].detail)}</div>${g.items[0].fix ? `<div class="fx">Fix: ${esc(g.items[0].fix)}</div>` : ''}
-        <ul class="locs">${g.items.map((x) => `<li><a ${loc(x)}>${esc(x.section)}:${x.line}</a> — ${esc(x.title)}</li>`).join('')}</ul></details>`
-      : g.items.map((x) => `<div class="finding ${esc(x.severity)}"><div class="ft"><span class="sev-${esc(x.severity)}">${esc(x.severity.toUpperCase())}</span> · ${esc(x.title)} <span class="tag">${esc(x.category)}</span></div>
-      <div class="fm">${esc(x.detail)} <a ${loc(x)}>${esc(x.section)}:${x.line}</a></div>${x.fix ? `<div class="fx">Fix: ${esc(x.fix)}</div>` : ''}</div>`).join(''))).join('')
-      || '<div class="empty">✓ No findings for this filter</div>'}`;
-}
-
-function groupFindings(list) {
-  const groups = new Map();
-  for (const f of list) {
-    if (!groups.has(f.id)) groups.set(f.id, { id: f.id, rule: f.rule || f.id, severity: f.severity, category: f.category, items: [] });
-    groups.get(f.id).items.push(f);
-  }
-  return [...groups.values()].sort((a, b) => ({ error: 0, warning: 1, info: 2 }[a.severity] - { error: 0, warning: 1, info: 2 }[b.severity]));
-}
-
-
-
-// ---------- VALIDATE (version-aware, against the official docs) ----------
-const VAL = { inst: null, data: null, loading: false, err: null, version: '', build: '', tab: 'all', sev: 'all', versions: null, key: '', buildOpen: false };
-const NGINX_COMMON = ['1.31', '1.30', '1.28', '1.26', '1.24', '1.22', '1.20', '1.18', '1.16', '1.14'];
-async function valLoad(force) {
-  if (VAL.loading) return;
-  const key = `${state.current}|${VAL.version}|${VAL.build.length}`;
-  if (!force && VAL.data && VAL.key === key) return;
-  VAL.loading = true; VAL.err = null; renderValidate();
-  try {
-    if (!VAL.versions) { try { VAL.versions = await api('/validate/versions'); } catch { VAL.versions = null; } }
-    let res;
-    if (state.mode === 'review' && state.analysisCfg) {
-      res = await api('/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: state.analysisCfg.type, files: state.analysisCfg.files, version: VAL.version || undefined, build: VAL.build || undefined }) });
-    } else {
-      const q = new URLSearchParams(); if (VAL.version) q.set('version', VAL.version); if (VAL.build) q.set('build', VAL.build);
-      res = await api(`/instances/${encodeURIComponent(state.current)}/validate?${q}`);
-    }
-    VAL.data = res; VAL.key = key;
-    const nv = $('#nav-validate'); if (nv) { const n = res.summary.error + res.summary.warning; nv.hidden = !n; nv.textContent = n; }
-  } catch (e) { VAL.err = e.message; VAL.data = null; }
-  VAL.loading = false; if (state.view === 'validate') renderValidate();
-}
-const VAL_KIND = { all: 'All', syntax: 'Syntax', compat: 'Compatibility', recommendation: 'Recommendations' };
-const valKind = (f) => (f.category === 'syntax' ? 'syntax' : (f.category === 'recommendation' || /^rec-/.test(f.id)) ? 'recommendation' : 'compat');
-function renderValidate() {
-  const el = $('#view-validate'); if (!el) return;
-  const snap = state.snapshot; if (!snap) { el.innerHTML = ''; return; }
-  if (VAL.inst !== state.current) { // another instance: forget the previous pick and results
-    Object.assign(VAL, { inst: state.current, version: '', build: '', data: null, err: null, tab: 'all', sev: 'all', key: '', buildOpen: false });
-    if (!VAL.loading) setTimeout(() => valLoad(true), 0);
-  }
-  const type = snap.instance.type; const d = VAL.data;
-  const hap = type === 'haproxy';
-  const opts = hap && VAL.versions ? VAL.versions.haproxy.list : [];
-  const detected = d && d.detectedVersion;
-  const sel = hap
-    ? `<select id="val-version" aria-label="Target HAProxy version"><option value="">${detected ? `Detected (${esc(detected)})` : 'Latest'}</option>${opts.map((v) => `<option value="${esc(v)}"${VAL.version === v ? ' selected' : ''}>HAProxy ${esc(v)}</option>`).join('')}</select>`
-    : `<input id="val-version" list="val-nginx-v" placeholder="${detected ? `Detected (${esc(detected)})` : 'e.g. 1.24.0 (empty = latest)'}" value="${esc(VAL.version)}" aria-label="Target NGINX version" autocomplete="off"><datalist id="val-nginx-v">${NGINX_COMMON.map((v) => `<option value="${v}">`).join('')}</datalist>`;
-  const head = `<div class="panel val-head">
-      <div class="val-pick"><label for="val-version">Validate against</label>${sel}
-        <button class="btn primary" type="button" data-val-run>${VAL.loading ? 'Checking…' : 'Validate'}</button>
-        ${hap ? '' : `<button class="link" type="button" data-val-build>${VAL.buildOpen ? 'Hide' : 'Add'} build info</button>`}</div>
-      <p class="muted small">Every directive, parameter, context and expression is checked against the official ${hap ? 'HAProxy manual' : 'NGINX documentation'} for the chosen version, so you see what that exact release will accept, reject or has removed — plus recommendations that depend on the version.</p>
-      ${!hap && VAL.buildOpen ? `<textarea id="val-build" rows="3" placeholder="Paste the output of  nginx -V  to also check which modules your build contains" spellcheck="false">${esc(VAL.build)}</textarea>` : ''}
-    </div>`;
-  if (VAL.loading && !d) { el.innerHTML = `${head}<div class="skeleton-cards"><i></i><i></i><i></i></div>`; return; }
-  if (VAL.err) { el.innerHTML = `${head}<div class="panel"><div class="empty">Could not validate: ${esc(VAL.err)}</div></div>`; return; }
-  if (!d) { el.innerHTML = head; return; }
-  const all = d.findings; const kinds = { syntax: 0, compat: 0, recommendation: 0 };
-  all.forEach((f) => { kinds[valKind(f)]++; });
-  const list = all.filter((f) => (VAL.tab === 'all' || valKind(f) === VAL.tab) && (VAL.sev === 'all' || f.severity === VAL.sev));
-  const tgt = d.target; const label = hap ? `HAProxy ${tgt.branch}` : `NGINX ${tgt.version}`;
-  const bad = d.summary.error;
-  const verdict = bad ? `<span class="val-no">✗ ${bad} problem${bad === 1 ? '' : 's'} on ${esc(label)}</span>` : `<span class="val-ok">✓ Valid for ${esc(label)}</span>`;
-  const chip = (x, t, n, attr) => `<span class="chip ${VAL[attr] === x ? 'on' : ''}" data-val-${attr}="${x}">${t}${n == null ? '' : ` (${n})`}</span>`;
-  const card = (f) => {
-    const kind = valKind(f);
-    const tags = [f.since ? `<span class="tag since">needs ≥ ${esc(f.since)}</span>` : '', f.until ? `<span class="tag until">gone after ${esc(f.until)}</span>` : '', `<span class="tag">${esc({ syntax: 'syntax', compat: 'compatibility', recommendation: 'recommendation' }[kind])}</span>`].join(' ');
-    const where = f.line ? `<a ${loc(f)}>${esc(f.file ? `${f.file}:` : '')}${f.section ? `${esc(f.section)}:` : ''}${f.line}</a>` : '';
-    return `<div class="finding ${esc(f.severity)}"><div class="ft"><span class="sev-${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span> · ${esc(f.title)} ${tags}</div>
-      ${f.detail ? `<div class="fm">${esc(f.detail)} ${where}</div>` : (where ? `<div class="fm">${where}</div>` : '')}
-      ${f.fix ? `<div class="fx"><b>Fix</b> ${f.fix.includes('\n') ? `<pre class="val-code">${esc(f.fix)}</pre>` : esc(f.fix)}</div>` : ''}
-      ${f.docs ? `<div class="fm small"><a href="${esc(f.docs)}" target="_blank" rel="noopener noreferrer">Official documentation ↗</a></div>` : ''}</div>`;
-  };
-  el.innerHTML = `${head}
-    <div class="panel val-sum"><div class="val-verdict">${verdict}</div>
-      <div class="val-counts"><span><b class="sev-error">${d.summary.error}</b> errors</span><span><b class="sev-warning">${d.summary.warning}</b> warnings</span><span><b class="sev-info">${d.summary.info}</b> notes</span></div>
-      ${tgt.note ? `<p class="muted small">${esc(tgt.note)}</p>` : ''}
-      <p class="muted small">Checked against the official ${hap ? 'manual at docs.haproxy.org' : 'documentation at nginx.org'} (knowledge base built ${esc(d.kb.generated)}${hap ? '' : `, up to nginx ${esc(d.kb.latest)}`}).${d.runningVersionText ? ` Running version reported: <span class="mono">${esc(d.runningVersionText)}</span>.` : ''}</p></div>
-    <div class="chips">${Object.entries(VAL_KIND).map(([k, t]) => chip(k, t, k === 'all' ? all.length : kinds[k], 'tab')).join('')}<span class="muted">|</span>
-      ${['all', 'error', 'warning', 'info'].map((x) => chip(x, x === 'all' ? 'Any severity' : x, null, 'sev')).join('')}</div>
-    ${list.map(card).join('') || `<div class="empty">✓ Nothing to report for this filter</div>`}`;
-}
-
 
 // ---------- TRAFFIC FLOW: listener port -> backend port, and what happens to the URI on the way ----------
 const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'domains', dq: '', st: '', sel: null };
@@ -2353,25 +2242,6 @@ function svcCharts(rows) {
     ${have('bout') ? barChart('Most data sent', topBars(pools, 'bout', 6, '#f472b6', (v) => fmtBytes(v)), { sub: 'since start' }) : ''}</div>`;
 }
 
-// ---------- CONFIG AUDIT: charts for the findings the filters currently show ----------
-function auditFilterBar() {
-  const { sev, cat } = state.auditFilter; if (sev === 'all' && cat === 'all') return '';
-  const parts = [sev !== 'all' ? `severity <b>${esc(sev)}</b>` : '', cat !== 'all' ? `category <b>${esc(cat)}</b>` : ''].filter(Boolean).join(' and ');
-  return `<div class="af-bar" role="status"><span>Showing only ${parts}.</span><button type="button" class="btn" data-af-clear>✕ Show all findings</button></div>`;
-}
-function auditCharts(list, all = list) {
-  const count = (key) => { const m = new Map(); for (const f of list) m.set(f[key], (m.get(f[key]) || 0) + 1); return [...m].sort((a, b) => b[1] - a[1]); };
-  const sev = ['error', 'warning', 'info'].map((k) => ({ label: k[0].toUpperCase() + k.slice(1), color: { error: '#f87171', warning: '#fbbf24', info: '#22d3ee' }[k], value: list.filter((f) => f.severity === k).length }));
-  const donut = donutCard('Findings by severity', sev, { big: String(list.length), sub: 'findings' }, 'How serious the findings are.');
-  const sevOnly = state.auditFilter.sev === 'all' ? all : all.filter((f) => f.severity === state.auditFilter.sev);
-  const catCount = new Map(); for (const f of sevOnly) catCount.set(f.category, (catCount.get(f.category) || 0) + 1);
-  const cats = barChart('By category', [...catCount].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => ({ label: k, value: v, color: state.auditFilter.cat === k ? '#22d3ee' : '#818cf8', attrs: `data-cat="${esc(state.auditFilter.cat === k ? 'all' : k)}" aria-pressed="${state.auditFilter.cat === k}"` })), { sub: state.auditFilter.cat === 'all' ? 'click to filter' : 'click again to clear' });
-  const secs = barChart('Most affected sections', count('section').slice(0, 8).map(([k, v]) => ({ label: k || '(global)', value: v, color: '#22d3ee' })), { sub: 'frontends, backends, upstreams' });
-  const ruleName = new Map(list.map((f) => [f.id, f.rule || f.title]));
-  const rules = barChart('Most frequent rules', count('id').slice(0, 8).map(([k, v]) => ({ label: ruleName.get(k) || k, value: v, color: '#fbbf24' })), { sub: 'rule · occurrences' });
-  return `<div class="svc-charts-grid">${list.length ? donut + cats + secs + rules : ''}</div>`;
-}
-
 // ---------- LB INFRA: what sits behind the load balancer, and is it alive ----------
 const lbi = { by: 'tree', problems: false, alive: false, open: new Set(), init: false };
 const LBI_WORD = { up: 'alive', down: 'down', degraded: 'degraded', drain: 'draining', maint: 'maintenance', nocheck: 'unchecked', unknown: 'unknown' };
@@ -3069,11 +2939,6 @@ function wire() {
     const kc = e.target.closest('[data-card]'); if (kc) { openCard(kc.dataset.card); return; }
     const gt = e.target.closest('[data-goto]'); if (gt) { switchView(gt.dataset.goto); return; }
     const ins = e.target.closest('[data-inspect]'); if (ins) { const key = ins.dataset.inspect; const r = indexRows(state.snapshot.rows).get(key); inspect(key, r && r.kind); return; }
-    if (e.target.closest('[data-af-clear]')) { state.auditFilter = { sev: 'all', cat: 'all' }; renderAudit(); return; }
-    const sev = e.target.closest('[data-sev]'); if (sev) { state.auditFilter.sev = sev.dataset.sev; renderAudit(); return; }
-    const cat = e.target.closest('[data-cat]'); if (cat) { state.auditFilter.cat = cat.dataset.cat; renderAudit(); return; }
-    if (e.target.closest('[data-val-run]')) { const v = $('#val-version'); VAL.version = v ? v.value.trim() : ''; const b = $('#val-build'); if (b) VAL.build = b.value.trim(); valLoad(true); return; }
-    if (e.target.closest('[data-val-build]')) { const b = $('#val-build'); if (b) VAL.build = b.value; VAL.buildOpen = !VAL.buildOpen; renderValidate(); return; }
     if (e.target.closest('[data-flow-trace]')) { FLOW.req = { host: ($('#flow-host') || {}).value || '', path: ($('#flow-path') || {}).value || '/', port: ($('#flow-port') || {}).value || '', method: ($('#flow-method') || {}).value || 'GET' }; flowTrace(); return; }
     if (e.target.closest('[data-flow-clear]')) { FLOW.sel = null; renderFlow(); return; }
     const fp = e.target.closest('.flow-svg [data-fsel]');
@@ -3082,8 +2947,6 @@ function wire() {
     const fd = e.target.closest('[data-flow-dom]');
     if (fd) { const [name, port, tls] = fd.dataset.flowDom.split('|'); const host = name.startsWith('*.') ? `test${name.slice(1)}` : name.startsWith('.') ? `www${name}` : /^[(_~]/.test(name) || name.endsWith('.*') ? '' : name; FLOW.req = { host, path: '/', port, method: 'GET' }; FLOW.trace = null; flowTrace().then(() => { const el = $('.flow-try'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); return; }
     const ft = e.target.closest('[data-flow-tab]'); if (ft) { FLOW.tab = ft.dataset.flowTab; renderFlow(); return; }
-    const vt = e.target.closest('[data-val-tab]'); if (vt) { VAL.tab = vt.dataset.valTab; renderValidate(); return; }
-    const vs = e.target.closest('[data-val-sev]'); if (vs) { VAL.sev = vs.dataset.valSev; renderValidate(); return; }
     const ev = e.target.closest('[data-ev]'); if (ev) { state.eventFilter = ev.dataset.ev; renderEvents(); return; }
     const th = e.target.closest('th[data-sort]');
     if (th && !SVC_COLS.find((c) => c.k === th.dataset.sort).nosort) {
@@ -3094,7 +2957,6 @@ function wire() {
       if (e.target.checked) set.delete(t); else set.add(t);
       state.hiddenTypes = [...set]; savePref('gatelight.hiddenTypes', state.hiddenTypes); loadInstances().then(() => renderSettings()); return;
     }
-    if (e.target.id === 'audit-export') download(`${state.current}-audit.json`, JSON.stringify({ summary: state.snapshot.findingsSummary, findings: state.snapshot.findings }, null, 2), 'application/json');
   });
 
   ['topo-search', 'topo-problems', 'topo-servers', 'topo-urls', 'topo-layer'].forEach((id) => $(`#${id}`).addEventListener('input', renderTopology));
