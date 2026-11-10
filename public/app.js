@@ -1356,29 +1356,43 @@ function flowSvg(flows) {
     f.listeners.filter((l) => l.port).forEach((l) => { const k = `${f.frontend}|${l.port}|${l.tls}`; if (!lisIdx.has(k)) { lisIdx.set(k, lis.length); lis.push({ k, fe: f.frontend, port: l.port, tls: l.tls }); } });
     if (!poolIdx.has(f.pool.name)) { poolIdx.set(f.pool.name, pools.length); pools.push(f); }
   });
-  const RH = 46; const rows = Math.max(flows.length, lis.length, pools.length); const H = rows * RH + 36; const W = 1000;
+  const RH = 62; const rows = Math.max(flows.length, lis.length, pools.length); const H = rows * RH + 36; const W = 1080;
   const ly = (i, n) => 20 + (n <= 1 ? (rows * RH) / 2 : (i * (rows * RH - RH)) / (n - 1)) + RH / 2 - 8;
   const clip = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
+  let cid = 0; const clipBox = (x, y, w, h) => { const id = `fsc${cid++}`; return { id, def: `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7"/></clipPath>` }; };
   let out = `<svg class="flow-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Listener to rule to backend pool map" preserveAspectRatio="xMinYMin meet">`;
-  out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="760" y="14" class="fs-h">POOLS, BACKEND IPS &amp; PORTS</text>`;
+  out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="770" y="14" class="fs-h">POOLS, BACKEND IPS &amp; PORTS</text>`;
   const edge = (x1, y1, x2, y2, cls, label, tip, st) => { const mx = (x1 + x2) / 2; const d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; return `<g class="fs-eg"><title>${esc(`${tip || label || ''}${st ? `\n\nStatus: ${FLOW_ST[st.k]}. ${st.text}` : ''}`)}</title><path class="fs-e ${cls || ''} ${st ? `st-${st.k}` : ''}" d="${d}"/><path class="fs-hit" d="${d}"/>${label ? `<text class="fs-pl" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${esc(label)}</text>` : ''}${st && label ? `<circle class="fs-dot st-${st.k}" cx="${mx}" cy="${(y1 + y2) / 2 + 5}" r="4.5"/>` : ''}</g>`; };
   flows.forEach((f, i) => {
     const y = ly(i, flows.length); const pi = poolIdx.get(f.pool.name); const py = ly(pi, pools.length); const st = flowStatus(f);
     f.listeners.filter((l) => l.port).forEach((l) => { const li = lisIdx.get(`${f.frontend}|${l.port}|${l.tls}`); out += edge(190, ly(li, lis.length), 360, y, f.shadowedBy ? 'dead' : '', '', `${l.tls ? 'TLS ' : ''}port ${l.port} on ${f.frontend}\n→ ${f.match.type === 'default' ? 'default rule' : f.match.text}`, st); });
     const pm = f.portMap[f.portMap.length - 1];
-    const label = f.portMap.map((p) => `${p.in}→${p.out.length ? p.out.join('/') : '?'}`).slice(0, 3).join(' · ');
-    out += edge(640, y, 760, py, `${f.pool.undefined ? 'bad' : ''} ${f.shadowedBy ? 'dead' : ''} ${pm && pm.tls === 're-encrypt' && (st.k === 'config' || st.k === 'idle') ? 'enc' : ''}`, label, `${f.frontend} → ${f.pool.name}\n${f.portMap.map((p) => `${p.listenerTls ? '🔒' : ''}:${p.in} → ${p.targets.length ? p.targets.join(', ') : '?'}  (${TLS_LABEL[p.tls] || p.tls})`).join('\n')}${f.pool.undefined ? '\nBackend is not defined' : ''}`, st);
+    const sh = (o) => (!o.length ? '?' : o.length <= 2 ? o.join('/') : `${Math.min(...o)}…${Math.max(...o)}`); // long port lists: first…last
+    const label = clip(f.portMap.map((p) => `${p.in}→${sh(p.out)}`).slice(0, 2).join(' · '), 24);
+    out += edge(640, y, 770, py, `${f.pool.undefined ? 'bad' : ''} ${f.shadowedBy ? 'dead' : ''} ${pm && pm.tls === 're-encrypt' && (st.k === 'config' || st.k === 'idle') ? 'enc' : ''}`, label, `${f.frontend} → ${f.pool.name}\n${f.portMap.map((p) => `${p.listenerTls ? '🔒' : ''}:${p.in} → ${p.targets.length ? p.targets.join(', ') : '?'}  (${TLS_LABEL[p.tls] || p.tls})`).join('\n')}${f.pool.undefined ? '\nBackend is not defined' : ''}`, st);
   });
-  lis.forEach((l, i) => { const y = ly(i, lis.length); out += `<g><title>${esc(`${l.tls ? 'TLS ' : ''}listener :${l.port} of ${l.fe}\n${flows.filter((f) => f.frontend === l.fe && f.listeners.some((x) => x.port === l.port)).length} routing rule(s)`)}</title><rect class="fs-n fs-l" x="10" y="${y - 15}" width="180" height="30" rx="7"/><text class="fs-t" x="20" y="${y + 4}">${l.tls ? '🔒 ' : ''}:${esc(l.port)} · ${esc(clip(l.fe.replace(/:[\d+]+(#\d+)?$/, ''), 20))}</text></g>`; });
+  lis.forEach((l, i) => { const y = ly(i, lis.length); const c = clipBox(10, y - 15, 180, 30);
+    out += `<g><title>${esc(`${l.tls ? 'TLS ' : ''}listener :${l.port} of ${l.fe}\n${flows.filter((f) => f.frontend === l.fe && f.listeners.some((x) => x.port === l.port)).length} routing rule(s)`)}</title>${c.def}<rect class="fs-n fs-l" x="10" y="${y - 15}" width="180" height="30" rx="7"/><text class="fs-t" clip-path="url(#${c.id})" x="20" y="${y + 4}">${l.tls ? '🔒 ' : ''}:${esc(l.port)} · ${esc(clip(l.fe.replace(/:[\d+]+(#\d+)?$/, ''), 20))}</text></g>`; });
   flows.forEach((f, i) => {
-    const y = ly(i, flows.length); const ex = f.example;
+    const y = ly(i, flows.length); const ex = f.example; const c = clipBox(360, y - 19, 280, 38);
     const host = f.match.hosts && f.match.hosts.length ? `${f.match.hosts[0]} ` : '';
-    out += `<g><title>${esc(f.match.text)}${ex ? `\n${ex.in} → ${ex.out}` : ''}</title><rect class="fs-n fs-r${f.shadowedBy ? ' dead' : ''}" x="360" y="${y - 19}" width="280" height="38" rx="7"/>
-      <text class="fs-t" x="370" y="${y - 3}">${esc(clip(f.match.type === 'default' ? 'default (everything else)' : `${host}${f.match.short || f.match.text}`, 38))}</text>
-      <text class="fs-s" x="370" y="${y + 12}">${f.shadowedBy ? `⚠ shadowed by rule #${f.shadowedBy}` : ex && ex.changed ? `${esc(clip(ex.in, 17))} → ${esc(clip(ex.out, 17))}` : f.chain.some((s) => s.kind === 'terminal' && s.applies === true) ? 'answers with a redirect / deny' : 'path unchanged'}</text></g>`;
+    out += `<g><title>${esc(f.match.text)}${ex ? `\n${ex.in} → ${ex.out}` : ''}</title>${c.def}<rect class="fs-n fs-r${f.shadowedBy ? ' dead' : ''}" x="360" y="${y - 19}" width="280" height="38" rx="7"/>
+      <text class="fs-t" clip-path="url(#${c.id})" x="370" y="${y - 3}">${esc(clip(f.match.type === 'default' ? 'default (everything else)' : `${host}${f.match.short || f.match.text}`, 40))}</text>
+      <text class="fs-s" clip-path="url(#${c.id})" x="370" y="${y + 12}">${f.shadowedBy ? `⚠ shadowed by rule #${f.shadowedBy}` : ex && ex.changed ? `${esc(clip(ex.in, 20))} → ${esc(clip(ex.out, 20))}` : f.chain.some((s) => s.kind === 'terminal' && s.applies === true) ? 'answers with a redirect / deny' : 'path unchanged'}</text></g>`;
   });
-  pools.forEach((f, i) => { const y = ly(i, pools.length); const ports = [...new Set(f.portMap.flatMap((p) => p.out))]; const hosts = [...new Set(f.members.map((m) => (m.addr.kind === 'socket' ? m.address : m.addr.host)))];
-    out += `<g><title>${esc(f.pool.name)}\n${esc(f.portMap.flatMap((p) => p.targets).filter((t, i, a) => a.indexOf(t) === i).join('\n'))}</title><rect class="fs-n fs-p${f.pool.undefined ? ' bad' : ''}" x="760" y="${y - 19}" width="230" height="38" rx="7"/><text class="fs-t" x="770" y="${y - 3}">${esc(clip(f.pool.name, 18))}${f.pool.undefined ? ' (undefined)' : ports.length ? ` · ${ports.slice(0, 3).map((x) => `:${x}`).join(' ')}${ports.length > 3 ? '…' : ''}` : ''}</text><text class="fs-s" x="770" y="${y + 12}">${hosts.length ? esc(clip(`${hosts.slice(0, 2).join(', ')}${hosts.length > 2 ? ` +${hosts.length - 2}` : ''}`, 34)) : f.pool.undefined ? '' : 'no members'}</text></g>`; });
+  pools.forEach((f, i) => {
+    const y = ly(i, pools.length); const ports = [...new Set(f.portMap.flatMap((p) => p.out))].sort((a, b) => a - b);
+    const hosts = [...new Set(f.members.map((m) => (m.addr.kind === 'socket' ? m.address : m.addr.host)))];
+    const c = clipBox(770, y - 27, 300, 54);
+    // everything lives inside the card: name, then ports, then member IPs; what does not fit is summarised as "+N"
+    const fit = (list, fmt, max) => { let t = ''; let n = 0; for (const x of list) { const nx = `${t}${t ? ' ' : ''}${fmt(x)}`; if (nx.length > max - 6 && n < list.length) break; t = nx; n++; } return n < list.length ? `${t} +${list.length - n}` : t; };
+    const l1 = f.pool.undefined ? `${f.pool.name} (undefined)` : f.pool.name;
+    const l2 = f.pool.undefined ? 'not defined: requests get a 503' : ports.length ? fit(ports, (x) => `:${x}`, 44) : 'no ports';
+    const l3 = f.pool.undefined ? '' : hosts.length ? fit(hosts, (x) => x, 44) : 'no members';
+    out += `<g><title>${esc(f.pool.name)}\n${esc(f.portMap.flatMap((p) => p.targets).filter((t, k, a) => a.indexOf(t) === k).join('\n'))}</title>${c.def}<rect class="fs-n fs-p${f.pool.undefined ? ' bad' : ''}" x="770" y="${y - 27}" width="300" height="54" rx="7"/>
+      <text class="fs-t fs-tb" clip-path="url(#${c.id})" x="780" y="${y - 10}">${esc(clip(l1, 40))}</text>
+      <text class="fs-s fs-sp" clip-path="url(#${c.id})" x="780" y="${y + 4}">${esc(l2)}</text>
+      <text class="fs-s" clip-path="url(#${c.id})" x="780" y="${y + 18}">${esc(l3)}</text></g>`; });
   // <title> tooltips are slow and unreliable: carry the text in data-tip and show it with our own instant tooltip
   return `${out}</svg>`.replace(/<g( class="[^"]*")?><title>([\s\S]*?)<\/title>/g, (_m, c, t) => `<g${c || ''} data-tip="${t}">`);
 }
