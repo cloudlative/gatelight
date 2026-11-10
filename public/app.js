@@ -79,7 +79,7 @@ const FILTER_RESETS = {
   events() { state.eventFilter = 'all'; },
   infrastructure() { lbi.problems = false; lbi.alive = false; },
   validate() { VAL.tab = 'all'; VAL.sev = 'all'; },
-  flow() { FLOW.fe = ''; FLOW.st = ''; FLOW.dq = ''; FLOW.trace = null; FLOW.traceErr = null; FLOW.req = { host: '', path: '/', port: '', method: 'GET' }; },
+  flow() { FLOW.fe = ''; FLOW.st = ''; FLOW.dq = ''; FLOW.sel = null; FLOW.trace = null; FLOW.traceErr = null; FLOW.req = { host: '', path: '/', port: '', method: 'GET' }; },
 };
 function resetFilters(view) { try { const f = FILTER_RESETS[view]; if (f) f(); } catch { /* a missing element must never break navigation */ } }
 const resetAllFilters = () => Object.keys(FILTER_RESETS).forEach(resetFilters);
@@ -1315,7 +1315,7 @@ function renderValidate() {
 
 
 // ---------- TRAFFIC FLOW: listener port -> backend port, and what happens to the URI on the way ----------
-const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'domains', dq: '', st: '' };
+const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'domains', dq: '', st: '', sel: null };
 const TLS_LABEL = { terminate: 'TLS ended here → plain', 're-encrypt': 'TLS → TLS (re-encrypted)', upgrade: 'plain → TLS', plain: 'plain → plain', passthrough: 'TCP passthrough' };
 async function flowLoad(force) {
   if (FLOW.loading) return;
@@ -1386,6 +1386,20 @@ function serverPass(pool, name) {
   return FLOW.st === 'alive' ? up : FLOW.st === 'dead' ? !up : (r.ratePerSec || 0) === 0;
 }
 const stDot = (k) => `<span class="st-dot st-${k}" title="${esc(FLOW_ST[k])}"></span>`;
+// Clicking a card in the diagram keeps only what is connected to it. A listener keeps its own port only; a rule keeps its
+// listeners and pool; a pool keeps every rule that leads to it.
+function flowNarrow(flows) {
+  const sel = FLOW.sel; if (!sel) return { flows, label: '' };
+  const [kind, a, b, c] = sel.key.split('|');
+  if (kind === 'l') {
+    const keep = flows.filter((f) => f.frontend === a && f.listeners.some((l) => String(l.port) === b && (l.tls ? 1 : 0) === Number(c)))
+      .map((f) => ({ ...f, listeners: f.listeners.filter((l) => String(l.port) === b && (l.tls ? 1 : 0) === Number(c)), portMap: f.portMap.filter((p) => String(p.in) === b && (p.listenerTls ? 1 : 0) === Number(c)) }));
+    return { flows: keep, label: `${Number(c) ? '🔒 ' : ''}:${b} of ${a.replace(/:[\d+]+(#\d+)?$/, '')}` };
+  }
+  if (kind === 'r') { const keep = flows.filter((f) => f.id === sel.key.slice(2)); return { flows: keep, label: keep[0] ? (keep[0].match.type === 'default' ? 'default rule' : keep[0].match.short || keep[0].match.text) : '' }; }
+  if (kind === 'p') return { flows: flows.filter((f) => f.pool.name === sel.key.slice(2)), label: sel.key.slice(2) };
+  return { flows, label: '' };
+}
 function flowSvg(flows) {
   // three columns: listeners -> rules -> pools. One row per rule; listeners and pools are shared rows.
   const lis = []; const lisIdx = new Map(); const pools = []; const poolIdx = new Map();
@@ -1409,11 +1423,11 @@ function flowSvg(flows) {
     out += edge(640, y, 770, py, `${f.pool.undefined ? 'bad' : ''} ${f.shadowedBy ? 'dead' : ''} ${pm && pm.tls === 're-encrypt' && (st.k === 'config' || st.k === 'idle') ? 'enc' : ''}`, label, `${f.frontend} → ${f.pool.name}\n${f.portMap.map((p) => `${p.listenerTls ? '🔒' : ''}:${p.in} → ${p.targets.length ? p.targets.join(', ') : '?'}  (${TLS_LABEL[p.tls] || p.tls})`).join('\n')}${f.pool.undefined ? '\nBackend is not defined' : ''}`, st);
   });
   lis.forEach((l, i) => { const y = ly(i, lis.length); const c = clipBox(10, y - 15, 180, 30);
-    out += `<g><title>${esc(`${l.tls ? 'TLS ' : ''}listener :${l.port} of ${l.fe}\n${flows.filter((f) => f.frontend === l.fe && f.listeners.some((x) => x.port === l.port)).length} routing rule(s)`)}</title>${c.def}<rect class="fs-n fs-l" x="10" y="${y - 15}" width="180" height="30" rx="7"/><text class="fs-t" clip-path="url(#${c.id})" x="20" y="${y + 4}">${l.tls ? '🔒 ' : ''}:${esc(l.port)} · ${esc(clip(l.fe.replace(/:[\d+]+(#\d+)?$/, ''), 20))}</text></g>`; });
+    out += `<g class="fs-pick${FLOW.sel && FLOW.sel.key === `l|${l.fe}|${l.port}|${l.tls ? 1 : 0}` ? ' sel' : ''}" data-fsel="l|${esc(l.fe)}|${esc(l.port)}|${l.tls ? 1 : 0}"><title>${esc(`${l.tls ? 'TLS ' : ''}listener :${l.port} of ${l.fe}\n${flows.filter((f) => f.frontend === l.fe && f.listeners.some((x) => x.port === l.port)).length} routing rule(s)`)}</title>${c.def}<rect class="fs-n fs-l" x="10" y="${y - 15}" width="180" height="30" rx="7"/><text class="fs-t" clip-path="url(#${c.id})" x="20" y="${y + 4}">${l.tls ? '🔒 ' : ''}:${esc(l.port)} · ${esc(clip(l.fe.replace(/:[\d+]+(#\d+)?$/, ''), 20))}</text></g>`; });
   flows.forEach((f, i) => {
     const y = ly(i, flows.length); const ex = f.example; const c = clipBox(360, y - 19, 280, 38);
     const host = f.match.hosts && f.match.hosts.length ? `${f.match.hosts[0]} ` : '';
-    out += `<g><title>${esc(f.match.text)}${ex ? `\n${ex.in} → ${ex.out}` : ''}</title>${c.def}<rect class="fs-n fs-r${f.shadowedBy ? ' dead' : ''}" x="360" y="${y - 19}" width="280" height="38" rx="7"/>
+    out += `<g class="fs-pick${FLOW.sel && FLOW.sel.key === `r|${f.id}` ? ' sel' : ''}" data-fsel="r|${esc(f.id)}"><title>${esc(f.match.text)}${ex ? `\n${ex.in} → ${ex.out}` : ''}</title>${c.def}<rect class="fs-n fs-r${f.shadowedBy ? ' dead' : ''}" x="360" y="${y - 19}" width="280" height="38" rx="7"/>
       <text class="fs-t" clip-path="url(#${c.id})" x="370" y="${y - 3}">${esc(clip(f.match.type === 'default' ? 'default (everything else)' : `${host}${f.match.short || f.match.text}`, 40))}</text>
       <text class="fs-s" clip-path="url(#${c.id})" x="370" y="${y + 12}">${f.shadowedBy ? `⚠ shadowed by rule #${f.shadowedBy}` : ex && ex.changed ? `${esc(clip(ex.in, 20))} → ${esc(clip(ex.out, 20))}` : f.chain.some((s) => s.kind === 'terminal' && s.applies === true) ? 'answers with a redirect / deny' : 'path unchanged'}</text></g>`;
   });
@@ -1426,12 +1440,12 @@ function flowSvg(flows) {
     const l1 = f.pool.undefined ? `${f.pool.name} (undefined)` : f.pool.name;
     const l2 = f.pool.undefined ? 'not defined: requests get a 503' : ports.length ? fit(ports, (x) => `:${x}`, 44) : 'no ports';
     const l3 = f.pool.undefined ? '' : hosts.length ? fit(hosts, (x) => x, 44) : 'no members';
-    out += `<g><title>${esc(f.pool.name)}\n${esc(f.portMap.flatMap((p) => p.targets).filter((t, k, a) => a.indexOf(t) === k).join('\n'))}</title>${c.def}<rect class="fs-n fs-p${f.pool.undefined ? ' bad' : ''}" x="770" y="${y - 27}" width="300" height="54" rx="7"/>
+    out += `<g class="fs-pick${FLOW.sel && FLOW.sel.key === `p|${f.pool.name}` ? ' sel' : ''}" data-fsel="p|${esc(f.pool.name)}"><title>${esc(f.pool.name)}\n${esc(f.portMap.flatMap((p) => p.targets).filter((t, k, a) => a.indexOf(t) === k).join('\n'))}</title>${c.def}<rect class="fs-n fs-p${f.pool.undefined ? ' bad' : ''}" x="770" y="${y - 27}" width="300" height="54" rx="7"/>
       <text class="fs-t fs-tb" clip-path="url(#${c.id})" x="780" y="${y - 10}">${esc(clip(l1, 40))}</text>
       <text class="fs-s fs-sp" clip-path="url(#${c.id})" x="780" y="${y + 4}">${esc(l2)}</text>
       <text class="fs-s" clip-path="url(#${c.id})" x="780" y="${y + 18}">${esc(l3)}</text></g>`; });
   // <title> tooltips are slow and unreliable: carry the text in data-tip and show it with our own instant tooltip
-  return `${out}</svg>`.replace(/<g( class="[^"]*")?><title>([\s\S]*?)<\/title>/g, (_m, c, t) => `<g${c || ''} data-tip="${t}">`);
+  return `${out}</svg>`.replace(/<g((?: [\w-]+="[^"]*")*)><title>([\s\S]*?)<\/title>/g, (_m, attrs, t) => `<g${attrs} data-tip="${t}">`);
 }
 
 // Domain -> listener -> rule -> pool -> server:port. One card per host name.
@@ -1481,7 +1495,7 @@ function renderFlow() {
   const el = $('#view-flow'); if (!el) return;
   const snap = state.snapshot; if (!snap) { el.innerHTML = ''; return; }
   if (FLOW.inst !== state.current) {
-    Object.assign(FLOW, { inst: state.current, data: null, err: null, key: '', trace: null, traceErr: null, fe: '', req: { host: '', path: '/', port: '', method: 'GET' } });
+    Object.assign(FLOW, { inst: state.current, data: null, err: null, key: '', trace: null, traceErr: null, fe: '', sel: null, req: { host: '', path: '/', port: '', method: 'GET' } });
     if (!FLOW.loading) setTimeout(() => flowLoad(true), 0);
   }
   const d = FLOW.data;
@@ -1520,7 +1534,8 @@ function renderFlow() {
         <td class="mono small">${ex ? (ex.changed ? `${esc(ex.in)} → <b>${esc(ex.out)}</b>${ex.exact ? '' : ' <span class="tag">approx.</span>'}` : `${esc(ex.in)} <span class="muted">unchanged</span>`) : '<span class="muted">–</span>'}</td>
         <td><b>${esc(f.pool.name)}</b><div class="mono small">${f.portMap.map((p) => `${esc(p.in)}→${p.out.length ? p.out.join('/') : '?'}`).join(' · ')}</div></td></tr>`; }).join('') || `<tr><td colspan="6" class="empty">${FLOW.st ? 'Nothing matches the status filter' : 'No routing rules'}</td></tr>`}</tbody></table></div>`;
   } else {
-    body = `<div class="panel flow-diagram">${flows.length ? flowSvg(flows) : `<div class="empty">${FLOW.st ? 'Nothing matches the status filter' : 'No routing rules'}</div>`}<p class="muted small flow-note">Lines carry <code>listener→backend</code> ports. Line colour shows whether the relationship is live: <span class="st-dot st-active"></span> active (moving dashes, traffic now) <span class="st-dot st-idle"></span> idle <span class="st-dot st-down"></span> down (no healthy member) <span class="st-dot st-dead"></span> never used (shadowed rule or undefined backend) <span class="st-dot st-config"></span> configured (no runtime data). Traffic is counted per pool, so rules that share a pool share its status.</p></div>`;
+    const sv = flowNarrow(flows);
+    body = `<div class="panel flow-diagram">${FLOW.sel && sv.label ? `<div class="flow-selbar">Showing only the relationships of <b>${esc(sv.label)}</b> <span class="muted small">(${sv.flows.length} rule${sv.flows.length === 1 ? '' : 's'})</span><span class="spacer"></span><button type="button" class="btn small-btn" data-flow-clear>Show all</button></div>` : ''}${sv.flows.length ? flowSvg(sv.flows) : `<div class="empty">${FLOW.st ? 'Nothing matches the status filter' : 'No routing rules'}</div>`}<p class="muted small flow-note">Click a listener, rule or pool to see only its relationships. Lines carry <code>listener→backend</code> ports. Line colour shows whether the relationship is live: <span class="st-dot st-active"></span> active (moving dashes, traffic now) <span class="st-dot st-idle"></span> idle <span class="st-dot st-down"></span> down (no healthy member) <span class="st-dot st-dead"></span> never used (shadowed rule or undefined backend) <span class="st-dot st-config"></span> configured (no runtime data). Traffic is counted per pool, so rules that share a pool share its status.</p></div>`;
   }
   const finds = d.findings.filter((f) => !FLOW.fe || flows.some((x) => x.frontend === FLOW.fe && (f.section === x.frontend || f.section === x.pool.name)));
   const card = (f) => `<div class="finding ${esc(f.severity)}"><div class="ft"><span class="sev-${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span> · ${esc(f.title)}</div><div class="fm">${esc(f.detail || '')} ${f.line ? `<a ${loc(f)}>${esc(f.section || '')}:${f.line}</a>` : ''}</div>${f.fix ? `<div class="fx"><b>Fix</b> ${esc(f.fix)}</div>` : ''}</div>`;
@@ -2939,6 +2954,10 @@ function wire() {
     if (e.target.closest('[data-val-run]')) { const v = $('#val-version'); VAL.version = v ? v.value.trim() : ''; const b = $('#val-build'); if (b) VAL.build = b.value.trim(); valLoad(true); return; }
     if (e.target.closest('[data-val-build]')) { const b = $('#val-build'); if (b) VAL.build = b.value; VAL.buildOpen = !VAL.buildOpen; renderValidate(); return; }
     if (e.target.closest('[data-flow-trace]')) { FLOW.req = { host: ($('#flow-host') || {}).value || '', path: ($('#flow-path') || {}).value || '/', port: ($('#flow-port') || {}).value || '', method: ($('#flow-method') || {}).value || 'GET' }; flowTrace(); return; }
+    if (e.target.closest('[data-flow-clear]')) { FLOW.sel = null; renderFlow(); return; }
+    const fp = e.target.closest('.flow-svg [data-fsel]');
+    if (fp) { const key = fp.getAttribute('data-fsel'); FLOW.sel = FLOW.sel && FLOW.sel.key === key ? null : { key }; renderFlow(); return; }
+    if (FLOW.sel && e.target.closest('.flow-svg') && !e.target.closest('.fs-eg')) { FLOW.sel = null; renderFlow(); return; }
     const fd = e.target.closest('[data-flow-dom]');
     if (fd) { const [name, port, tls] = fd.dataset.flowDom.split('|'); const host = name.startsWith('*.') ? `test${name.slice(1)}` : name.startsWith('.') ? `www${name}` : /^[(_~]/.test(name) || name.endsWith('.*') ? '' : name; FLOW.req = { host, path: '/', port, method: 'GET' }; FLOW.trace = null; flowTrace().then(() => { const el = $('.flow-try'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); return; }
     const ft = e.target.closest('[data-flow-tab]'); if (ft) { FLOW.tab = ft.dataset.flowTab; renderFlow(); return; }
