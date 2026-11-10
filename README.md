@@ -177,6 +177,7 @@ The **Traffic flow** page answers "if a client asks for this, where does it go, 
 <img src="docs/img/traffic-flow.png" alt="Traffic flow: try a request, see every step, the backend port and the rewritten URI" width="100%">
 
 - **Domains**: one card per host name (`server_name` or a host ACL, including wildcard, default and catch-all names): the ports it is served on, redirects (`:80 → 301 https://…`), the rules that route it, and for every pool each **server with the address and port each listener port ends up at**, with live status. A *Trace* button runs the request for that domain. Findings: the same name in two server blocks on one port, names served over plain HTTP only.
+- **Status filter**: show only what is **alive** (a healthy member), **not alive** (no healthy member or undefined backend) or **unused** (no traffic now, or a rule that can never match), on every tab. In *Domains* the servers inside each card are filtered one by one. Needs live stats.
 - **Port map**: every listener port, the frontend and pool it reaches, the backend port(s), and whether TLS ends at the proxy, is re-encrypted, or passes through.
 - **URI map**: for each routing rule, the match, the rewrites that run (`replace-path`, `set-path`, `set-uri`, `rewrite`, the URI part of `proxy_pass`, `proxy_set_header Host`), and an example such as `/api/users` becoming `/users`.
 - **Diagram**: listeners, rules and pools in three columns, with `listener→backend` ports on the lines.

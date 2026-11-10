@@ -1297,7 +1297,7 @@ function renderValidate() {
 
 
 // ---------- TRAFFIC FLOW: listener port -> backend port, and what happens to the URI on the way ----------
-const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'domains', dq: '' };
+const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'domains', dq: '', st: '' };
 const TLS_LABEL = { terminate: 'TLS ended here → plain', 're-encrypt': 'TLS → TLS (re-encrypted)', upgrade: 'plain → TLS', plain: 'plain → plain', passthrough: 'TCP passthrough' };
 async function flowLoad(force) {
   if (FLOW.loading) return;
@@ -1347,6 +1347,25 @@ function poolStatus(name, undef) {
 function flowStatus(f) {
   if (f.shadowedBy) return { k: 'dead', text: `Never used: rule #${f.shadowedBy} above it catches the same requests` };
   return poolStatus(f.pool.name, f.pool.undefined);
+}
+// Status filter. Alive = has a healthy member (active or idle). Not alive = no healthy member, or the backend is not defined.
+// Unused = receives no traffic right now, or can never be reached (shadowed rule).
+const FLOW_STF = { '': 'Any status', alive: 'Alive', dead: 'Not alive', unused: 'Unused' };
+function statusMatches(k, mode, o = {}) {
+  if (!mode) return true;
+  if (mode === 'alive') return k === 'active' || k === 'idle';
+  if (mode === 'dead') return k === 'down' || (k === 'dead' && Boolean(o.undef));
+  if (mode === 'unused') return k === 'idle' || (Boolean(o.shadowed) && (k === 'dead' || k === 'config'));
+  return true;
+}
+const flowPass = (f) => { const st = flowStatus(f); return statusMatches(st.k, FLOW.st, { undef: f.pool.undefined, shadowed: f.shadowedBy }); };
+// one server row, judged by its own runtime state (rows exist only when the load balancer reports them)
+function serverPass(pool, name) {
+  if (!FLOW.st) return true;
+  const rows = state.snapshot && state.snapshot.rows ? state.snapshot.rows : []; const r = rows.find((x) => x.proxy === pool && x.kind === 'server' && x.name === name);
+  if (!r) return false;
+  const up = r.state === 'up' || r.state === 'nocheck';
+  return FLOW.st === 'alive' ? up : FLOW.st === 'dead' ? !up : (r.ratePerSec || 0) === 0;
 }
 const stDot = (k) => `<span class="st-dot st-${k}" title="${esc(FLOW_ST[k])}"></span>`;
 function flowSvg(flows) {
@@ -1401,14 +1420,18 @@ function flowSvg(flows) {
 function flowDomainsHtml(d, hap) {
   const q = FLOW.dq.trim().toLowerCase(); const rows = state.snapshot && state.snapshot.rows ? state.snapshot.rows : [];
   const KIND = { wildcard: 'wildcard', regex: 'regex', catchall: hap ? 'no host condition' : 'catch-all (_)', dynamic: 'resolved at runtime' };
-  const list = (d.domains || []).filter((m) => (!FLOW.fe || m.frontends.includes(FLOW.fe)) && (!q || `${m.name} ${m.pools.join(' ')} ${m.targets.join(' ')} ${m.rules.flatMap((r) => r.servers.map((v) => v.name)).join(' ')}`.toLowerCase().includes(q)));
+  const hasRows = rows.length > 0;
+  const ruleSt = (r) => (r.shadowedBy ? { k: 'dead' } : poolStatus(r.pool, r.undefined));
+  const ruleOk = (r) => !FLOW.st || statusMatches(ruleSt(r).k, FLOW.st, { undef: r.undefined, shadowed: r.shadowedBy }) || (hasRows && r.servers.some((v) => serverPass(r.pool, v.name)));
+  const srvOk = (r, v) => !FLOW.st || !hasRows || !r.servers.some((x) => serverPass(r.pool, x.name)) || serverPass(r.pool, v.name);
+  const list = (d.domains || []).filter((m) => (!FLOW.st || m.rules.some(ruleOk)) && (!FLOW.fe || m.frontends.includes(FLOW.fe)) && (!q || `${m.name} ${m.pools.join(' ')} ${m.targets.join(' ')} ${m.rules.flatMap((r) => r.servers.map((v) => v.name)).join(' ')}`.toLowerCase().includes(q)));
   if (!list.length) return '<div class="panel"><div class="empty">No domains match</div></div>';
   const lis = (m) => m.listeners.slice().sort((a, b) => Number(a.port) - Number(b.port)).map((l) => portTxt(l.port, l.tls)).join(' ');
   const card = (m) => {
     const tags = [KIND[m.kind] ? `<span class="tag">${esc(KIND[m.kind])}</span>` : '', m.isDefault ? '<span class="tag">default server</span>' : '', m.plainOnly && m.rules.length ? '<span class="tag until" title="No TLS listener serves this name">HTTP only</span>' : '', m.local ? '<span class="tag">answers itself (no proxy_pass)</span>' : ''].filter(Boolean).join(' ');
-    const rules = m.rules.map((r) => {
+    const rules = m.rules.filter(ruleOk).map((r) => {
       const st = r.shadowedBy ? { k: 'dead' } : poolStatus(r.pool, r.undefined);
-      const srv = r.servers.length ? `<table class="grid dom-srv"><thead><tr><th>Server</th><th>Listener port → server address</th><th></th></tr></thead><tbody>${r.servers.map((v) => {
+      const srv = r.servers.length ? `<table class="grid dom-srv"><thead><tr><th>Server</th><th>Listener port → server address</th><th></th></tr></thead><tbody>${r.servers.filter((v) => srvOk(r, v)).map((v) => {
         const row = rows.find((x) => x.proxy === r.pool && x.kind === 'server' && x.name === v.name);
         return `<tr><td>${row ? stBadge(row.state, row.status) : ''} <b>${esc(v.name)}</b>${v.count > 1 ? ` <span class="muted small">×${v.count}</span>` : ''}</td>
           <td>${v.maps.map((mp) => `<span class="pt${mp.tls ? ' tls' : ''}">${mp.tls ? '🔒 ' : ''}:${esc(mp.in)}</span> → <span class="pt${v.ssl ? ' tls' : ''}">${v.ssl ? '🔒 ' : ''}${esc(mp.target)}</span>`).join('<br>')}</td>
@@ -1422,7 +1445,7 @@ function flowDomainsHtml(d, hap) {
     const first = m.listeners.find((l) => l.tls) || m.listeners[0];
     return `<div class="panel dom-card"><div class="dom-h"><span class="dom-n mono">${esc(m.name)}</span> ${tags}<span class="spacer"></span><span class="dom-l">${lis(m)}</span>
       <button type="button" class="btn small-btn" data-flow-dom="${esc(m.name)}|${esc(first ? first.port : '')}|${first && first.tls ? 1 : 0}" title="Trace a request for this domain">Trace</button></div>
-      ${m.frontends.length ? `<div class="muted small dom-fe">${esc(lbl('frontend'))}: ${m.frontends.map(esc).join(', ')}</div>` : ''}${red}${rules}</div>`;
+      ${m.frontends.length ? `<div class="muted small dom-fe">${esc(lbl('frontend'))}: ${m.frontends.map(esc).join(', ')}</div>` : ''}${FLOW.st ? '' : red}${rules}</div>`;
   };
   return `<p class="muted small flow-note">One card per domain (host name): the ports it is served on, what it redirects or routes to, and for each pool every server with the address and port each listener port ends up at.</p>${list.map(card).join('')}`;
 }
@@ -1450,7 +1473,7 @@ function renderFlow() {
   if (!d) { el.innerHTML = intro; return; }
   const ports = flowPorts(); const hap = d.product === 'haproxy';
   const fes = [...new Set(d.flows.map((f) => f.frontend))];
-  const flows = d.flows.filter((f) => !FLOW.fe || f.frontend === FLOW.fe);
+  const flows = d.flows.filter((f) => (!FLOW.fe || f.frontend === FLOW.fe) && flowPass(f));
   const rq = FLOW.req;
   const form = `<div class="panel flow-try"><h3 class="flow-h">Try a request</h3>
     <div class="flow-form"><label>Host<input id="flow-host" placeholder="shop.example.com" value="${esc(rq.host)}" autocomplete="off"></label>
@@ -1461,13 +1484,13 @@ function renderFlow() {
   const sum = d.summary;
   const stats = `<div class="panel val-sum"><div class="val-counts"><span><b>${sum.domains}</b> domain${sum.domains === 1 ? '' : 's'}</span><span><b>${sum.listeners}</b> listener ports</span><span><b>${sum.flows}</b> routing rules</span><span><b>${sum.rewrites}</b> rewrite the URI</span><span><b class="${sum.findings ? 'sev-warning' : ''}">${sum.findings}</b> routing findings</span></div></div>`;
   const tabs = [['domains', 'Domains'], ['ports', 'Port map'], ['uri', 'URI map'], ['diagram', 'Diagram']];
-  const chips = `<div class="chips">${tabs.map(([k, t]) => `<span class="chip ${FLOW.tab === k ? 'on' : ''}" data-flow-tab="${k}">${t}</span>`).join('')}${FLOW.tab === 'domains' ? `<input id="flow-dq" type="search" placeholder="Filter domains, pools, servers, IPs…" value="${esc(FLOW.dq)}" aria-label="Filter domains" autocomplete="off">` : ''}${fes.length > 1 ? `<span class="muted">|</span><select id="flow-fe" aria-label="Filter by ${esc(lbl('frontend').toLowerCase())}"><option value="">All ${esc(lbl('frontend').toLowerCase())}s</option>${fes.map((x) => `<option value="${esc(x)}"${FLOW.fe === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}</div>`;
+  const chips = `<div class="chips">${tabs.map(([k, t]) => `<span class="chip ${FLOW.tab === k ? 'on' : ''}" data-flow-tab="${k}">${t}</span>`).join('')}${FLOW.tab === 'domains' ? `<input id="flow-dq" type="search" placeholder="Filter domains, pools, servers, IPs…" value="${esc(FLOW.dq)}" aria-label="Filter domains" autocomplete="off">` : ''}<span class="muted">|</span><select id="flow-st" aria-label="Filter by status" title="Alive: has a healthy member. Not alive: no healthy member, or the backend is not defined. Unused: no traffic right now, or a rule that can never match. In Domains, servers are filtered one by one by their own state. Needs live stats.">${Object.entries(FLOW_STF).map(([k, t]) => `<option value="${k}"${FLOW.st === k ? ' selected' : ''}>${t}</option>`).join('')}</select>${fes.length > 1 ? `<select id="flow-fe" aria-label="Filter by ${esc(lbl('frontend').toLowerCase())}"><option value="">All ${esc(lbl('frontend').toLowerCase())}s</option>${fes.map((x) => `<option value="${esc(x)}"${FLOW.fe === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}</div>`;
   let body = '';
   if (FLOW.tab === 'domains') body = flowDomainsHtml(d, hap);
   else if (FLOW.tab === 'ports') {
-    const rows = d.portMatrix.filter((r) => !FLOW.fe || r.frontend === FLOW.fe);
+    const rows = d.portMatrix.filter((r) => (!FLOW.fe || r.frontend === FLOW.fe) && (() => { const st = poolStatus(r.pool, r.undefined); return statusMatches(st.k, FLOW.st, { undef: r.undefined }); })());
     body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend address(es)</th><th>Status</th><th>Layer</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td>${(() => { const st = poolStatus(r.pool, r.undefined); return `<span class="st-chip" title="${esc(st.text)}">${stDot(st.k)} ${esc(FLOW_ST[st.k])}</span>`; })()}</td><td><span class="tag layer-${r.mode === 'tcp' ? 'l4' : 'l7'}">${r.mode === 'tcp' ? 'L4' : 'L7'}</span></td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No listeners found</td></tr>'}</tbody></table></div>
+      ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td>${(() => { const st = poolStatus(r.pool, r.undefined); return `<span class="st-chip" title="${esc(st.text)}">${stDot(st.k)} ${esc(FLOW_ST[st.k])}</span>`; })()}</td><td><span class="tag layer-${r.mode === 'tcp' ? 'l4' : 'l7'}">${r.mode === 'tcp' ? 'L4' : 'L7'}</span></td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || `<tr><td colspan="8" class="empty">${FLOW.st ? 'Nothing matches the status filter' : 'No listeners found'}</td></tr>`}</tbody></table></div>
       <p class="muted small flow-note">${hap ? 'HAProxy: <code>server s 10.0.0.1</code> (no port) uses the same port the client connected to; <code>10.0.0.1:+1000</code> adds 1000 to it; an explicit port always wins.' : 'NGINX: a <code>proxy_pass</code> or upstream <code>server</code> without a port uses 80 (443 for https://).'}</p>`;
   } else if (FLOW.tab === 'uri') {
     body = `<div class="table-wrap"><table class="grid"><thead><tr><th>${esc(lbl('frontend'))}</th><th>Host</th><th>Request matches</th><th>URI changes on the way</th><th>Example</th><th>→ ${esc(lbl('backend'))}</th></tr></thead><tbody>
@@ -1477,9 +1500,9 @@ function renderFlow() {
         <td class="msg">${f.match.type === 'default' ? '<span class="tag">default</span> <span class="muted">everything else</span>' : `<span class="mono">${esc(f.match.text)}</span>`}${f.shadowedBy ? ` <span class="tag until">shadowed by #${f.shadowedBy}</span>` : ''}</td>
         <td class="msg">${f.mode === 'tcp' ? '<span class="tag layer-l4">L4</span> <span class="muted">TCP: paths and headers are never seen, so there is nothing to rewrite</span>' : ''}${f.mode !== 'tcp' && steps.length ? steps.map((s) => `<div class="mono small" title="${esc(s.condText || s.note || '')}"><span class="tag">${esc(s.stage || s.scope)}</span> ${esc(s.text)}${s.cond ? ` <span class="muted">${esc(s.cond)}</span>` : ''}${s.applies === null ? ' <span class="tag" title="Depends on something a host / path test cannot decide">maybe</span>' : ''}${s.note ? `<div class="muted">${esc(s.note)}</div>` : ''}</div>`).join('') : (f.mode === 'tcp' ? '' : '<span class="muted">none: the backend gets the same URI</span>')}${other ? `<div class="muted small">+ ${other} redirect / deny / auth rule${other === 1 ? '' : 's'} that may answer before this (use Try a request)</div>` : ''}</td>
         <td class="mono small">${ex ? (ex.changed ? `${esc(ex.in)} → <b>${esc(ex.out)}</b>${ex.exact ? '' : ' <span class="tag">approx.</span>'}` : `${esc(ex.in)} <span class="muted">unchanged</span>`) : '<span class="muted">–</span>'}</td>
-        <td><b>${esc(f.pool.name)}</b><div class="mono small">${f.portMap.map((p) => `${esc(p.in)}→${p.out.length ? p.out.join('/') : '?'}`).join(' · ')}</div></td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">No routing rules</td></tr>'}</tbody></table></div>`;
+        <td><b>${esc(f.pool.name)}</b><div class="mono small">${f.portMap.map((p) => `${esc(p.in)}→${p.out.length ? p.out.join('/') : '?'}`).join(' · ')}</div></td></tr>`; }).join('') || `<tr><td colspan="6" class="empty">${FLOW.st ? 'Nothing matches the status filter' : 'No routing rules'}</td></tr>`}</tbody></table></div>`;
   } else {
-    body = `<div class="panel flow-diagram">${flows.length ? flowSvg(flows) : '<div class="empty">No routing rules</div>'}<p class="muted small flow-note">Lines carry <code>listener→backend</code> ports. Line colour shows whether the relationship is live: <span class="st-dot st-active"></span> active (moving dashes, traffic now) <span class="st-dot st-idle"></span> idle <span class="st-dot st-down"></span> down (no healthy member) <span class="st-dot st-dead"></span> never used (shadowed rule or undefined backend) <span class="st-dot st-config"></span> configured (no runtime data). Traffic is counted per pool, so rules that share a pool share its status.</p></div>`;
+    body = `<div class="panel flow-diagram">${flows.length ? flowSvg(flows) : `<div class="empty">${FLOW.st ? 'Nothing matches the status filter' : 'No routing rules'}</div>`}<p class="muted small flow-note">Lines carry <code>listener→backend</code> ports. Line colour shows whether the relationship is live: <span class="st-dot st-active"></span> active (moving dashes, traffic now) <span class="st-dot st-idle"></span> idle <span class="st-dot st-down"></span> down (no healthy member) <span class="st-dot st-dead"></span> never used (shadowed rule or undefined backend) <span class="st-dot st-config"></span> configured (no runtime data). Traffic is counted per pool, so rules that share a pool share its status.</p></div>`;
   }
   const finds = d.findings.filter((f) => !FLOW.fe || flows.some((x) => x.frontend === FLOW.fe && (f.section === x.frontend || f.section === x.pool.name)));
   const card = (f) => `<div class="finding ${esc(f.severity)}"><div class="ft"><span class="sev-${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span> · ${esc(f.title)}</div><div class="fm">${esc(f.detail || '')} ${f.line ? `<a ${loc(f)}>${esc(f.section || '')}:${f.line}</a>` : ''}</div>${f.fix ? `<div class="fx"><b>Fix</b> ${esc(f.fix)}</div>` : ''}</div>`;
@@ -2739,7 +2762,7 @@ function iselWire() {
   // Traffic flow page: keep the form values, filter by entry point, Enter runs the trace
   const flowSync = () => { FLOW.req = { host: ($('#flow-host') || {}).value || '', path: ($('#flow-path') || {}).value || '/', port: ($('#flow-port') || {}).value || '', method: ($('#flow-method') || {}).value || 'GET' }; };
   document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('.flow-form')) flowSync(); if (e.target.id === 'flow-dq') { FLOW.dq = e.target.value; const pos = e.target.selectionStart; renderFlow(); const n = $('#flow-dq'); if (n) { n.focus(); n.setSelectionRange(pos, pos); } } });
-  document.addEventListener('change', (e) => { if (e.target.id === 'flow-fe') { FLOW.fe = e.target.value; renderFlow(); } else if (e.target.closest && e.target.closest('.flow-form')) flowSync(); });
+  document.addEventListener('change', (e) => { if (e.target.id === 'flow-st') { FLOW.st = e.target.value; renderFlow(); } else if (e.target.id === 'flow-fe') { FLOW.fe = e.target.value; renderFlow(); } else if (e.target.closest && e.target.closest('.flow-form')) flowSync(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.closest && e.target.closest('.flow-form') && e.target.tagName === 'INPUT') { e.preventDefault(); flowSync(); flowTrace(); } });
   $('#instance-select').addEventListener('change', iselSync);
 }
