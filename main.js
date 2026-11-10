@@ -31,6 +31,7 @@
     ['Infrastructure', 'Load balancer, networks, hosts and services in a foldable hierarchy, each with its aliveness.'],
     ['Topology', 'Frontends, routing rules, pools and servers with live traffic. Click a node to focus its path.'],
     ['Traffic flow', 'Every domain with its listener ports, redirects, rules and servers (address and port), where TLS ends, the path your backend receives, and which relationships are live.'],
+    ['Domains', 'One card per domain: the ports it is served on, redirects, rules, and every server with the address and port each listener port ends up at. Filter by alive, not alive or unused.'],
     ['Mind map', 'The same map as a radial mind map, with the URIs each node handles written on it.'],
     ['Tree', 'The whole estate as an outline, like the tree command. Fold it, copy it as text.'],
     ['NGINX', 'NGINX too: server blocks, locations and upstreams, plus a resizable URL map.'],
