@@ -557,25 +557,32 @@ function topoSelect(node, route) {
   if (route) { title = `${route.fe} → ${route.target}`; sub = `Routing rule · ${routeSummary(route)}`; }
   else if (node._key) { const r = indexRows(state.snapshot.rows).get(node._key); title = r && r.kind === 'server' ? node._key.replace('/', ' / ') : node._key.split('/')[0]; sub = `${r ? lbl(r.kind) : node._kind}${r && r.ratePerSec != null ? ` · ${fmtRate(r.ratePerSec)} req/s` : ''}`; st = r ? stBadge(r.state, r.status) : ''; }
   else { title = node.id.slice(8); sub = 'Broken route: not defined'; }
-  el.innerHTML = `<div class="ts-t"><b>${esc(title)}</b> ${st}<div class="muted small">${esc(sub)}</div></div>${node && /^(fe|be):/.test(node.id) ? `<button type="button" class="btn" data-topo-toggle="${esc(node.id)}" title="Same as shift-click on the node">${collapsedSet().has(node.id) ? '＋ Expand' : '－ Collapse'}</button>` : ''}<button type="button" class="btn primary" data-topo-open>Open details →</button><button type="button" class="btn icon" data-topo-sel-x aria-label="Clear selection">✕</button>`;
+  el.innerHTML = `<div class="ts-t"><b>${esc(title)}</b> ${st}<div class="muted small">${esc(sub)}</div></div>${node && /^(fe|be):/.test(node.id) ? `<button type="button" class="btn" data-topo-toggle="${esc(node.id)}" title="Same as shift-click on the node">${collapsedSet().has(node.id) ? '▸ Expand' : '▾ Collapse'}</button>` : ''}<button type="button" class="btn primary" data-topo-open>Open details →</button><button type="button" class="btn icon" data-topo-sel-x aria-label="Clear selection">✕</button>`;
   el.hidden = false;
 }
 /** Fold the parts of the map the user collapsed (shift-click a node, or Collapse all): a collapsed entry point hides the pools only it reaches, a collapsed pool hides its members. */
 function collapseGraph(nodes, edges) {
   const col = collapsedSet();
-  if (!col.size) return { nodes, edges };
-  const hidden = new Set(); const srcs = new Map();
-  edges.filter((e) => String(e.id).startsWith('r:')).forEach((e) => (srcs.get(e.to) || srcs.set(e.to, []).get(e.to)).push(e.from));
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const [pool, from] of srcs) if (!hidden.has(pool) && from.every((f) => col.has(f) || hidden.has(f))) { hidden.add(pool); changed = true; }
+  const hidden = new Set(); const srcs = new Map(); const kids = new Map();
+  edges.forEach((e) => { if (e.from !== e.to) kids.set(e.from, (kids.get(e.from) || 0) + 1); });
+  if (col.size) {
+    edges.filter((e) => String(e.id).startsWith('r:')).forEach((e) => (srcs.get(e.to) || srcs.set(e.to, []).get(e.to)).push(e.from));
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const [pool, from] of srcs) if (!hidden.has(pool) && from.every((f) => col.has(f) || hidden.has(f))) { hidden.add(pool); changed = true; }
+    }
+    const parent = new Map(edges.filter((e) => String(e.id).startsWith('e:sv:')).map((e) => [e.to, e.from]));
+    nodes.forEach((n) => { if (n._kind === 'server') { const pa = parent.get(n.id); if (pa && (col.has(pa) || hidden.has(pa))) hidden.add(n.id); } });
   }
-  const parent = new Map(edges.filter((e) => String(e.id).startsWith('e:sv:')).map((e) => [e.to, e.from]));
-  nodes.forEach((n) => { if (n._kind === 'server') { const pa = parent.get(n.id); if (pa && (col.has(pa) || hidden.has(pa))) hidden.add(n.id); } });
   const direct = new Map();
   edges.forEach((e) => { if (col.has(e.from) && hidden.has(e.to)) direct.set(e.from, (direct.get(e.from) || 0) + 1); });
   const out = nodes.filter((n) => !hidden.has(n.id));
-  out.forEach((n) => { if (col.has(n.id)) { n._collapsed = true; const k = direct.get(n.id) || 0; n.label += `\n▸ ${k ? `+${k} hidden` : 'collapsed'}`; n.borderWidth = 3; } });
+  // the arrow under a node says whether it is open (▾, pointing down at what it holds) or folded (▸, pointing right)
+  out.forEach((n) => {
+    if (!/^(fe|be):/.test(n.id)) return;
+    if (col.has(n.id)) { n._collapsed = true; const k = direct.get(n.id) || 0; n.label += `\n▸ ${k ? `${k} hidden` : 'folded'}`; n.borderWidth = 3; }
+    else if (kids.get(n.id)) n.label += '\n▾';
+  });
   return { nodes: out, edges: edges.filter((e) => !hidden.has(e.from) && !hidden.has(e.to)) };
 }
 const collapsedSet = () => (state.collapsed || (state.collapsed = new Set()));
@@ -1015,7 +1022,7 @@ function treeAscii(n, prefix = '', last = true, top = true) {
 }
 function renderTree() {
   const root = buildTree(); treeText = treeAscii(root);
-  const li = (n) => `<li class="${n.children.length ? 'has' : ''}${n.dim ? ' dim' : ''}${closedTree.has(n.text) ? ' closed' : ''}"><div class="tn k-${n.kind}"${n.key ? ` data-inspect="${esc(n.key)}"` : ''} data-tk="${esc(n.text)}">${n.children.length ? '<span class="tg" data-tg>▾</span>' : '<span class="tg lf">•</span>'}${n.html}</div>${n.children.length ? `<ul>${n.children.map(li).join('')}</ul>` : ''}</li>`;
+  const li = (n) => `<li class="${n.children.length ? 'has' : ''}${n.dim ? ' dim' : ''}${closedTree.has(n.text) ? ' closed' : ''}"><div class="tn k-${n.kind}"${n.key ? ` data-inspect="${esc(n.key)}"` : ''} data-tk="${esc(n.text)}">${n.children.length ? `<span class="tg" data-tg>${closedTree.has(n.text) ? '▸' : '▾'}</span>` : '<span class="tg lf">•</span>'}${n.html}</div>${n.children.length ? `<ul>${n.children.map(li).join('')}</ul>` : ''}</li>`;
   $('#tree').innerHTML = `<div class="tree-bar"><b>Tree</b> <span class="muted small">${root.children.length ? 'click ▾ to fold · click a name for details' : ''}</span><span class="spacer"></span><button class="btn" type="button" data-tree="open">Expand all</button><button class="btn" type="button" data-tree="close">Collapse all</button><button class="btn" type="button" data-tree="copy">Copy as text</button></div>
     <ul class="tree root">${li(root)}</ul>${root.children.length ? '' : '<div class="empty">Nothing to show. Attach a config to see the structure.</div>'}`;
 }
