@@ -9,21 +9,18 @@ CY, IND, GRN, AMB1, AMB2 = '#22d3ee', '#818cf8', '#34d399', '#fde68a', '#f59e0b'
 def defs(prefix=''):
     p = prefix
     return f'''<defs>
-    <linearGradient id="{p}arch" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="{CY}"/><stop offset="1" stop-color="{IND}"/></linearGradient>
-    <radialGradient id="{p}glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="{AMB2}" stop-opacity=".55"/><stop offset="1" stop-color="{AMB2}" stop-opacity="0"/></radialGradient>
-    <radialGradient id="{p}hub" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="{AMB1}"/><stop offset="1" stop-color="{AMB2}"/></radialGradient>
+    <linearGradient id="{p}arch" gradientUnits="userSpaceOnUse" x1="26" y1="22" x2="102" y2="106"><stop offset="0" stop-color="{CY}"/><stop offset="1" stop-color="#6366f1"/></linearGradient>
+    <linearGradient id="{p}hub" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fcd34d"/><stop offset="1" stop-color="{AMB2}"/></linearGradient>
   </defs>'''
 
 def mark(p=''):
-    """The gate (arch), a lit hub in its opening, fanning out to three servers. 128x128 box."""
+    """The gate (arch), a lit core in its opening, one input fanning out to three servers. 128x128 box."""
     return f'''<g>
-    <circle cx="64" cy="62" r="34" fill="url(#{p}glow)"/>
-    <path d="M25 104V62a39 39 0 0 1 78 0v42" fill="none" stroke="url(#{p}arch)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-    <g stroke="#94a3b8" stroke-opacity=".75" stroke-width="2.6" stroke-linecap="round" fill="none">
-      <path d="M64 68L44 92M64 68V92M64 68L84 92"/>
-    </g>
+    <path d="M26 106V62a38 38 0 0 1 76 0v44" fill="none" stroke="url(#{p}arch)" stroke-width="12" stroke-linejoin="round"/>
+    <circle cx="64" cy="58" r="19" fill="none" stroke="{AMB2}" stroke-opacity=".3" stroke-width="3"/>
     <circle cx="64" cy="58" r="11" fill="url(#{p}hub)"/>
-    <circle cx="44" cy="94" r="5.2" fill="{CY}"/><circle cx="64" cy="94" r="5.2" fill="{IND}"/><circle cx="84" cy="94" r="5.2" fill="{GRN}"/>
+    <path d="M64 70V80M46 92V80H82V92M64 80V92" fill="none" stroke="#8b9bb4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="41" y="91" width="10" height="10" rx="2.5" fill="{CY}"/><rect x="59" y="91" width="10" height="10" rx="2.5" fill="{IND}"/><rect x="77" y="91" width="10" height="10" rx="2.5" fill="{GRN}"/>
   </g>'''
 
 # ---- monoline geometric wordmark, baseline y=0, stroke 7, round caps ----

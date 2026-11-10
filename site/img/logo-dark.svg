@@ -1,18 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 577 126" width="750" height="163" role="img" aria-label="GateLight">
   <title>GateLight</title>
   <defs>
-    <linearGradient id="arch" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#818cf8"/></linearGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#f59e0b" stop-opacity=".55"/><stop offset="1" stop-color="#f59e0b" stop-opacity="0"/></radialGradient>
-    <radialGradient id="hub" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#fde68a"/><stop offset="1" stop-color="#f59e0b"/></radialGradient>
+    <linearGradient id="arch" gradientUnits="userSpaceOnUse" x1="26" y1="22" x2="102" y2="106"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#6366f1"/></linearGradient>
+    <linearGradient id="hub" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fcd34d"/><stop offset="1" stop-color="#f59e0b"/></linearGradient>
   </defs>
   <g transform="translate(0 4) scale(0.92)"><g>
-    <circle cx="64" cy="62" r="34" fill="url(#glow)"/>
-    <path d="M25 104V62a39 39 0 0 1 78 0v42" fill="none" stroke="url(#arch)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-    <g stroke="#94a3b8" stroke-opacity=".75" stroke-width="2.6" stroke-linecap="round" fill="none">
-      <path d="M64 68L44 92M64 68V92M64 68L84 92"/>
-    </g>
+    <path d="M26 106V62a38 38 0 0 1 76 0v44" fill="none" stroke="url(#arch)" stroke-width="12" stroke-linejoin="round"/>
+    <circle cx="64" cy="58" r="19" fill="none" stroke="#f59e0b" stroke-opacity=".3" stroke-width="3"/>
     <circle cx="64" cy="58" r="11" fill="url(#hub)"/>
-    <circle cx="44" cy="94" r="5.2" fill="#22d3ee"/><circle cx="64" cy="94" r="5.2" fill="#818cf8"/><circle cx="84" cy="94" r="5.2" fill="#34d399"/>
+    <path d="M64 70V80M46 92V80H82V92M64 80V92" fill="none" stroke="#8b9bb4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="41" y="91" width="10" height="10" rx="2.5" fill="#22d3ee"/><rect x="59" y="91" width="10" height="10" rx="2.5" fill="#818cf8"/><rect x="77" y="91" width="10" height="10" rx="2.5" fill="#34d399"/>
   </g></g>
   <g transform="translate(131.8 98.7)"><g fill="none" stroke="#e8edf6" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(0.0 0)"><path d="M45.9 -44.7A26 26 0 1 0 52 -28H32" /></g><g transform="translate(69.0 0)"><circle cx="19" cy="-19" r="19"/><path d="M38 -38V0"/></g><g transform="translate(124.0 0)"><path d="M14 -52V-14Q14 0 28 0M2 -38H28"/></g><g transform="translate(169.0 0)"><path d="M0 -19H38A19 19 0 1 0 33.6 -6.8"/></g><g transform="translate(224.0 0)"><path d="M0 -56V0H26"/></g><g transform="translate(271.0 0)"><path d="M0 -38V0"/><circle cx="0" cy="-54" r="4.4" fill="#f59e0b" stroke="none"/></g><g transform="translate(284.0 0)"><circle cx="19" cy="-19" r="19"/><path d="M38 -38V6Q38 22 19 22Q6 22 1 12"/></g><g transform="translate(339.0 0)"><path d="M0 -56V0M0 -22Q0 -38 19 -38Q38 -38 38 -22V0"/></g><g transform="translate(394.0 0)"><path d="M14 -52V-14Q14 0 28 0M2 -38H28"/></g></g></g>
 </svg>

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Changed
+- **Clearer page names**: *Traffic flow* is now **Request Routing**, *Services* is **Service Status**, *Traffic* is **Traffic Stats**, *Events* is **Health Events**, *Config* is **Running Config** and *Config Forge* is **Config Doctor**. Pages with a similar purpose open with a short note on what they are for and where the other one is. Menu and headings use Title Case.
+- **New logo**: a flatter, corporate mark (squared gate arch, one amber core, a tree of three servers), in the app, the favicon, the README and the website.
+- **Traffic Stats**: the Live Metrics / From a Log File switch is two large tabs; the live chart controls have their own labelled bar (Time, Show); the log-file page has a refreshed header, file pills, filter bar and stat tiles. A new profile page layout with a session countdown.
+- **Topology**: with "Problems only", an "All layers" choice or a search, the links to dimmed nodes fade too.
+
+### Fixed
+- Config Doctor: **auto-detect** now recognises NGINX files that are fragments or have no `;` line (for example a bare `add_header`, a `location` block, or `http { if (...) { } }`), and uploaded files are analysed right away. The "redacted copy" note no longer shows for files you upload.
+- Topology: the "All layers" dropdown and "Problems only" did not visibly dim anything since the new node icons.
+
 ### Added
 - **Traffic statistics for NGINX**: upload NGINX access logs (default `combined` format, optionally with `$request_time`, `$upstream_response_time` and `$upstream_addr`, the older `common` format, or JSON lines) and get the same dashboard as for HAProxy: requests, status codes, errors, URLs, clients, throughput, and, when the log has them, response times and per-upstream views. Without timing fields the response-time panels are left out. Error-log lines become events. Log-only NGINX instances are supported, and the demo has a synthetic NGINX log. Query strings and user agents are never stored.
 - **NGINX request-handling security checks** in Config Forge and the validator (`sec-nginx-*`): SSRF through variables in `proxy_pass`, Host header from the client, CR/LF injection through `$uri` or loose regex captures, bypassable Origin/Referer regexes, `valid_referers none`, multi-line header values. Variables set by `map` / `geo` and `internal` locations are exempt; fixes are version-aware. Verified against the Gixy test suite (every flawed sample flagged, no false positives on the correct ones).
@@ -9,6 +19,7 @@
 - **Overview in levels**: a status banner with a server-state bar and quick actions, then *Needs attention*, *Performance* and *System*.
 - **Full screen** for the Topology mind map and URL map (independently), Services, Traffic flow tabs, Config and Config Forge results.
 - **Modify** button on each saved connection in *Add instance*; the config upload shows "No file attached" / "✓ N files attached".
+- **Topology**: the URL map drawer now starts closed, so the graph gets the full height (open it with the URL map button; your choice is remembered).
 - **Topology**: new node icons (a rounded badge with a state-coloured ring and a glyph: entry point, pool, server, undefined backend; dashed for L4 and orphans, a glow for problems), a grouped toolbar (filters, toggle chips, one segmented action bar, a quiet legend row) and a tidier URL map. **Traffic flow**: compact header with "How to read this", a request form with a primary Trace button, summary tiles, tabs and filters in one bar, and refreshed domain cards.
 - Polished Add instance, Settings, header and footer layouts; tooltips follow the theme and wrap inside their box.
 - **Validate** page and engine: version-aware validation of HAProxy (1.7–3.4) and NGINX configurations against the official documentation, with version-dependent recommendations. Knowledge bases are generated from the manuals (`npm run kb:build`).

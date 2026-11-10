@@ -34,7 +34,7 @@ const LOG_CMDS_NGINX = [
   ['Rotated logs (access.log.1, access.log.2.gz …) can be selected together; a .gz is accepted as it is', 'ls -lh /var/log/nginx/access.log*'],
   ['Compress a part (logs shrink about 10×)', 'gzip -k access-part.log'],
 ];
-const trProduct = () => { const i = (state.instances || []).find((x) => x.id === state.current); return i ? i.type : 'haproxy'; };
+const trProduct = () => { const i = (state.instances || []).find((x) => x.id === state.current); return i ? i.type : 'haproxy'; }; // the instance's type; uploaded logs are detected on their own
 function logHelpHtml(product) {
   const cmds = (product || trProduct()) === 'nginx' ? LOG_CMDS_NGINX : LOG_CMDS;
   const max = fmtBytes((state.meta && state.meta.logMaxBytes) || 50 * 1048576);
@@ -239,8 +239,8 @@ function trHeadHtml() {
   const up = TR.up;
   const prog = up ? `<div class="tr-prog" id="tr-prog"><div class="tr-bar${up.done ? ' busy' : ''}"><i style="width:${up.done ? 100 : up.pct}%"></i></div><span class="muted small">${esc(up.text)}</span></div>` : '';
   const live = !(state.snapshot && state.snapshot.instance && state.snapshot.instance.source === 'config-only');
-  const sw = `<div class="seg tsw" role="group" aria-label="Traffic source"><button type="button"${live ? ' data-goto="graphs"' : ' disabled title="This instance has no live statistics endpoint"'}>Live metrics</button><button type="button" class="on" data-goto="traffic">From a log file</button></div>`;
-  return `<div class="panel tr-top"><div class="tr-title"><div>${sw}<h2 class="tr-h2">Traffic from a log file</h2><div class="tr-meta">${info}</div></div><span class="spacer"></span>
+  const sw = `<div class="tsw2" role="tablist" aria-label="Traffic source"><button type="button" role="tab" aria-selected="false" class="tab-live"${live ? ' data-goto="graphs"' : ' disabled title="This instance has no live statistics endpoint"'}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span><b>Live Metrics</b><small>Right now, from the stats endpoint</small></span></button><button type="button" role="tab" aria-selected="true" class="tab-log on" data-goto="traffic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg><span><b>From a Log File</b><small>Past traffic, from an uploaded access log</small></span></button></div>`;
+  return `<div class="panel tr-top"><div class="tr-title"><div>${sw}<h2 class="tr-h2">Traffic from a Log File</h2><div class="tr-meta">${info}</div></div><span class="spacer"></span>
       ${can ? `<input type="file" id="tr-file" multiple accept=".log,.txt,.gz,.out,text/plain,application/gzip,application/x-gzip" hidden><button class="btn primary" type="button" data-tr-upload>${d ? 'Add log files' : 'Upload log files'}</button>${d ? '<button class="btn" type="button" data-tr-delete>Delete all</button>' : ''}` : ''}</div>
     ${prog}${TR.upErr ? `<div class="tr-err" role="alert">${esc(TR.upErr)}</div>` : ''}</div>`;
 }

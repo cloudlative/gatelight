@@ -47,7 +47,7 @@ Open **http://localhost:3000**, then:
    The user is `admin`. Prefer your own? Put `AUTH_PASS=...` in a `.env` file next to the compose file (see [Environment](#environment)).
 2. **Add an instance** (Overview → *Add an instance*). Pick HAProxy or NGINX, enter the stats URL, username and password, press *Test connection*, then *Save & connect*.
    Running on the same machine as Docker? Use `http://host.docker.internal:PORT/stats` instead of `localhost`.
-3. **Explore.** Overview, Topology, Graphs, Services and Config Forge fill in right away.
+3. **Explore.** Overview, Topology, Traffic Stats, Service Status and Config Doctor fill in right away.
 
 **Upgrading later?** `docker compose pull && docker compose up -d`: your connections, history and sign-in are kept in a Docker volume ([details below](#upgrading-is-one-command-and-your-data-stays)).
 
@@ -119,7 +119,7 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 | | HAProxy stats page / NGINX `stub_status` | GateLight |
 |---|---|---|
 | Relationships | none | frontend → rule → pool → server map, four layouts |
-| URLs and paths | not shown | every host/path → target, searchable (Traffic flow → URI map) |
+| URLs and paths | not shown | every host/path → target, searchable (Request Routing → URI map) |
 | Health | tables of status text | colour-coded, grouped, with reason and time in state |
 | History | none | charts with zoom/pan, kept in SQLite, 5 min to 7 days |
 | NGINX upstream health | none (open source) | per-server via Plus API or active TCP probe |
@@ -132,20 +132,20 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 **See**
 - **Relationship map**: frontends / `server {}` blocks → routing rules (`use_backend … if acl`, `location /x`) → backends / upstreams → servers. Live status colours, traffic-weighted edges, orphans and broken routes highlighted, click a node to focus its path, double-click for its details page, PNG export, full-screen mode.
 - **L7 and L4 at a glance**: every frontend and pool is labelled **L7** (HTTP: host, path, headers, rewrites) or **L4** (TCP: ports and TLS SNI only, dashed), with a layer filter and tooltips explaining what each layer can and cannot see.
-- **Traffic flow**: follow a request from listener port to backend `ip:port`, where TLS ends or restarts, and the exact path your backend receives after rewrites. Each relationship is marked **active / idle / down / never used**, and *Try a request* traces any URL through the config.
+- **Request Routing**: follow a request from listener port to backend `ip:port`, where TLS ends or restarts, and the exact path your backend receives after rewrites. Each relationship is marked **active / idle / down / never used**, and *Try a request* traces any URL through the config.
 - **Four layouts**: *Layers*, *Flow*, *Mind map* (shows the URIs each node handles) and *Tree* (a `tree`-style outline you can fold and copy).
 - **Topology → Network layout** (the former Infrastructure page): the infrastructure behind the load balancer with an aliveness status per server, as a foldable hierarchy (load balancer → networks → hosts → services), or grouped by pool or by host, with "only alive" / "only not alive" filters.
-- **Traffic → Live metrics** (the former Graphs page): Grafana-style charts for requests/s, session rate, sessions, 5xx, throughput, response time and servers up/down, plus a chart per server, pool and frontend. Drag to zoom, ✋ to pan, step through time, shared crosshair, clickable legends with per-series stats, full-screen. HTTP response and error **donut charts** per instance and per backend.
-- **Services table**: status, IP, port, which frontends reach it, where it leads, sessions, req/s, 5xx/s, trend. Charts on top follow your filters.
+- **Traffic Stats → Live Metrics** (the former Graphs page): Grafana-style charts for requests/s, session rate, sessions, 5xx, throughput, response time and servers up/down, plus a chart per server, pool and frontend. Drag to zoom, ✋ to pan, step through time, shared crosshair, clickable legends with per-series stats, full-screen. HTTP response and error **donut charts** per instance and per backend.
+- **Service Status table**: status, IP, port, which frontends reach it, where it leads, sessions, req/s, 5xx/s, trend. Charts on top follow your filters.
 - **Details pages**: click any row, chip or node for a page of its own: health, metrics, relationships, trend, configuration, events and audit findings, with a shareable link and working Back/Forward.
 - **Overview in levels**: one status banner first (what is down and for how long, with a server-state bar and buttons straight to the problem), then what needs attention, then performance, then process details.
-- **Events: right now and history**: *Right now* lists what is already down or out of rotation with its duration and check result (changes before GateLight started watching are invisible to a timeline), followed by graphs (servers up/down over time, downtime, flapping, failed health checks) and the change history.
-- **Full-screen views** for the Topology mind map and URL map (each on its own), Services, Traffic flow tabs, Config and Config Forge results.
+- **Health Events: right now and history**: *Right now* lists what is already down or out of rotation with its duration and check result (changes before GateLight started watching are invisible to a timeline), followed by graphs (servers up/down over time, downtime, flapping, failed health checks) and the change history.
+- **Full-screen views** for the Topology mind map and URL map (each on its own), Service Status, Request Routing tabs, Running Config and Config Doctor results.
 
 **Know**
 - **Live health**: HAProxy via the stats CSV or the Runtime API; NGINX via `stub_status`, the NGINX Plus API, and/or an active TCP probe of every upstream (so even open-source NGINX gets per-server health).
-- **Config audit (39 rules, shown in Config Forge)**: undefined backends/upstreams, orphaned pools, missing health checks, single points of failure, weak or plaintext credentials, exposed stats / `stub_status`, legacy TLS, path-traversal-prone `alias`, deprecated directives, **config drift** (file ≠ running process), and more. Charts show where the findings cluster.
-- **NGINX request-handling security checks** (Config Forge): SSRF through variables in `proxy_pass`, Host header taken from the client (`$http_host`, `$arg_*`), CR/LF injection (`$uri` or a loose regex capture in a redirect, header or proxied URL), bypassable `$http_origin` / `$http_referer` regexes, `valid_referers none`, and header values written over several lines. Each finding explains the risk and suggests a fix for your NGINX version (for example a `map` allow-list and `add_header … always` from 1.7.5). Checked against the Gixy test suite: every flawed sample is flagged and none of the correct ones.
+- **Config audit (39 rules, shown in Config Doctor)**: undefined backends/upstreams, orphaned pools, missing health checks, single points of failure, weak or plaintext credentials, exposed stats / `stub_status`, legacy TLS, path-traversal-prone `alias`, deprecated directives, **config drift** (file ≠ running process), and more. Charts show where the findings cluster.
+- **NGINX request-handling security checks** (Config Doctor): SSRF through variables in `proxy_pass`, Host header taken from the client (`$http_host`, `$arg_*`), CR/LF injection (`$uri` or a loose regex capture in a redirect, header or proxied URL), bypassable `$http_origin` / `$http_referer` regexes, `valid_referers none`, and header values written over several lines. Each finding explains the risk and suggests a fix for your NGINX version (for example a `map` allow-list and `add_header … always` from 1.7.5). Checked against the Gixy test suite: every flawed sample is flagged and none of the correct ones.
 - **History that survives restarts**: samples and events are stored in SQLite (raw for 6 hours, then 1-minute averages for 14 days).
 - **Alerting & observability**: Slack / Mattermost / Teams-compatible webhooks on down and recovery; Prometheus `/metrics`.
 
@@ -165,9 +165,9 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 
 ## Validate a config against a specific version
 
-> The Validate, Config audit and Config Forge pages are now one page, **Config Forge** (see below): one list of findings with every problem reported once, plus the rewrite. Old `#…/audit` and `#…/validate` links open it.
+> The Validate, Config audit and Config Doctor pages are now one page, **Config Doctor** (see below): one list of findings with every problem reported once, plus the rewrite. Old `#…/audit` and `#…/validate` links open it.
 
-The version checks (in Config Forge, with the version picker) compare a configuration against the official documentation of the exact release you run (or plan to run), and adds recommendations that depend on that version.
+The version checks (in Config Doctor, with the version picker) compare a configuration against the official documentation of the exact release you run (or plan to run), and adds recommendations that depend on that version.
 
 - **HAProxy 1.7 → 3.4** and **NGINX up to the latest release**; pick the target version, or let GateLight use the one the running instance reports.
 - Checks every keyword, section/context, bind and server option, rule action, sample fetch and converter, parameter, variable and `%[...]` expression, not only the ones the map understands. It handles line continuations, quoting, `${ENV}`, HAProxy `.if version_atleast(...)` blocks, nested NGINX contexts, `include`d files, `stream`/`mail`, regex captures and third-party (Lua/njs) blocks.
@@ -178,11 +178,11 @@ The version checks (in Config Forge, with the version picker) compare a configur
 
 The rules are not hand-typed: `npm run kb:build` re-reads the official manuals (docs.haproxy.org for every version, nginx.org directive reference and changelog) and regenerates `src/kb/*.json`, so supporting a new release is one command.
 
-## Traffic flow: listener port to backend port, and what happens to the URI
+## Request Routing: listener port to backend port, and what happens to the URI
 
-The **Traffic flow** page answers "if a client asks for this, where does it go, and what does my backend actually receive?", from the configuration alone (nothing is sent to your servers).
+The **Request Routing** page answers "if a client asks for this, where does it go, and what does my backend actually receive?", from the configuration alone (nothing is sent to your servers).
 
-<img src="docs/img/traffic-flow.png" alt="Traffic flow: try a request, see every step, the backend port and the rewritten URI" width="100%">
+<img src="docs/img/traffic-flow.png" alt="Request Routing: try a request, see every step, the backend port and the rewritten URI" width="100%">
 
 - **Domains**: one card per host name (`server_name` or a host ACL, including wildcard, default and catch-all names): the ports it is served on, redirects (`:80 → 301 https://…`), the rules that route it, and for every pool each **server with the address and port each listener port ends up at**, with live status. A *Trace* button runs the request for that domain. Findings: the same name in two server blocks on one port, names served over plain HTTP only.
 - **Status filter**: show only what is **alive** (a healthy member), **not alive** (no healthy member or undefined backend) or **unused** (no traffic now, or a rule that can never match), on every tab. In *Domains* the servers inside each card are filtered one by one. Needs live stats.
@@ -198,7 +198,7 @@ It follows the official semantics. In HAProxy, a server written without a port u
 
 ## Traffic statistics from an HAProxy or NGINX log
 
-Add instance → **Traffic log** (or **Traffic → From a log file**) accepts HAProxy or NGINX logs, one or many at once or added one by one, always shown combined (max 20 files per instance, no duplicates; remove any file with its ×). Each is one log: HAProxy (`option httplog` / `tcplog`) or NGINX (see below), plain text or `.gz`. It is streamed, never kept: only aggregates are stored in `DATA_DIR/logs` (private, 0600), so a 350 MB log becomes under 1 MB. The default limit is 50 MB per file, so split bigger logs and upload the parts (`LOG_MAX_MB`, up to 500). For bigger logs split them first, the page shows the commands:
+Add Instance → **Traffic log** (or **Traffic Stats → From a Log File**) accepts HAProxy or NGINX logs, one or many at once or added one by one, always shown combined (max 20 files per instance, no duplicates; remove any file with its ×). Each is one log: HAProxy (`option httplog` / `tcplog`) or NGINX (see below), plain text or `.gz`. It is streamed, never kept: only aggregates are stored in `DATA_DIR/logs` (private, 0600), so a 350 MB log becomes under 1 MB. The default limit is 50 MB per file, so split bigger logs and upload the parts (`LOG_MAX_MB`, up to 500). For bigger logs split them first, the page shows the commands:
 
 ```sh
 tail -n 200000 haproxy.log > part.log          # latest traffic
@@ -217,9 +217,9 @@ awk '$9 ~ /^5/' access.log > access-5xx.log             # only server errors
 
 Uploads only work for connections added in the UI, and GateLight still never writes to your load balancers.
 
-## Config Forge: assess and rewrite a configuration
+## Config Doctor: assess and rewrite a configuration
 
-The **Config Forge** page is the one place for configuration quality. It takes a HAProxy or NGINX configuration (an instance's own, loaded automatically; or paste it, or drop files or a folder) and returns **one list of findings** with a score, plus a **rewritten, best-practice version**. It merges three engines: the structural audit (undefined backends, orphans, drift, credentials), the version validator (unknown, removed or too-new directives for your release) and the rewrite rules. Where they report the same thing it appears once, with the other checks noted, so you never compare three pages. Problems that need a decision of yours (an undefined backend, a stats password) stay in the list marked "need your decision". It is rule-based and deterministic: no network access, no model, and nothing is ever sent to a load balancer.
+The **Config Doctor** page is the one place for configuration quality. It takes a HAProxy or NGINX configuration (an instance's own, loaded automatically; or paste it, or drop files or a folder) and returns **one list of findings** with a score, plus a **rewritten, best-practice version**. It merges three engines: the structural audit (undefined backends, orphans, drift, credentials), the version validator (unknown, removed or too-new directives for your release) and the rewrite rules. Where they report the same thing it appears once, with the other checks noted, so you never compare three pages. Problems that need a decision of yours (an undefined backend, a stats password) stay in the list marked "need your decision". It is rule-based and deterministic: no network access, no model, and nothing is ever sent to a load balancer.
 
 - **Every change is explained and switchable.** Each one shows the reason, the exact lines it adds or changes, its category (security, reliability, performance, observability, compatibility) and severity. Turn individual changes off, apply only the recommended set, or opt into the optional ones (rate limiting, extra headers, compression). The score, the improved file and the diff update immediately.
 - **Version-aware.** Pick your HAProxy or NGINX version: the output only uses what that release supports (`ssl-min-ver` on 1.8+, `http2 on;` on NGINX 1.25.1+, no `ssl_reject_handshake` before 1.19.4, removed keywords such as `reqadd` or `nbproc` converted).
@@ -234,7 +234,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 <table>
 <tr>
 <td width="50%"><img src="docs/img/overview.png" alt="Overview: health cards you can click into"><br><sub><b>Overview</b>: explained, clickable health cards, traffic chart, what needs attention.</sub></td>
-<td width="50%"><img src="docs/img/graphs.png" alt="Graphs page with clickable legends and donut charts"><br><sub><b>Traffic → Live metrics</b>: zoom, pan, shared crosshair, clickable legends, donut charts for HTTP errors.</sub></td>
+<td width="50%"><img src="docs/img/graphs.png" alt="Graphs page with clickable legends and donut charts"><br><sub><b>Traffic Stats → Live Metrics</b>: zoom, pan, shared crosshair, clickable legends, donut charts for HTTP errors.</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/img/infrastructure.png" alt="Topology Network layout: what sits behind the load balancer and whether it is alive"><br><sub><b>Network layout</b> (Topology): networks, hosts and services behind the load balancer, in a foldable hierarchy with aliveness.</sub></td>
@@ -245,8 +245,8 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 <td width="50%"><img src="docs/img/topology-tree.png" alt="Tree layout like the tree command"><br><sub><b>Tree</b>: the whole estate as a foldable outline, copyable as text.</sub></td>
 </tr>
 <tr>
-<td width="50%"><img src="docs/img/config-forge.png" alt="Config Forge: score, switchable changes and the rewritten configuration"><br><sub><b>Config Forge</b>: assess a config and get a rewritten best-practice version, every change explained.</sub></td>
-<td width="50%"><img src="docs/img/events.png" alt="Events: what is down right now, graphs and the change history"><br><sub><b>Events</b>: what is down right now, with graphs and the change history.</sub></td>
+<td width="50%"><img src="docs/img/config-forge.png" alt="Config Doctor: score, switchable changes and the rewritten configuration"><br><sub><b>Config Doctor</b>: assess a config and get a rewritten best-practice version, every change explained.</sub></td>
+<td width="50%"><img src="docs/img/events.png" alt="Health Events: what is down right now, graphs and the change history"><br><sub><b>Health Events</b>: what is down right now, with graphs and the change history.</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/img/topology-nginx.png" alt="NGINX topology"><br><sub><b>NGINX too</b>: server blocks, locations and upstreams, plus a resizable URL map.</sub></td>
@@ -254,7 +254,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 </tr>
 <tr>
 <td width="50%"><img src="docs/img/traffic-flow-domains.png" alt="Domains: each host name with its ports, redirects, rules and servers with their addresses"><br><sub><b>Domains</b>: domain → listener port → server address and port, with redirects and live status.</sub></td>
-<td width="50%"><img src="docs/img/traffic-flow-diagram.png" alt="Traffic flow diagram: listeners, rules and pools with ports, member IPs and live status"><br><sub><b>Traffic flow</b>: listener → rule → pool with backend IPs and ports, and live / idle / never-used relationships.</sub></td>
+<td width="50%"><img src="docs/img/traffic-flow-diagram.png" alt="Request Routing diagram: listeners, rules and pools with ports, member IPs and live status"><br><sub><b>Request Routing</b>: listener → rule → pool with backend IPs and ports, and live / idle / never-used relationships.</sub></td>
 <td width="50%"><img src="docs/img/traffic-flow.png" alt="Try a request: every step, the winning rule and the rewritten path"><br><sub><b>Try a request</b>: follow any URL step by step through the config.</sub></td>
 </tr>
 <tr>
@@ -275,7 +275,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 | Check a config before a reload | **Add instance** → *Review a config* → drop it. Nothing is stored |
 | Keep several configs side by side | In the review header press **Save as instance…**, or upload a config in *Add instance* without a URL |
 | Refresh a saved config after editing it | **Update config** (header, Config page, or Settings): drop the new file or folder |
-| Look back in time | **Traffic → Live metrics**: pick a range (5 min to 7 days), drag a chart to zoom, ✋ to pan |
+| Look back in time | **Traffic Stats → Live Metrics**: pick a range (5 min to 7 days), drag a chart to zoom, ✋ to pan |
 | Find what is down | **Topology → Network layout** → *Only show what is not alive*, or **Overview** → *Down* |
 | Get back to the overview | Click the **GateLight logo** at any time |
 
@@ -388,7 +388,7 @@ Neither HAProxy nor NGINX can hand out its running config through the stats, Run
 
 - **Config URL(s)** in the connection settings (or `configUrls` / `*_CONFIG_URL`): a location on the server that serves its own config (for example an internal-only `location = /haproxy.cfg { alias ...; allow 10.0.0.0/8; deny all; }`), or the raw file in your config repository. GateLight only `GET`s it.
 - **A config file** on disk (`configPath`, mounted read-only): re-read on demand.
-- Press **⟳ Refresh from server** on the **Config** page to pull the current version now. You get a summary of what changed (`+12 −3 lines`, new or removed frontends, backends and servers), the map, URL map, Traffic flow, audit and Validate pages rebuild from it, and a `config_changed` event is recorded. If the fetch fails, the last good copy stays and the error is shown.
+- Press **⟳ Refresh from server** on the **Config** page to pull the current version now. You get a summary of what changed (`+12 −3 lines`, new or removed frontends, backends and servers), the map, URL map, Request Routing, audit and Validate pages rebuild from it, and a `config_changed` event is recorded. If the fetch fails, the last good copy stays and the error is shown.
 - Configs uploaded in the browser have no source to fetch from: use **Update config** to replace them, or add a Config URL.
 
 ## Config audit
@@ -426,7 +426,7 @@ Designed to be safe to run next to production load balancers:
 - Strict CSP (`script-src 'self'`), `X-Content-Type-Options`, no framing, `no-store` on the API, per-IP rate limiting, body-size limits, explicit static allowlist.
 - The container runs as non-root, read-only filesystem, all capabilities dropped, loopback-only port by default.
 
-**GateLight is read-only toward your load balancers, and the code enforces it.** It only ever reads: `GET`/`HEAD` for the HAProxy stats page and the NGINX `stub_status` / Plus API, the two HAProxy Runtime API commands `show stat` and `show info` (anything else, such as `set`, `enable`, `disable`, `add`, `del` or `shutdown`, or several commands on one line, is refused before it is sent), a plain TCP connect for NGINX probing, and it reads configuration files without ever writing them. Validation and the Traffic flow tracer run on the config text inside GateLight and send nothing to your servers. The only outbound write is the alert webhook you configure yourself. This is covered by tests (`test/readonly.test.js`). Give GateLight a **read-only** stats user as well, so the server enforces it too. Report vulnerabilities per [SECURITY.md](SECURITY.md).
+**GateLight is read-only toward your load balancers, and the code enforces it.** It only ever reads: `GET`/`HEAD` for the HAProxy stats page and the NGINX `stub_status` / Plus API, the two HAProxy Runtime API commands `show stat` and `show info` (anything else, such as `set`, `enable`, `disable`, `add`, `del` or `shutdown`, or several commands on one line, is refused before it is sent), a plain TCP connect for NGINX probing, and it reads configuration files without ever writing them. Validation and the Request Routing tracer run on the config text inside GateLight and send nothing to your servers. The only outbound write is the alert webhook you configure yourself. This is covered by tests (`test/readonly.test.js`). Give GateLight a **read-only** stats user as well, so the server enforces it too. Report vulnerabilities per [SECURITY.md](SECURITY.md).
 
 ## Limitations (today)
 

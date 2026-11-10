@@ -347,7 +347,7 @@ function createApp(settings) {
     try {
       const name = decodeURIComponent(String(req.query.filename || req.headers['x-filename'] || 'access.log')).replace(/[^\w .()-]/g, '_').slice(0, 120);
       const t0 = Date.now();
-      const result = await ingestStream(req, { maxBytes: max, filename: name, product: req.poller.instance.type === 'nginx' ? 'nginx' : 'haproxy' });
+      const result = await ingestStream(req, { maxBytes: max, filename: name, product: 'auto' }); // HAProxy or NGINX, whatever the file is
       const replace = req.query.mode === 'replace';
       const added = logs.add(req.params.id, result, { replace });
       touch(req.poller);

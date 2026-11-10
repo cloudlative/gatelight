@@ -53,7 +53,8 @@ function renderForge() {
   const verSel = prodTyped === 'haproxy' && FG.versions && FG.versions.haproxy
     ? `<select id="fg-version" aria-label="Target HAProxy version"><option value="">Latest (${esc(FG.versions.haproxy.latest)})</option>${FG.versions.haproxy.list.map((v) => `<option value="${esc(v)}"${FG.version === v ? ' selected' : ''}>HAProxy ${esc(v)}</option>`).join('')}</select>`
     : `<input id="fg-version" list="fg-nginx-v" placeholder="${prodTyped === 'haproxy' ? 'Version, e.g. 2.8' : 'Version, e.g. 1.24.0'} (empty = latest)" value="${esc(FG.version)}" aria-label="Target version" autocomplete="off"><datalist id="fg-nginx-v">${(prodTyped === 'haproxy' ? ['3.2', '3.0', '2.9', '2.8', '2.6', '2.4', '2.2', '1.8'] : FG_NGINX_V).map((v) => `<option value="${v}">`).join('')}</datalist>`;
-  el.innerHTML = `<div class="panel fg-top"><div class="fg-title"><div><h2 class="fg-h2">Config Forge</h2><div class="muted">Assess a HAProxy or NGINX configuration and rewrite it to current best practice. Every change comes with the reason, can be switched off, and nothing touches your servers.</div></div><button class="btn fg-fs" id="fg-fs" data-fs type="button" title="Fill the whole window (Esc to exit)">${document.body.classList.contains('topo-fs') ? '✕ Exit full screen' : '⛶ Full screen'}</button></div>
+  el.innerHTML = `<div class="panel fg-top"><div class="fg-title"><div><h2 class="fg-h2">Config Doctor</h2><div class="muted">Assess a HAProxy or NGINX configuration and rewrite it to current best practice. Every change comes with the reason, can be switched off, and nothing touches your servers.</div>
+    <div class="page-help" role="note"><b>Config Doctor</b> is the checker and fixer. It runs on the config of the selected instance or on files you upload, reports problems by severity, and offers a rewritten copy you download and apply yourself. Want to just read the config as it runs? Open <button type="button" class="link" data-goto="config">Running Config</button>.</div></div><button class="btn fg-fs" id="fg-fs" data-fs type="button" title="Fill the whole window (Esc to exit)">${document.body.classList.contains('topo-fs') ? '✕ Exit full screen' : '⛶ Full screen'}</button></div>
     <div class="fg-srcs" role="tablist">${tab('paste', 'Paste')}${tab('upload', 'Upload files')}${live ? tab('instance', 'This instance') : ''}${tab('example', 'Examples')}</div>
     <div class="fg-input">${forgeInputHtml()}</div>
     <div class="fg-opts"><label>Product<select id="fg-product"><option value="">Auto-detect</option><option value="haproxy"${FG.product === 'haproxy' ? ' selected' : ''}>HAProxy</option><option value="nginx"${FG.product === 'nginx' ? ' selected' : ''}>NGINX</option></select></label>
@@ -165,7 +166,8 @@ async function fgReadFiles(list) {
     if (content.includes('\u0000')) continue; total += content.length; if (total > 2 * 1048576) break;
     out.push({ name: f.webkitRelativePath ? (f.webkitRelativePath.includes('/') ? f.webkitRelativePath.split('/').slice(1).join('/') || name : name) : name, content });
   }
-  FG.files = [...FG.files, ...out.filter((x) => !FG.files.some((y) => y.name === x.name))].slice(0, 300); FG.req = 'files'; renderForge();
+  FG.files = [...FG.files, ...out.filter((x) => !FG.files.some((y) => y.name === x.name))].slice(0, 300); FG.req = 'files'; FG.srcNote = ''; renderForge();
+  if (out.length) forgeRun(); // analyse right away: choosing files is the whole request
 }
 document.addEventListener('click', async (e) => {
   const t = e.target; if (!t.closest || !t.closest('#view-forge')) return;

@@ -11,11 +11,23 @@ const V = require('../validate/version');
 
 const MAX_BYTES = 2 * 1024 * 1024;
 
+// Words that start a line only in one product's configuration. HAProxy: sections and its keywords. NGINX: block names and its directives.
+const HAP_LINE = /^\s*(global|defaults|frontend|backend|listen|userlist|resolvers|peers|bind|acl|use_backend|default_backend|use-server|balance|option|timeout|maxconn|stick-table|stick|tcp-request|http-request|http-response|capture|server-template|default-server|http-check|tcp-check|log-format|redirect|reqadd|rspadd|errorfile)\b/;
+const NGX_LINE = /^\s*(events|http|stream|upstream|server|location|map|geo|types|worker_processes|worker_connections|error_log|access_log|log_format|server_name|listen|root|alias|index|try_files|return|rewrite|proxy_pass|proxy_set_header|proxy_redirect|proxy_http_version|proxy_[a-z_]+|fastcgi_[a-z_]+|uwsgi_[a-z_]+|add_header|more_set_headers|more_clear_headers|ssl_[a-z_]+|valid_referers|resolver|client_max_body_size|keepalive_[a-z_]+|sendfile|gzip[a-z_]*|limit_[a-z_]+|auth_basic[a-z_]*|allow|deny|include|set|if|internal|expires|charset|real_ip_header|set_real_ip_from)\b/;
 function detectProduct(text) {
   const t = String(text || '');
-  if (/^\s*(global|defaults|frontend|backend|listen)\b/m.test(t) && !/^\s*(http|server|events)\s*\{/m.test(t)) return 'haproxy';
-  if (/\b(server|http|events|upstream|location|stream)\s*[^;{]*\{/.test(t) && /;\s*$/m.test(t)) return 'nginx';
-  return /^\s*(global|defaults|frontend|backend|listen)\b/m.test(t) ? 'haproxy' : null;
+  let hap = 0; let ngx = 0;
+  for (const raw of t.split('\n')) {
+    const l = raw.replace(/#.*/, '');
+    if (!l.trim()) continue;
+    const nginxish = /[;{}]\s*$/.test(l.trim());           // NGINX lines end in ; { or }
+    if (HAP_LINE.test(l) && !/[;{]\s*$/.test(l.trim())) hap++;
+    else if (NGX_LINE.test(l) && (nginxish || /\$\w+/.test(l) || !/^\s*(server|listen|http|stream|map|index|set|if|include|allow|deny|return|redirect|resolver|upstream|events|types|geo)\b/.test(l))) ngx++;
+  }
+  if (/^\s*(http|server|events|upstream)\s*\{/m.test(t)) ngx += 3;
+  if (/^\s*(global|defaults)\s*$/m.test(t) || /^\s*(frontend|backend|listen)\s+\S+\s*$/m.test(t)) hap += 3;
+  if (!hap && !ngx) return null;
+  return ngx > hap ? 'nginx' : hap > ngx ? 'haproxy' : null;
 }
 
 const preview = (c) => c.ops.map((o) => (o.kind === 'add' ? { k: 'add', after: o.text } : o.kind === 'mod' ? { k: 'mod', before: o.before, after: o.text } : { k: 'del', before: o.before }));

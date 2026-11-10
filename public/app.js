@@ -129,7 +129,7 @@ function renderWelcome() {
     <p class="muted welcome-lead">See your HAProxy and NGINX as a map. Nothing is connected yet, so here is how to start:</p>
     <ol class="welcome-steps">
       <li><span class="n">1</span><div><b>Add your first instance</b><p class="muted">Connect a running HAProxy or NGINX (URL, user, password), or upload its config and keep it under a name.</p>
-        ${can ? '<button class="btn primary" type="button" data-goto="connect">Add an instance</button>' : '<p class="muted small">Adding from the browser is off. Define servers in <code>config/instances.json</code>, or start GateLight with <code>ALLOW_UI_INSTANCES=true</code>.</p>'}</div></li>
+        ${can ? '<button class="btn primary" type="button" data-goto="connect">Add an Instance</button>' : '<p class="muted small">Adding from the browser is off. Define servers in <code>config/instances.json</code>, or start GateLight with <code>ALLOW_UI_INSTANCES=true</code>.</p>'}</div></li>
       <li><span class="n">2</span><div><b>Only want to check a config?</b><p class="muted">Drop a file or folder and get the map and audit. Nothing is saved.</p>
         <button class="btn" type="button" data-goto="connect">Review a config</button></div></li>
       <li><span class="n">3</span><div><b>Then explore</b><p class="muted">The overview, topology, URL map, services, audit and events appear here as soon as there is an instance to show.</p></div></li>
@@ -164,7 +164,7 @@ async function loadInstances() {
     + (state.analysis ? '<option value="__analysis">📄 Uploaded analysis</option>' : '');
   $('#nav [data-view="fleet"]').hidden = visible.length < 2;
   $('#btn-connect').hidden = !(state.meta && state.meta.canManage);
-  { const nb = $('#nav [data-view=connect] span'); if (nb) nb.textContent = state.meta && state.meta.canManage ? 'Add instance' : 'Review a config'; }
+  { const nb = $('#nav [data-view=connect] span'); if (nb) nb.textContent = state.meta && state.meta.canManage ? 'Add Instance' : 'Review a Config'; }
   if (!visible.length && !state.analysis) return false;
   state.current = keep && [...sel.options].some((o) => o.value === keep) ? keep : (visible[0] || { id: '__analysis' }).id;
   sel.value = state.current;
@@ -211,7 +211,7 @@ function applySnapshot(snap) {
   $('#last-update').textContent = `updated ${fmtTime(snap.ts)}${refreshSetting() === 'off' ? ' · paused' : ''}`;
   const down = snap.summary.servers.down + snap.summary.backends.down;
   const nd = $('#nav-down'); nd.hidden = !down; nd.textContent = down;
-  const na = $('#nav-audit'); const af = snap.findingsSummary; na.hidden = !(af.error + af.warning); na.textContent = af.error + af.warning; na.title = 'Audit errors and warnings. Config Forge also lists rewrite and validation checks, so its total is higher.';
+  const na = $('#nav-audit'); const af = snap.findingsSummary; na.hidden = !(af.error + af.warning); na.textContent = af.error + af.warning; na.title = 'Audit errors and warnings. Config Doctor also lists rewrite and validation checks, so its total is higher.';
   iselSync();
   renderView(state.view);
   if (state.inspected) refreshInspector();
@@ -488,7 +488,7 @@ function renderOverview() {
   const hero = `<section class="ov-hero ${tone}" aria-label="Overall status">
     <div class="ov-verdict"><span class="ov-ico" aria-hidden="true">${ico}</span>
       <div><h2>${esc(headline)}</h2><p class="ov-facts">${facts.map(esc).join('<i></i>')}</p>
-        <div class="ov-actions">${downN ? '<button class="btn primary" type="button" data-card="down">Show what is down</button>' : ''}<button class="btn" type="button" data-goto="forge">Config Forge</button><button class="btn" type="button" data-goto="topology">Topology</button></div></div></div>
+        <div class="ov-actions">${downN ? '<button class="btn primary" type="button" data-card="down">Show what is down</button>' : ''}<button class="btn" type="button" data-goto="forge">Config Doctor</button><button class="btn" type="button" data-goto="topology">Topology</button></div></div></div>
     ${hasStats && sv.total ? `<div class="ov-servers"><div class="ov-sv-top"><b>${upN}</b><span>/ ${sv.total} servers up</span></div>
       <div class="ov-bar" role="img" aria-label="${esc(segs.map((x) => `${x.n} ${x.t}`).join(', '))}">${segs.map((x) => `<i style="flex:${x.n};background:${x.c}" title="${esc(`${x.n} ${x.t}`)}"></i>`).join('')}</div>
       <div class="ov-legend">${segs.map((x) => `<span><i style="background:${x.c}"></i>${x.n} ${esc(x.t.toLowerCase())}</span>`).join('')}</div></div>` : ''}
@@ -498,15 +498,15 @@ function renderOverview() {
   $('#view-overview').innerHTML = cta + `${hero}
     <div class="ov-lvl"><span>Needs attention</span></div>
     <div class="cols">
-      <div class="panel"><h2>Needs attention <span class="tag">${problems.length + hot.length}</span></h2><div class="list">
+      <div class="panel"><h2>Needs Attention <span class="tag">${problems.length + hot.length}</span></h2><div class="list">
         ${problems.slice(0, 8).map((r) => `<div class="item" data-inspect="${esc(r.proxy)}/${esc(r.name)}">${stBadge(r.state, r.status)}<div class="t"><b>${esc(r.proxy)}${r.kind === 'server' ? ` / ${esc(r.name)}` : ''}</b>${rowEndpoints(r).addrs.length ? ` <span class="mono small muted">${esc(rowEndpoints(r).addrs.slice(0, 2).join(', '))}</span>` : ''}${r.check_status ? `<div class="muted small">${esc(r.check_status)}${r.last_chk ? ` — ${esc(r.last_chk)}` : ''}${r.lastchg != null ? ` · for ${fmtDur(r.lastchg)}` : ''}</div>` : ''}</div></div>`).join('')
           || (hot.length ? '' : `<div class="empty">${hasStats ? '✓ Everything is healthy' : 'No runtime stats available'}</div>`)}
         ${hot.map(({ r, pct }) => `<div class="item" data-inspect="${esc(r.proxy)}/${esc(r.name)}"><span class="st st-degraded">5xx</span><div class="t"><b>${esc(r.proxy)}</b><div class="muted small">${pct.toFixed(1)}% of responses are 5xx (${fmtRate(r.err5xxPerSec)}/s)</div></div></div>`).join('')}
       </div></div>
-      <div class="panel"><h2>Critical config issues <a class="muted small" data-goto="audit" style="cursor:pointer">view all →</a></h2><div class="list">
+      <div class="panel"><h2>Critical Config Issues <a class="muted small" data-goto="audit" style="cursor:pointer">view all →</a></h2><div class="list">
         ${errs.map((x) => `<div class="item" ${loc(x)}><span class="sev-error">●</span><div class="t"><b>${esc(x.title)}</b><div class="muted small">${esc(x.section)} · line ${x.line}</div></div></div>`).join('') || '<div class="empty">✓ No errors</div>'}
       </div></div>
-      <div class="panel"><h2>Recent events <a class="muted small" data-goto="events" style="cursor:pointer">view all →</a></h2><div class="list">
+      <div class="panel"><h2>Recent Events <a class="muted small" data-goto="events" style="cursor:pointer">view all →</a></h2><div class="list">
         ${state.events.filter((e) => e.level !== 'info').slice(0, 6).map((e) => `<div class="item"><span class="lv-${esc(e.level)}">●</span><div class="t">${esc(e.message)}<div class="muted small">${fmtDateTime(e.ts)}</div></div></div>`).join('') || '<div class="empty">No state changes recorded</div>'}
       </div></div>
     </div>
@@ -515,7 +515,7 @@ function renderOverview() {
       ${hasStats || info.activeConns != null ? card('Requests / s', fmtRate(sum.ratePerSec), `${fmtInt(sum.sessions)} current ${info.activeConns != null ? 'connections' : 'sessions'}`, '', { go: 'rate', help: 'New HTTP requests per second across all backends, measured over the latest poll. Sessions are connections open right now.', compact: true, cta: 'Busiest backends' }) : ''}
       ${hasStats ? card('5xx / s', fmtRate(sum.err5xxPerSec), sum.ratePerSec > 0 ? `${((sum.err5xxPerSec / sum.ratePerSec) * 100).toFixed(2)}% of traffic` : '', sum.err5xxPerSec > 0.5 ? 'warn' : '', { go: 'err5xx', help: 'Server-side errors (HTTP 500–599) returned per second. A rising value usually means a failing application, not the proxy.', compact: true, cta: 'Backends by errors' }) : ''}
       ${hasStats ? card('Throughput', `${fmtBytes(sum.bytesIn + sum.bytesOut)}`, 'total in+out since start', '', { go: 'bytes', help: 'Bytes received plus sent since the proxy last restarted (a counter, not a rate).', compact: true, cta: 'Backends by traffic' }) : ''}
-      ${card('Audit findings', f.error + f.warning, `${f.error} errors · ${f.warning} warnings · ${f.info} info · Config Forge lists more`, f.error ? 'bad' : f.warning ? 'warn' : 'ok', { go: 'findings', help: 'Problems the static audit found in the configuration: errors will break or endanger the proxy, warnings are risky settings, info is advice.', compact: true, cta: 'Review findings' })}
+      ${card('Audit findings', f.error + f.warning, `${f.error} errors · ${f.warning} warnings · ${f.info} info · Config Doctor lists more`, f.error ? 'bad' : f.warning ? 'warn' : 'ok', { go: 'findings', help: 'Problems the static audit found in the configuration: errors will break or endanger the proxy, warnings are risky settings, info is advice.', compact: true, cta: 'Review findings' })}
     </div>`  : ''}
     ${hasStats || info.activeConns != null ? `<div class="panel ov-traffic"><h2>Traffic <span class="muted small">${esc(info.version ? `${TYPE_NAME[snapshotType()] || ''} ${info.version}` : '')}${info.uptimeSec != null ? ` · up ${fmtDur(info.uptimeSec)}` : ''}${info.idlePct != null ? ` · idle ${info.idlePct}%` : ''}${info.reading != null ? ` · reading/writing/waiting ${info.reading}/${info.writing}/${info.waiting}` : ''}</span><button class="btn icon chart-expand" type="button" data-cv-expand="overview" title="Pop out: bigger chart, time range, series and stats" aria-label="Pop out traffic chart">⤢</button></h2><canvas id="ov-chart" class="chart" title="Click to pop out"></canvas></div>` : ''}
     ${proc ? `<div class="ov-lvl"><span>System</span></div>${proc}` : ''}`;
@@ -753,6 +753,10 @@ function buildGraph() {
     n.opacity = match(n) ? 1 : 0.12;
     if (!match(n)) n.font = { ...n.font, color: 'rgba(148,163,184,.25)' };
   }
+  if (q || onlyProblems || layerSel) { // links follow their nodes: a link stays lit when at least one end matches
+    const lit = new Set(nodes.filter(match).map((n) => n.id));
+    for (const e of edges) if (!(lit.has(e.from) || lit.has(e.to))) { dimEdge(e); }
+  }
   if (state.focus && ids.has(state.focus)) {
     const out = new Map(); const inn = new Map();
     edges.forEach((e) => { (out.get(e.from) || out.set(e.from, []).get(e.from)).push(e.to); (inn.get(e.to) || inn.set(e.to, []).get(e.to)).push(e.from); });
@@ -762,7 +766,7 @@ function buildGraph() {
     // Focusing a member keeps its pool-mates visible: the point is to see where it sits, not to hide the rest of the pool.
     if (state.focus.startsWith('sv:')) for (const parent of inn.get(state.focus) || []) for (const sib of out.get(parent) || []) keep.add(sib);
     for (const n of nodes) if (!keep.has(n.id)) { n.opacity = 0.1; n.font = { ...n.font, color: 'rgba(148,163,184,.2)' }; }
-    for (const e of edges) if (!(keep.has(e.from) && keep.has(e.to))) { e.color = { ...(e.color || {}), opacity: 0.06 }; e.label = undefined; }
+    for (const e of edges) if (!(keep.has(e.from) && keep.has(e.to))) { dimEdge(e); }
   }
   const g = collapseGraph(nodes, edges);
   g.nodes.forEach((n) => applyNodeIcon(n, FG, BG));
@@ -776,7 +780,13 @@ const ICON_PATHS = {
   server: ['M5 3h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M5 13h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z', 'M7 7h.01', 'M7 17h.01'],
   missing: ['M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z', 'M12 9v4', 'M12 17h.01'],
 };
-const ICON_P2D = {};
+const ICON_P2D = {}; const NODE_DRAW = new Map();
+const DIM_LINE = 'rgba(148,163,184,.14)';
+function dimEdge(e) { // explicit faint colours: vis-network does not repaint on an opacity-only change
+  e.color = { color: DIM_LINE, highlight: DIM_LINE, hover: DIM_LINE, inherit: false, opacity: 1 };
+  e.font = { ...(e.font || {}), color: 'rgba(0,0,0,0)', strokeColor: 'rgba(0,0,0,0)', strokeWidth: 0 };
+  e.width = 1; e.dashes = true;
+}
 function applyNodeIcon(n, FG, BG) {
   const kind = ICON_PATHS[n._kind] ? n._kind : null; if (!kind || typeof Path2D === 'undefined') return;
   const col = n.color || {}; const light = isLight();
@@ -785,9 +795,12 @@ function applyNodeIcon(n, FG, BG) {
   const orphan = /\(orphan\)/.test(n.label || ''); const problem = Boolean(n._problem);
   const r = kind === 'frontend' ? 26 : kind === 'backend' ? 24 : kind === 'missing' ? 21 : Math.round(14 + Math.max(0, (n.size || 11) - 11) * 0.5);
   const label = String(n.label || ''); const alpha = n.opacity == null ? 1 : n.opacity;
+  NODE_DRAW.set(n.id, { alpha, fill, ring, dashes, orphan, problem, r, label, light, kind, FG, BG });
   n.shape = 'custom'; n.size = r; n.borderWidth = 0;
   n.ctxRenderer = ({ ctx, x, y, state }) => ({
     drawNode() {
+      // read the latest values at draw time: vis-network keeps the first renderer closure, so filters/state changes must not be captured
+      const { alpha, fill, ring, dashes, orphan, problem, r, light, kind } = NODE_DRAW.get(n.id) || {};
       ctx.save(); ctx.globalAlpha = alpha;
       if (problem) { ctx.shadowColor = ring; ctx.shadowBlur = 16; }
       ctx.beginPath(); ctx.roundRect(x - r, y - r, 2 * r, 2 * r, r * 0.38); ctx.fillStyle = fill; ctx.fill();
@@ -800,12 +813,13 @@ function applyNodeIcon(n, FG, BG) {
       ctx.restore();
     },
     drawExternalLabel() {
+      const { alpha, r, label, light, FG, BG } = NODE_DRAW.get(n.id) || {};
       const lines = label.split('\n'); ctx.save(); ctx.globalAlpha = alpha; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
       let yy = y + r + 7;
       lines.forEach((t, i) => { ctx.font = i === 0 ? '600 13px system-ui, sans-serif' : '11px system-ui, sans-serif'; ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(t, x, yy); ctx.fillStyle = i === 0 ? FG : (light ? '#475569' : '#9fb0c8'); ctx.fillText(t, x, yy); yy += i === 0 ? 16 : 14; });
       ctx.restore();
     },
-    nodeDimensions: { width: 2 * r, height: 2 * r },
+    nodeDimensions: (() => { const d = (NODE_DRAW.get(n.id) || {}).r || r; return { width: 2 * d, height: 2 * d }; })(),
   });
 }
 
@@ -1510,7 +1524,7 @@ function renderFlow() {
     if (!FLOW.loading) setTimeout(() => flowLoad(true), 0);
   }
   const d = FLOW.data;
-  const intro = `<header class="flow-head val-head"><div><h2>Traffic flow</h2><p class="muted">Follow a request from the listener port to the backend port, and see exactly what the backend receives.</p></div><details class="flow-how"><summary>How to read this</summary><p class="muted small">Where each listener port leads, which pool and member port it reaches, whether TLS ends or restarts on the way, and what the backend receives as the URI. ${snap.instance.type === 'haproxy' ? 'An omitted server port follows the port the client used; <code>+N</code> adds to it; the server <code>port</code> option only moves health checks.' : 'A URI in <code>proxy_pass</code> replaces the matched location prefix.'} Everything is read from the configuration; nothing is sent to your servers.</p></details></header>`;
+  const intro = `<header class="flow-head val-head"><div><h2>Request Routing</h2><p class="muted">Follow a request from the listener port to the backend port, and see exactly what the backend receives.</p></div><details class="flow-how"><summary>How to read this</summary><p class="muted small">Where each listener port leads, which pool and member port it reaches, whether TLS ends or restarts on the way, and what the backend receives as the URI. ${snap.instance.type === 'haproxy' ? 'An omitted server port follows the port the client used; <code>+N</code> adds to it; the server <code>port</code> option only moves health checks.' : 'A URI in <code>proxy_pass</code> replaces the matched location prefix.'} Everything is read from the configuration; nothing is sent to your servers.</p></details></header>`;
   if (FLOW.loading && !d) { el.innerHTML = `${intro}<div class="skeleton-cards"><i></i><i></i><i></i></div>`; return; }
   if (FLOW.err) { el.innerHTML = `${intro}<div class="panel"><div class="empty">${esc(FLOW.err)}${/no configuration/i.test(FLOW.err) ? '<br>Attach the config (Settings → edit connection) to see how traffic is mapped.' : ''}</div></div>`; return; }
   if (!d) { el.innerHTML = intro; return; }
@@ -1518,7 +1532,7 @@ function renderFlow() {
   const fes = [...new Set(d.flows.map((f) => f.frontend))];
   const flows = d.flows.filter((f) => (!FLOW.fe || f.frontend === FLOW.fe) && flowPass(f));
   const rq = FLOW.req;
-  const form = `<div class="panel flow-try"><h3 class="flow-h">Try a request</h3>
+  const form = `<div class="panel flow-try"><h3 class="flow-h">Try a Request</h3>
     <div class="flow-form"><label>Host<input id="flow-host" placeholder="shop.example.com" value="${esc(rq.host)}" autocomplete="off"></label>
       <label>Path<input id="flow-path" placeholder="/api/users?id=1" value="${esc(rq.path)}" autocomplete="off"></label>
       <label>Port<select id="flow-port">${ports.map((p) => `<option value="${esc(p.port)}"${String(rq.port || ports[0].port) === String(p.port) ? ' selected' : ''}>${p.tls ? '🔒 ' : ''}${esc(p.port)}${p.tls ? ' (HTTPS)' : ''}</option>`).join('') || '<option value="">any</option>'}</select></label>
@@ -1550,28 +1564,46 @@ function renderFlow() {
   }
   const finds = d.findings.filter((f) => !FLOW.fe || flows.some((x) => x.frontend === FLOW.fe && (f.section === x.frontend || f.section === x.pool.name)));
   const card = (f) => `<div class="finding ${esc(f.severity)}"><div class="ft"><span class="sev-${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span> · ${esc(f.title)}</div><div class="fm">${esc(f.detail || '')} ${f.line ? `<a ${loc(f)}>${esc(f.section || '')}:${f.line}</a>` : ''}</div>${f.fix ? `<div class="fx"><b>Fix</b> ${esc(f.fix)}</div>` : ''}</div>`;
-  el.innerHTML = `${intro}${form}${stats}${chips}${body}${finds.length ? `<div class="flow-finds"><h3 class="flow-h flow-fh">Routing findings</h3>${finds.map(card).join('')}</div>` : ''}`;
+  el.innerHTML = `${intro}${form}${stats}${chips}${body}${finds.length ? `<div class="flow-finds"><h3 class="flow-h flow-fh">Routing Findings</h3>${finds.map(card).join('')}</div>` : ''}`;
 }
 
 // ---------- PROFILE ----------
 function renderProfile() {
   const m = state.meta || {}; const u = m.authUser ? String(m.authUser) : '';
   const left = m.authExp ? Math.max(0, m.authExp - Date.now()) : 0; const hrs = Math.floor(left / 3600e3); const mins = Math.floor((left % 3600e3) / 60000);
+  const total = (m.sessionHours || 0) * 3600e3; const pct = total ? Math.max(0, Math.min(100, (left / total) * 100)) : 0;
   const mine = state.instances.filter((i) => i.managed).length;
-  const theme = isLight() ? 'Light' : 'Dark';
-  $('#view-profile').innerHTML = `
-    <div class="panel narrow prof-head"><span class="avatar big" aria-hidden="true">${esc((u[0] || '?').toUpperCase())}</span>
-      <div class="prof-id"><h2>${esc(u || 'Not signed in')}</h2><div class="muted">${u ? 'Signed in to GateLight' : 'Sign-in is turned off on this server'}</div></div>
-      ${u ? '<button type="button" class="btn" data-logout>Sign out</button>' : ''}</div>
-    <div class="panel narrow"><h2>Account</h2>
-      <div class="kv"><span>Username</span><span class="mono">${esc(u || '–')}</span><span>Sign-in method</span><span>${m.authEnabled ? 'Password' : 'None (open access)'}</span><span>GateLight version</span><span class="mono">${esc(m.version || '–')}</span></div></div>
-    <div class="panel narrow"><h2>Session</h2>
-      <div class="kv"><span>Signed in until</span><span>${m.authExp ? esc(fmtDateTime(m.authExp)) : '–'}</span><span>Time left</span><span>${m.authExp ? `${hrs} h ${mins} min` : '–'}</span><span>Session length</span><span>${m.sessionHours ? `${m.sessionHours} h` : '–'}</span></div>
-      <p class="muted small">The session lasts for the configured length, then you sign in again. <code>AUTH_SESSION_HOURS</code> sets it on the server. Signing out ends it at once on this browser.</p></div>
-    <div class="panel narrow"><h2>This browser</h2>
-      <div class="kv"><span>Theme</span><span>${theme} <button type="button" class="link" data-prof-theme>switch</button></span><span>Auto-refresh</span><span>${esc({ auto: 'Auto (follows the server)', off: 'Paused' }[refreshSetting()] || `Every ${Number(refreshSetting()) / 1000} s`)}</span><span>Your private connections</span><span>${mine} <button type="button" class="link" data-goto="settings">manage</button></span></div></div>
-    <div class="panel narrow"><h2>Password</h2>
-      <p class="muted small">The password is set on the server, not in the browser. To change it, set <code>AUTH_PASS</code> (or a hash in <code>AUTH_PASS_HASH</code>) in <code>.env</code> and restart GateLight. Everyone is signed out when you do.</p></div>`;
+  const light = isLight();
+  const ico = (d) => `<svg class="pf-ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const I = {
+    user: ico('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'), clock: ico('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+    monitor: ico('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'), key: ico('<circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M16 7l3 3"/>'),
+  };
+  const refresh = { auto: 'Auto (follows the server)', off: 'Paused' }[refreshSetting()] || `Every ${Number(refreshSetting()) / 1000} s`;
+  const row = (k, v) => `<div class="pf-row"><span>${k}</span><b>${v}</b></div>`;
+  $('#view-profile').innerHTML = `<div class="pf-wrap">
+    <section class="pf-hero">
+      <span class="avatar big pf-av" aria-hidden="true">${esc((u[0] || '?').toUpperCase())}</span>
+      <div class="pf-id"><h2>${esc(u || 'Not signed in')}</h2>
+        <div class="pf-chips">${u ? '<span class="pf-chip ok"><i></i>Signed in</span>' : '<span class="pf-chip warn"><i></i>Sign-in is off on this server</span>'}<span class="pf-chip">${m.authEnabled ? 'Password sign-in' : 'Open access'}</span><span class="pf-chip mono">GateLight ${esc(m.version || '–')}</span></div></div>
+      ${u ? '<button type="button" class="btn pf-out" data-logout>Sign out</button>' : ''}
+    </section>
+    <div class="pf-grid">
+      <section class="panel pf-card"><h3>${I.clock}Session</h3>
+        <div class="pf-left">${m.authExp ? `<b>${hrs}</b><span>h</span> <b>${String(mins).padStart(2, '0')}</b><span>min left</span>` : '<b>–</b>'}</div>
+        <div class="pf-bar" role="img" aria-label="${Math.round(pct)}% of the session left"><i style="width:${pct.toFixed(1)}%"></i></div>
+        ${row('Signed in until', m.authExp ? esc(fmtDateTime(m.authExp)) : '–')}${row('Session length', m.sessionHours ? `${m.sessionHours} h` : '–')}
+        <p class="muted small">The session lasts for the configured length, then you sign in again. <code>AUTH_SESSION_HOURS</code> sets it on the server. Signing out ends it at once on this browser.</p></section>
+      <section class="panel pf-card"><h3>${I.monitor}This browser</h3>
+        <div class="pf-row"><span>Theme</span><b>${light ? 'Light' : 'Dark'} <button type="button" class="btn small-btn" data-prof-theme>Switch to ${light ? 'dark' : 'light'}</button></b></div>
+        ${row('Auto-refresh', esc(refresh))}
+        <div class="pf-row"><span>Your private connections</span><b>${mine} <button type="button" class="btn small-btn" data-goto="settings">Manage</button></b></div></section>
+      <section class="panel pf-card"><h3>${I.user}Account</h3>
+        ${row('Username', `<span class="mono">${esc(u || '–')}</span>`)}${row('Sign-in method', m.authEnabled ? 'Password' : 'None (open access)')}${row('GateLight version', `<span class="mono">${esc(m.version || '–')}</span>`)}</section>
+      <section class="panel pf-card"><h3>${I.key}Password</h3>
+        <p class="muted">The password is set on the server, not in the browser.</p>
+        <div class="pf-note">To change it, set <code>AUTH_PASS</code> (or a hash in <code>AUTH_PASS_HASH</code>) in <code>.env</code> and restart GateLight. Everyone is signed out when you do.</div></section>
+    </div></div>`;
 }
 
 // ---------- EVENTS ----------
@@ -1588,7 +1620,7 @@ function eventsNowHtml() {
     return `<tr data-inspect="${esc(r.proxy)}/${esc(r.name)}"><td><i class="dot ${r.state === 'down' ? 'c-down' : 'c-warn'}"></i></td><td><b>${name}</b></td><td class="lv-${r.state === 'down' ? 'critical' : 'warning'}">${lab[r.state]}${how ? ` <span class="muted">${esc(how)}</span>` : ''}</td><td class="muted small">${esc(why)}</td></tr>`;
   };
   const total = rows.filter((r) => r.kind === 'server').length;
-  return `<div class="panel ev-now"><h3 class="flow-h">Right now</h3>${sorted.length
+  return `<div class="panel ev-now"><h3 class="flow-h">Right Now</h3>${sorted.length
     ? `<p class="muted small">${sorted.length} item${sorted.length === 1 ? '' : 's'} down or out of rotation (of ${total} servers). The duration is how long HAProxy has reported this state. Click a row for details.</p><table class="grid"><tbody>${sorted.map(line).join('')}</tbody></table>`
     : `<p class="ev-ok">✓ Nothing is down or out of rotation${total ? ` (${total} servers checked)` : ''}.</p>`}</div>`;
 }
@@ -1622,7 +1654,8 @@ function renderEvents() {
   const list = real.filter((e) => f === 'all' || e.level === f);
   const startNote = starts.length ? `<p class="muted small ev-starts">GateLight (re)started monitoring ${starts.length} time${starts.length === 1 ? '' : 's'}; last ${esc(fmtDateTime(Math.max(...starts.map((e) => e.ts))))}. Changes before that are not known.</p>` : '';
   if (EV.inst !== state.current && !EV.loading) setTimeout(evLoadHistory, 0);
-  $('#view-events').innerHTML = `${eventsNowHtml()}
+  $('#view-events').innerHTML = `<div class="page-help" role="note"><b>Health Events</b> is the record of what changed: a server, pool or the stats endpoint going down, degrading or coming back, and warnings found in uploaded logs. It tells you <i>when</i> something broke and recovered. For how much traffic you handle, see <button type="button" class="link" data-goto="graphs">Traffic Stats</button>; for how a request is routed, see <button type="button" class="link" data-goto="flow">Request Routing</button>.</div>
+    ${eventsNowHtml()}
     ${eventsChartsHtml(real)}
     <div class="chips"><b class="ev-h">History</b>${['all', 'critical', 'warning', 'recovery', 'info'].map((x) => `<span class="chip ${f === x ? 'on' : ''}" data-ev="${x}">${x}</span>`).join('')}
       <span class="muted small">${real.length} change${real.length === 1 ? '' : 's'} recorded</span></div>
@@ -1736,7 +1769,7 @@ const loc = (x) => `data-goto-line="${x.line}" data-goto-file="${esc(x.file || '
 function renderFleet() {
   const list = state.instances.filter((i) => !state.hiddenTypes.includes(i.type));
   const tone = (i) => (i.ok === false ? 'bad' : i.serversDown ? 'warn' : i.ok ? 'ok' : '');
-  $('#view-fleet').innerHTML = `<h2>All instances</h2><div class="cards fleet">${list.map((i) => `
+  $('#view-fleet').innerHTML = `<h2>All Instances</h2><div class="cards fleet">${list.map((i) => `
     <div class="card clickable" data-open-instance="${esc(i.id)}">
       <div class="label"><span class="tag">${esc(TYPE_NAME[i.type] || i.type)}</span> ${esc(i.source)}</div>
       <div class="value" style="font-size:17px;margin:6px 0;color:var(--text)"><i class="dot ${tone(i) === 'bad' ? 'c-down' : tone(i) === 'warn' ? 'c-warn' : tone(i) === 'ok' ? 'c-up' : 'c-idle'}" style="margin-right:8px"></i>${esc(i.name)}</div>
@@ -1776,7 +1809,7 @@ function renderSettings() {
     <div class="panel"><div class="panel-h"><h2>Instances</h2>${state.meta.canManage ? '<button class="btn primary" type="button" data-connect>+ Connect a server</button>' : ''}</div>
       ${state.meta.canManage ? '' : '<p class="muted small">Servers are defined in <code>config/instances.json</code> or env vars. To add them from this page, start GateLight with <code>ALLOW_UI_INSTANCES=true</code>.</p>'}
       <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Type</th><th>Source</th><th>Status</th><th>Findings</th><th></th></tr></thead><tbody>
-      ${state.instances.map((i) => `<tr data-open-instance="${esc(i.id)}"><td>${esc(i.name)}</td><td>${esc(TYPE_NAME[i.type] || i.type)}</td><td class="mono small">${esc(i.source)}</td><td>${i.ok === false ? `<span class="st st-down" title="${esc(i.error || '')}">error</span>${i.error ? `<div class="muted small" style="max-width:260px">${esc(String(i.error).slice(0, 120))}</div>` : ''}` : i.ok ? '<span class="st st-up">ok</span>' : '…'}</td><td>${i.findings ? `${i.findings.error}e / ${i.findings.warning}w` : ''}</td><td>${i.managed ? `<div class="row-actions"><button class="btn" type="button" data-cx-up="${esc(i.id)}">Update config</button><button class="btn" type="button" data-cx-edit="${esc(i.id)}">Edit</button><button class="btn" type="button" data-cx-del="${esc(i.id)}">Remove</button></div>` : ''}</td></tr>`).join('')}
+      ${state.instances.map((i) => `<tr data-open-instance="${esc(i.id)}"><td>${esc(i.name)}</td><td>${esc(TYPE_NAME[i.type] || i.type)}</td><td class="mono small">${esc(i.source)}</td><td>${i.ok === false ? `<span class="st st-down" title="${esc(i.error || '')}">error</span>${i.error ? `<div class="muted small" style="max-width:260px">${esc(String(i.error).slice(0, 120))}</div>` : ''}` : i.ok ? '<span class="st st-up">ok</span>' : '…'}</td><td>${i.findings ? `${i.findings.error}e / ${i.findings.warning}w` : ''}</td><td>${i.managed ? `<div class="row-actions"><button class="btn" type="button" data-cx-up="${esc(i.id)}">Update Config</button><button class="btn" type="button" data-cx-edit="${esc(i.id)}">Edit</button><button class="btn" type="button" data-cx-del="${esc(i.id)}">Remove</button></div>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
     </div></div>`;
 }
@@ -2879,7 +2912,7 @@ function iselRender() {
       ${it.down ? `<span class="isel-warn">⚠ ${it.down} down</span>` : ''}${on ? '<span class="isel-check" aria-hidden="true">✓</span>' : ''}</button>`; };
   pop.innerHTML = `${total >= 6 ? `<div class="isel-search"><input id="isel-q" type="search" placeholder="Search ${total} instances…" aria-label="Search instances" value="${esc(iselState.q)}" autocomplete="off"></div>` : ''}
     <div class="isel-list">${groups.map((g) => `<div class="isel-grp">${esc(TYPE_NAME[g.t] || (g.t === 'analysis' ? 'Offline' : g.t))}</div>${g.list.map(row).join('')}`).join('') || '<div class="isel-empty muted small">No instance matches</div>'}</div>
-    <div class="isel-foot"><button type="button" class="link" data-isel-add>${state.meta && state.meta.canManage ? '＋ Add instance' : 'Review a config'}</button><button type="button" class="link" data-isel-all>Manage instances</button></div>`;
+    <div class="isel-foot"><button type="button" class="link" data-isel-add>${state.meta && state.meta.canManage ? '＋ Add Instance' : 'Review a config'}</button><button type="button" class="link" data-isel-all>Manage instances</button></div>`;
   const hl = pop.querySelector('.hl'); if (hl) { hl.scrollIntoView({ block: 'nearest' }); if (!pop.querySelector('#isel-q') && pop.contains(document.activeElement) || document.activeElement === document.body) hl.focus(); }
 }
 function iselOpen(on) {
@@ -3119,11 +3152,11 @@ function wire() {
   });
   $('#topo-layout').addEventListener('change', () => { if (network) { network.destroy(); network = null; } renderTopology(); });
   $('#topo-png').addEventListener('click', exportPng);
-  state.urlmapOpen = loadPref('gatelight.urlmap', true);
+  state.urlmapOpen = loadPref('gatelight.urlmapOpen', false);
   state.urlmapMode = loadPref('gatelight.urlmapMode', 'normal'); state.urlmapH = loadPref('gatelight.urlmapH', 0);
   const reflow = () => setTimeout(() => { if (network) { network.setSize('100%', '100%'); network.redraw(); network.fit({ animation: false }); } }, 60);
   $('#topo-urlmap').addEventListener('click', () => {
-    state.urlmapOpen = !state.urlmapOpen; savePref('gatelight.urlmap', state.urlmapOpen);
+    state.urlmapOpen = !state.urlmapOpen; savePref('gatelight.urlmapOpen', state.urlmapOpen);
     if (state.urlmapOpen && state.urlmapMode === 'min') state.urlmapMode = 'normal';
     if (!state.urlmapOpen) $('#view-topology').classList.remove('um-max');
     renderUrlMap(); reflow();
@@ -3132,7 +3165,7 @@ function wire() {
     if (e.target.closest('[data-um-fs]')) { e.stopPropagation(); toggleUrlmapFs(); return; }
     const b = e.target.closest('[data-um]'); if (!b) return;
     e.stopPropagation();
-    if (b.dataset.um === 'close') { state.urlmapOpen = false; savePref('gatelight.urlmap', false); $('#view-topology').classList.remove('um-max'); }
+    if (b.dataset.um === 'close') { state.urlmapOpen = false; savePref('gatelight.urlmapOpen', false); $('#view-topology').classList.remove('um-max'); }
     else { const want = b.dataset.um; state.urlmapMode = state.urlmapMode === want ? 'normal' : want; savePref('gatelight.urlmapMode', state.urlmapMode); }
     renderUrlMap(); reflow();
   });

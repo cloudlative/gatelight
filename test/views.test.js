@@ -31,5 +31,5 @@ test('every page with filters clears them when you leave it', () => {
   assert.ok(block, 'FILTER_RESETS is missing');
   for (const v of ['topology', 'services', 'graphs', 'config', 'events', 'forge', 'traffic', 'flow']) assert.ok(new RegExp(`\\n  ${v}\\(\\)`).test(block[1]), `${v} does not reset its filters`);
   assert.match(block[1], /state\.sort = \{ key: 'default'/, 'the Services sort order is reset');
-  assert.match(block[1], /FG\.kind = 'all'/, 'Config Forge filters are reset');
+  assert.match(block[1], /FG\.kind = 'all'/, 'Config Doctor filters are reset');
 });
