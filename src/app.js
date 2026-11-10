@@ -13,6 +13,7 @@ const { parseStatsCsv, statusClass } = require('./statsParser');
 const { auditConfig, summarize } = require('./audit');
 const { validateConfig, versions: kbVersions } = require('./validate');
 const { detect: detectVersion } = require('./validate/version');
+const { buildFlows, trace: traceFlow } = require('./flow');
 const { renderMetrics } = require('./metrics');
 const { securityHeaders, rateLimit } = require('./security');
 const { createAuth } = require('./login');
@@ -301,6 +302,36 @@ function createApp(settings) {
     } catch (e) { return res.status(422).json({ error: `Could not validate configuration: ${e.message}` }); }
   });
 
+  // Traffic flow: listener port -> backend port and URI mapping, plus a config-only request tracer (src/flow.js).
+  const flowRequest = (b) => ({ host: typeof b.host === 'string' ? b.host.slice(0, 255) : '', path: typeof b.path === 'string' ? b.path.slice(0, 2048) : '/', method: typeof b.method === 'string' ? b.method.slice(0, 16) : 'GET', port: b.port != null && /^\d{1,5}$/.test(String(b.port)) ? Number(b.port) : null, tls: typeof b.tls === 'boolean' ? b.tls : null });
+  api.get('/instances/:id/flow', withInstance, rateLimit({ max: 60 }), (req, res) => {
+    const cache = req.poller.configCache;
+    if (!cache || !cache.sections || !cache.sections.length) return res.status(404).json({ error: 'This instance has no configuration loaded.' });
+    try { return res.json(buildFlows(req.poller.instance.type, cache.sections)); } catch (e) { return res.status(422).json({ error: `Could not analyse traffic flow: ${e.message}` }); }
+  });
+  api.post('/instances/:id/flow/trace', withInstance, express.json({ limit: '8kb' }), rateLimit({ max: 120 }), (req, res) => {
+    const cache = req.poller.configCache;
+    if (!cache || !cache.sections || !cache.sections.length) return res.status(404).json({ error: 'This instance has no configuration loaded.' });
+    try { return res.json(traceFlow(req.poller.instance.type, cache.sections, flowRequest(req.body || {}))); } catch (e) { return res.status(422).json({ error: `Could not trace: ${e.message}` }); }
+  });
+  // Review mode: the same analysis for an uploaded / pasted config. Optional "request" also returns a trace.
+  api.post('/flow', express.json({ limit: '8mb' }), rateLimit({ max: 60 }), (req, res) => {
+    const body = req.body || {};
+    const files = Array.isArray(body.files) ? body.files.filter((f) => f && typeof f.content === 'string' && typeof f.name === 'string').slice(0, 300) : [];
+    const text = typeof body.config === 'string' ? body.config : '';
+    const cfgFiles = files.filter((f) => !/\.csv$/i.test(f.name));
+    if (!cfgFiles.length && !text.trim()) return res.status(400).json({ error: 'Provide "config" (string) or "files" ([{name, content}])' });
+    let type = String(body.type || 'auto');
+    if (type === 'auto') type = detectType(cfgFiles.length ? cfgFiles.map((f) => f.content).join('\n') : text);
+    if (!['haproxy', 'nginx'].includes(type)) return res.status(400).json({ error: `Unknown type "${type}"` });
+    try {
+      let sections;
+      if (type === 'nginx') sections = (cfgFiles.length ? parseNginxFiles(cfgFiles) : parseNginxText(text)).sections;
+      else { const f = cfgFiles.find((x) => /haproxy/i.test(x.name)) || cfgFiles[0]; sections = parseConfig(f ? f.content : text); }
+      const out = buildFlows(type, sections);
+      return res.json({ ...out, trace: body.request && typeof body.request === 'object' ? traceFlow(type, sections, flowRequest(body.request)) : undefined });
+    } catch (e) { return res.status(422).json({ error: `Could not analyse traffic flow: ${e.message}` }); }
+  });
   api.get('/instances/:id/validate', withInstance, rateLimit({ max: 30 }), (req, res) => {
     const p = req.poller; const type = p.instance.type;
     const cache = p.configCache;

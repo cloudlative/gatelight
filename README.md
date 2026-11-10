@@ -166,6 +166,21 @@ The **Validate** page checks a configuration against the official documentation 
 
 The rules are not hand-typed: `npm run kb:build` re-reads the official manuals (docs.haproxy.org for every version, nginx.org directive reference and changelog) and regenerates `src/kb/*.json`, so supporting a new release is one command.
 
+## Traffic flow: listener port to backend port, and what happens to the URI
+
+The **Traffic flow** page answers "if a client asks for this, where does it go, and what does my backend actually receive?", from the configuration alone (nothing is sent to your servers).
+
+<img src="docs/img/traffic-flow.png" alt="Traffic flow: try a request, see every step, the backend port and the rewritten URI" width="100%">
+
+- **Port map**: every listener port, the frontend and pool it reaches, the backend port(s), and whether TLS ends at the proxy, is re-encrypted, or passes through.
+- **URI map**: for each routing rule, the match, the rewrites that run (`replace-path`, `set-path`, `set-uri`, `rewrite`, the URI part of `proxy_pass`, `proxy_set_header Host`), and an example such as `/api/users` becoming `/users`.
+- **Diagram**: listeners, rules and pools in three columns, with `listener→backend` ports on the lines.
+- **Try a request**: enter host, path, port and method and follow it step by step: the redirect or auth rule that fires, the rule that wins, the rewrite, the member ports it reaches.
+- **Routing findings**: rules that can never match because an earlier one catches everything, health checks that probe a different port than traffic, TLS spoken to `:80` or plain traffic sent to `:443`, a server that points at the proxy's own listener, the classic NGINX trailing-slash mismatch, `rewrite … break` silently ignoring the `proxy_pass` URI.
+- The same details appear in the Topology hover text and in the routing-rule inspector.
+
+It follows the official semantics. In HAProxy, a server written without a port uses **the port the client connected to**, `10.0.0.1:+1000` adds 1000 to it, and the server `port` option only moves **health checks**; `use_backend` rules are first match, frontend `http-request` rules run before the backend is chosen and backend ones after. In NGINX, a URI in `proxy_pass` replaces the matched location prefix, `^~` stops regex checks, and `rewrite … break` keeps the rewritten URI. Conditions that depend on headers or source IP cannot be decided from host, path and port, so they are marked as skipped or "approximate" rather than guessed. API: `GET /api/instances/:id/flow`, `POST /api/instances/:id/flow/trace`, `POST /api/flow` (for a pasted config).
+
 ## Screenshots
 
 <table>

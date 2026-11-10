@@ -69,7 +69,7 @@ const beLike = (s) => s.type === 'backend' || s.type === 'listen';
 
 // ---------- navigation ----------
 let navReady = false; let navFromHistory = false; // push history entries only after start-up, and never while replaying one
-const REVIEW_VIEWS = ['topology', 'audit', 'validate', 'config'];
+const REVIEW_VIEWS = ['topology', 'flow', 'audit', 'validate', 'config'];
 const visibleNav = () => $$('#nav button').filter((b) => !b.hidden && b.offsetParent !== null);
 const VIEW_ALIAS = { lbinfra: 'infrastructure' }; // old links keep working
 function switchView(view) {
@@ -83,6 +83,7 @@ function switchView(view) {
   if (state.view === 'detail' && view !== 'detail') state.inspected = null;
   state.view = view;
   if (view === 'validate') setTimeout(() => valLoad(false), 0);
+  if (view === 'flow' || view === 'topology') setTimeout(() => flowLoad(false), 0);
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${view}`));
   $$('#nav button').forEach((b) => { const on = b.dataset.view === view; b.classList.toggle('active', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   const dkey = view === 'detail' && state.inspected && state.inspected.key ? `/${encodeURIComponent(state.inspected.key)}` : '';
@@ -124,7 +125,7 @@ function renderView(view) {
     if (view === 'overview') { if (state.current) $('#view-overview').innerHTML = '<div class="skeleton-cards"><i></i><i></i><i></i><i></i><i></i></div>'; else renderWelcome(); }
     return;
   }
-  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, validate: renderValidate, events: renderEvents, config: renderConfig }[view] || (() => {}))();
+  ({ fleet: renderFleet, settings: renderSettings, overview: renderOverview, topology: renderTopology, graphs: renderGraphs, infrastructure: renderLbInfra, profile: renderProfile, detail: () => { if (state.inspected) refreshInspector(); }, services: renderServices, audit: renderAudit, validate: renderValidate, flow: renderFlow, events: renderEvents, config: renderConfig }[view] || (() => {}))();
 }
 
 // ---------- data loading ----------
@@ -753,8 +754,20 @@ function routeUri(rt) {
   return hosts && !path.includes(hosts) ? `${hosts} ${path}`.trim() : path;
 }
 const routeSummary = (rt) => (rt.type === 'default' ? 'Any request not matched above (default)' : rt.match || rt.condition);
+// The traffic-flow analysis (ports, TLS, URI change) for one routing rule, when it has been loaded.
+function flowOf(fe, rt) {
+  if (!FLOW.data || FLOW.key !== state.current || rt.commented) return null;
+  const name = typeof fe === 'string' ? fe : fe.name;
+  return FLOW.data.flows.find((f) => f.frontend === name && f.line === rt.line && f.pool.name === rt.target) || null;
+}
+function flowLines(f) {
+  if (!f) return [];
+  const l = f.portMap.map((p) => `${p.listenerTls ? '🔒' : ''}:${p.in} → ${p.out.length ? p.out.map((o) => `:${o}`).join(' ') : '?'} (${TLS_LABEL[p.tls] || p.tls})`);
+  if (f.example && f.example.changed) l.push(`Backend receives: ${f.example.in} → ${f.example.out}${f.example.exact ? '' : ' (approx.)'}`);
+  return l;
+}
 function routeTitle(fe, rt) {
-  const lines = [`${fe.name} → ${rt.target}${rt.commented ? ' (disabled)' : ''}`, `Match: ${routeSummary(rt)}`];
+  const lines = [`${fe.name} → ${rt.target}${rt.commented ? ' (disabled)' : ''}`, `Match: ${routeSummary(rt)}`, ...flowLines(flowOf(fe, rt))];
   if (rt.hosts && rt.hosts.length) lines.push(`Host: ${rt.hosts.join(', ')}`);
   if (rt.passUrl) lines.push(`${rt.passDirective || 'pass'}: ${rt.passUrl}`);
   if (rt.rewriteNote) lines.push(rt.rewriteNote);
@@ -1257,6 +1270,131 @@ function renderValidate() {
     ${list.map(card).join('') || `<div class="empty">✓ Nothing to report for this filter</div>`}`;
 }
 
+
+// ---------- TRAFFIC FLOW: listener port -> backend port, and what happens to the URI on the way ----------
+const FLOW = { inst: null, data: null, loading: false, err: null, key: '', req: { host: '', path: '/', port: '', method: 'GET' }, trace: null, traceErr: null, tracing: false, fe: '', tab: 'ports' };
+const TLS_LABEL = { terminate: 'TLS ended here → plain', 're-encrypt': 'TLS → TLS (re-encrypted)', upgrade: 'plain → TLS', plain: 'plain → plain', passthrough: 'TCP passthrough' };
+async function flowLoad(force) {
+  if (FLOW.loading) return;
+  const key = state.current;
+  if (!force && FLOW.data && FLOW.key === key) return;
+  FLOW.loading = true; FLOW.err = null; renderFlow();
+  try {
+    let res;
+    if (state.mode === 'review' && state.analysisCfg) res = await api('/flow', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: state.analysisCfg.type, files: state.analysisCfg.files }) });
+    else res = await api(`/instances/${encodeURIComponent(state.current)}/flow`);
+    FLOW.data = res; FLOW.key = key;
+  } catch (e) { FLOW.err = e.message; FLOW.data = null; }
+  FLOW.loading = false; if (state.view === 'flow') renderFlow(); else if (state.view === 'topology' && FLOW.data) renderTopology();
+}
+async function flowTrace() {
+  const r = FLOW.req; const ports = flowPorts();
+  const lis = ports.find((p) => String(p.port) === String(r.port)) || ports[0];
+  const body = { host: r.host, path: r.path || '/', method: r.method, port: lis ? Number(lis.port) : null, tls: lis ? lis.tls : null };
+  FLOW.tracing = true; FLOW.traceErr = null; renderFlow();
+  try {
+    if (state.mode === 'review' && state.analysisCfg) FLOW.trace = (await api('/flow', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: state.analysisCfg.type, files: state.analysisCfg.files, request: body }) })).trace;
+    else FLOW.trace = await api(`/instances/${encodeURIComponent(state.current)}/flow/trace`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  } catch (e) { FLOW.traceErr = e.message; FLOW.trace = null; }
+  FLOW.tracing = false; if (state.view === 'flow') renderFlow();
+}
+function flowPorts() { // distinct listener ports (with TLS) across all entry points
+  const m = new Map();
+  for (const f of (FLOW.data ? FLOW.data.flows : [])) for (const l of f.listeners) if (l.port && !m.has(`${l.port}|${l.tls}`)) m.set(`${l.port}|${l.tls}`, { port: l.port, tls: l.tls });
+  return [...m.values()].sort((a, b) => Number(a.port) - Number(b.port) || Number(a.tls) - Number(b.tls));
+}
+const portTxt = (p, tls) => `<span class="pt${tls ? ' tls' : ''}">${tls ? '🔒 ' : ''}:${esc(p)}</span>`;
+const outPorts = (pm) => (pm.out.length ? pm.out.map((o) => `<span class="pt">:${o}</span>`).join(' ') : '') + (pm.dynamic ? ' <span class="pt dyn" title="Resolved from an environment variable at start-up">env var</span>' : '') + (pm.socket ? ' <span class="pt">socket</span>' : '');
+function flowSvg(flows) {
+  // three columns: listeners -> rules -> pools. One row per rule; listeners and pools are shared rows.
+  const lis = []; const lisIdx = new Map(); const pools = []; const poolIdx = new Map();
+  flows.forEach((f) => {
+    f.listeners.filter((l) => l.port).forEach((l) => { const k = `${f.frontend}|${l.port}|${l.tls}`; if (!lisIdx.has(k)) { lisIdx.set(k, lis.length); lis.push({ k, fe: f.frontend, port: l.port, tls: l.tls }); } });
+    if (!poolIdx.has(f.pool.name)) { poolIdx.set(f.pool.name, pools.length); pools.push(f); }
+  });
+  const RH = 46; const rows = Math.max(flows.length, lis.length, pools.length); const H = rows * RH + 36; const W = 1000;
+  const ly = (i, n) => 20 + (n <= 1 ? (rows * RH) / 2 : (i * (rows * RH - RH)) / (n - 1)) + RH / 2 - 8;
+  const clip = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
+  let out = `<svg class="flow-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Listener to rule to backend pool map" preserveAspectRatio="xMinYMin meet">`;
+  out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="760" y="14" class="fs-h">POOLS &amp; BACKEND PORTS</text>`;
+  const edge = (x1, y1, x2, y2, cls, label) => { const mx = (x1 + x2) / 2; return `<path class="fs-e ${cls || ''}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>${label ? `<text class="fs-pl" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${esc(label)}</text>` : ''}`; };
+  flows.forEach((f, i) => {
+    const y = ly(i, flows.length); const pi = poolIdx.get(f.pool.name); const py = ly(pi, pools.length);
+    f.listeners.filter((l) => l.port).forEach((l) => { const li = lisIdx.get(`${f.frontend}|${l.port}|${l.tls}`); out += edge(190, ly(li, lis.length), 360, y, f.shadowedBy ? 'dead' : ''); });
+    const pm = f.portMap[f.portMap.length - 1];
+    const label = f.portMap.map((p) => `${p.in}→${p.out.length ? p.out.join('/') : '?'}`).slice(0, 3).join(' · ');
+    out += edge(640, y, 760, py, `${f.pool.undefined ? 'bad' : ''} ${f.shadowedBy ? 'dead' : ''} ${pm && pm.tls === 're-encrypt' ? 'enc' : ''}`, label);
+  });
+  lis.forEach((l, i) => { const y = ly(i, lis.length); out += `<g><rect class="fs-n fs-l" x="10" y="${y - 15}" width="180" height="30" rx="7"/><text class="fs-t" x="20" y="${y + 4}">${l.tls ? '🔒 ' : ''}:${esc(l.port)} · ${esc(clip(l.fe.replace(/:[\d+]+(#\d+)?$/, ''), 20))}</text></g>`; });
+  flows.forEach((f, i) => {
+    const y = ly(i, flows.length); const ex = f.example;
+    const host = f.match.hosts && f.match.hosts.length ? `${f.match.hosts[0]} ` : '';
+    out += `<g><title>${esc(f.match.text)}${ex ? `\n${ex.in} → ${ex.out}` : ''}</title><rect class="fs-n fs-r${f.shadowedBy ? ' dead' : ''}" x="360" y="${y - 19}" width="280" height="38" rx="7"/>
+      <text class="fs-t" x="370" y="${y - 3}">${esc(clip(f.match.type === 'default' ? 'default (everything else)' : `${host}${f.match.short || f.match.text}`, 38))}</text>
+      <text class="fs-s" x="370" y="${y + 12}">${f.shadowedBy ? `⚠ shadowed by rule #${f.shadowedBy}` : ex && ex.changed ? `${esc(clip(ex.in, 17))} → ${esc(clip(ex.out, 17))}` : f.chain.some((s) => s.kind === 'terminal' && s.applies === true) ? 'answers with a redirect / deny' : 'path unchanged'}</text></g>`;
+  });
+  pools.forEach((f, i) => { const y = ly(i, pools.length); const ports = [...new Set(f.portMap.flatMap((p) => p.out))]; out += `<g><rect class="fs-n fs-p${f.pool.undefined ? ' bad' : ''}" x="760" y="${y - 15}" width="230" height="30" rx="7"/><text class="fs-t" x="770" y="${y + 4}">${esc(clip(f.pool.name, 18))}${f.pool.undefined ? ' (undefined)' : ports.length ? ` · ${ports.slice(0, 3).map((x) => `:${x}`).join(' ')}${ports.length > 3 ? '…' : ''}` : ''}</text></g>`; });
+  return `${out}</svg>`;
+}
+function flowTraceHtml() {
+  const t = FLOW.trace;
+  if (FLOW.traceErr) return `<div class="flow-trace"><div class="empty">${esc(FLOW.traceErr)}</div></div>`;
+  if (!t) return '';
+  const resp = t.response ? `<div class="ft-end bad">${t.response.status ? `<b>${t.response.status}</b> ` : ''}${esc(t.response.text)}</div>` : '';
+  const members = (t.members || []).length ? `<div class="ft-end ok"><b>${esc(t.backend)}</b> ${(t.members || []).map((m) => `<span class="pt${m.tls ? ' tls' : ''}" title="${esc(m.address)}">${m.tls ? '🔒 ' : ''}${esc(m.name)} ${m.socket ? esc(m.address) : `:${m.port == null ? '?' : m.port}`}${m.checkPort != null ? ` <i>(check :${m.checkPort})</i>` : ''}${m.backup ? ' <i>backup</i>' : ''}</span>`).join(' ')}</div>` : '';
+  const pathLine = t.path ? `<div class="ft-path"><span class="muted small">Backend receives</span> <code>${esc(t.path.out)}</code>${t.path.in !== t.path.out ? ` <span class="muted small">(client sent <code>${esc(t.path.in)}</code>)</span>` : ' <span class="muted small">(unchanged)</span>'}${t.path.exact === false ? ' <span class="tag" title="Depends on a dynamic value or an uncertain condition">approximate</span>' : ''}${t.hostHeader ? ` <span class="muted small">· Host header <code>${esc(t.hostHeader)}</code></span>` : ''}${t.tls ? ` <span class="tag">${esc(TLS_LABEL[t.tls] || t.tls)}</span>` : ''}</div>` : '';
+  return `<div class="flow-trace">${(t.steps || []).map((s, i) => `<div class="ft-step ${s.applied === false || s.skipped ? 'off' : ''} ${esc(s.type)}"><span class="ft-n">${i + 1}</span><div><span class="ft-txt mono">${esc(s.text)}</span>${s.from != null ? ` <span class="mono small"><span class="muted">${esc(s.from)}</span> → <b>${esc(s.to)}</b></span>` : ''}${s.note ? `<div class="muted small">${esc(s.note)}</div>` : ''}</div></div>`).join('')}
+    ${resp}${members}${pathLine}${t.uncertain ? '<div class="muted small">Some conditions depend on headers, source IP or other values that a host / path / port test cannot decide; they are marked as skipped above.</div>' : ''}</div>`;
+}
+function renderFlow() {
+  const el = $('#view-flow'); if (!el) return;
+  const snap = state.snapshot; if (!snap) { el.innerHTML = ''; return; }
+  if (FLOW.inst !== state.current) {
+    Object.assign(FLOW, { inst: state.current, data: null, err: null, key: '', trace: null, traceErr: null, fe: '', req: { host: '', path: '/', port: '', method: 'GET' } });
+    if (!FLOW.loading) setTimeout(() => flowLoad(true), 0);
+  }
+  const d = FLOW.data;
+  const intro = `<div class="panel val-head"><h3 class="flow-h">Traffic flow</h3><p class="muted small">Where each listener port leads, which pool and member port it reaches, whether TLS ends or restarts on the way, and what the backend receives as the URI. ${snap.instance.type === 'haproxy' ? 'An omitted server port follows the port the client used; <code>+N</code> adds to it; the server <code>port</code> option only moves health checks.' : 'A URI in <code>proxy_pass</code> replaces the matched location prefix.'} Everything is read from the configuration; nothing is sent to your servers.</p></div>`;
+  if (FLOW.loading && !d) { el.innerHTML = `${intro}<div class="skeleton-cards"><i></i><i></i><i></i></div>`; return; }
+  if (FLOW.err) { el.innerHTML = `${intro}<div class="panel"><div class="empty">${esc(FLOW.err)}${/no configuration/i.test(FLOW.err) ? '<br>Attach the config (Settings → edit connection) to see how traffic is mapped.' : ''}</div></div>`; return; }
+  if (!d) { el.innerHTML = intro; return; }
+  const ports = flowPorts(); const hap = d.product === 'haproxy';
+  const fes = [...new Set(d.flows.map((f) => f.frontend))];
+  const flows = d.flows.filter((f) => !FLOW.fe || f.frontend === FLOW.fe);
+  const rq = FLOW.req;
+  const form = `<div class="panel flow-try"><h3 class="flow-h">Try a request</h3>
+    <div class="flow-form"><label>Host<input id="flow-host" placeholder="shop.example.com" value="${esc(rq.host)}" autocomplete="off"></label>
+      <label>Path<input id="flow-path" placeholder="/api/users?id=1" value="${esc(rq.path)}" autocomplete="off"></label>
+      <label>Port<select id="flow-port">${ports.map((p) => `<option value="${esc(p.port)}"${String(rq.port || ports[0].port) === String(p.port) ? ' selected' : ''}>${p.tls ? '🔒 ' : ''}${esc(p.port)}${p.tls ? ' (HTTPS)' : ''}</option>`).join('') || '<option value="">any</option>'}</select></label>
+      <label>Method<select id="flow-method">${['GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS'].map((m) => `<option${rq.method === m ? ' selected' : ''}>${m}</option>`).join('')}</select></label>
+      <button class="btn primary" type="button" data-flow-trace>${FLOW.tracing ? 'Tracing…' : 'Trace'}</button></div>${flowTraceHtml()}</div>`;
+  const sum = d.summary;
+  const stats = `<div class="panel val-sum"><div class="val-counts"><span><b>${sum.listeners}</b> listener ports</span><span><b>${sum.flows}</b> routing rules</span><span><b>${sum.rewrites}</b> rewrite the URI</span><span><b class="${sum.findings ? 'sev-warning' : ''}">${sum.findings}</b> routing findings</span></div></div>`;
+  const tabs = [['ports', 'Port map'], ['uri', 'URI map'], ['diagram', 'Diagram']];
+  const chips = `<div class="chips">${tabs.map(([k, t]) => `<span class="chip ${FLOW.tab === k ? 'on' : ''}" data-flow-tab="${k}">${t}</span>`).join('')}${fes.length > 1 ? `<span class="muted">|</span><select id="flow-fe" aria-label="Filter by ${esc(lbl('frontend').toLowerCase())}"><option value="">All ${esc(lbl('frontend').toLowerCase())}s</option>${fes.map((x) => `<option value="${esc(x)}"${FLOW.fe === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}</div>`;
+  let body = '';
+  if (FLOW.tab === 'ports') {
+    const rows = d.portMatrix.filter((r) => !FLOW.fe || r.frontend === FLOW.fe);
+    body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend port(s)</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">No listeners found</td></tr>'}</tbody></table></div>
+      <p class="muted small flow-note">${hap ? 'HAProxy: <code>server s 10.0.0.1</code> (no port) uses the same port the client connected to; <code>10.0.0.1:+1000</code> adds 1000 to it; an explicit port always wins.' : 'NGINX: a <code>proxy_pass</code> or upstream <code>server</code> without a port uses 80 (443 for https://).'}</p>`;
+  } else if (FLOW.tab === 'uri') {
+    body = `<div class="table-wrap"><table class="grid"><thead><tr><th>${esc(lbl('frontend'))}</th><th>Host</th><th>Request matches</th><th>URI changes on the way</th><th>Example</th><th>→ ${esc(lbl('backend'))}</th></tr></thead><tbody>
+      ${flows.map((f) => { const steps = f.chain.filter((s) => s.applies !== false && (s.kind === 'path' || (s.kind === 'header' && /^Host$/i.test(s.args[0] || '')))); const other = f.chain.filter((s) => s.applies !== false && s.kind === 'terminal').length; const ex = f.example;
+      return `<tr class="${f.shadowedBy ? 'dim' : ''}"><td><b>${esc(f.frontend)}</b><div class="muted small mono">${f.listeners.map((l) => `${l.tls ? '🔒' : ''}${esc(l.port || 'socket')}`).join(', ')}</div></td>
+        <td class="mono small">${esc((f.match.hosts || []).join(', ')) || '<span class="muted">any</span>'}</td>
+        <td class="msg">${f.match.type === 'default' ? '<span class="tag">default</span> <span class="muted">everything else</span>' : `<span class="mono">${esc(f.match.text)}</span>`}${f.shadowedBy ? ` <span class="tag until">shadowed by #${f.shadowedBy}</span>` : ''}</td>
+        <td class="msg">${steps.length ? steps.map((s) => `<div class="mono small" title="${esc(s.condText || s.note || '')}"><span class="tag">${esc(s.stage || s.scope)}</span> ${esc(s.text)}${s.cond ? ` <span class="muted">${esc(s.cond)}</span>` : ''}${s.applies === null ? ' <span class="tag" title="Depends on something a host / path test cannot decide">maybe</span>' : ''}${s.note ? `<div class="muted">${esc(s.note)}</div>` : ''}</div>`).join('') : '<span class="muted">none: the backend gets the same URI</span>'}${other ? `<div class="muted small">+ ${other} redirect / deny / auth rule${other === 1 ? '' : 's'} that may answer before this (use Try a request)</div>` : ''}</td>
+        <td class="mono small">${ex ? (ex.changed ? `${esc(ex.in)} → <b>${esc(ex.out)}</b>${ex.exact ? '' : ' <span class="tag">approx.</span>'}` : `${esc(ex.in)} <span class="muted">unchanged</span>`) : '<span class="muted">–</span>'}</td>
+        <td><b>${esc(f.pool.name)}</b><div class="mono small">${f.portMap.map((p) => `${esc(p.in)}→${p.out.length ? p.out.join('/') : '?'}`).join(' · ')}</div></td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">No routing rules</td></tr>'}</tbody></table></div>`;
+  } else {
+    body = `<div class="panel flow-diagram">${flows.length ? flowSvg(flows) : '<div class="empty">No routing rules</div>'}<p class="muted small flow-note">Lines carry <code>listener→backend</code> ports. Dashed grey = rule that can never match; amber = TLS re-encrypted to the backend; red = backend not defined.</p></div>`;
+  }
+  const finds = d.findings.filter((f) => !FLOW.fe || flows.some((x) => x.frontend === FLOW.fe && (f.section === x.frontend || f.section === x.pool.name)));
+  const card = (f) => `<div class="finding ${esc(f.severity)}"><div class="ft"><span class="sev-${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span> · ${esc(f.title)}</div><div class="fm">${esc(f.detail || '')} ${f.line ? `<a ${loc(f)}>${esc(f.section || '')}:${f.line}</a>` : ''}</div>${f.fix ? `<div class="fx"><b>Fix</b> ${esc(f.fix)}</div>` : ''}</div>`;
+  el.innerHTML = `${intro}${form}${stats}${chips}${body}${finds.length ? `<h3 class="flow-h flow-fh">Routing findings</h3>${finds.map(card).join('')}` : ''}`;
+}
+
 // ---------- PROFILE ----------
 function renderProfile() {
   const m = state.meta || {}; const u = m.authUser ? String(m.authUser) : '';
@@ -1524,6 +1662,15 @@ function drawInspectorChart() {
     { label: 'sessions', color: '#818cf8', values: inspHistory.map((p) => p.scur) },
   ]);
 }
+// Port mapping and URI transformation of a rule, as rows for the route inspector.
+function flowRows(f) {
+  if (!f) return [];
+  const rows = [['Ports', f.portMap.map((p) => `${portTxt(p.in, p.listenerTls)} → ${p.out.length ? p.out.map((o) => `<span class="pt">:${o}</span>`).join(' ') : '?'} <span class="muted small">${esc(TLS_LABEL[p.tls] || p.tls)}</span>`).join('<br>')]];
+  const steps = f.chain.filter((x) => x.applies !== false && (x.kind === 'path' || (x.kind === 'header' && /^Host$/i.test(x.args[0] || ''))));
+  if (steps.length) rows.push(['URI changes', steps.map((x) => `<code>${esc(x.text)}</code>${x.cond ? ` <span class="muted small">${esc(x.cond)}</span>` : ''}`).join('<br>')]);
+  if (f.example) rows.push(['Backend receives', f.example.changed ? `<code>${esc(f.example.in)}</code> → <code>${esc(f.example.out)}</code>${f.example.exact ? '' : ' <span class="muted small">(approximate)</span>'}` : `<span class="muted">the same path (${esc(f.example.in)})</span>`]);
+  return rows;
+}
 function inspectRoute(r) {
   state.inspected = { kind: 'route' };
   $('#insp-kind').textContent = r.commented ? 'ROUTING RULE (DISABLED)' : 'ROUTING RULE';
@@ -1532,6 +1679,7 @@ function inspectRoute(r) {
     ['Condition', `<code>${esc(r.condition)}</code>`], (r.aclRefs || []).length ? ['ACLs used', esc(r.aclRefs.join(', '))] : null,
     r.passUrl ? [r.passDirective || 'pass', `<code>${esc(r.passUrl)}</code>`] : null, r.rewriteNote ? ['URI rewrite', esc(r.rewriteNote)] : null,
     (r.rewrites || []).length ? ['rewrite rules', r.rewrites.map((x) => `<code>${esc(x)}</code>`).join('<br>')] : null,
+    ...flowRows(flowOf(r.fe, r)),
     ['Defined at', `<a style="color:var(--cyan);cursor:pointer" ${loc(r)}>line ${r.line}</a>`]]);
   $('#insp-body').innerHTML = detailCards($('#insp-body').innerHTML); $('#detail-crumb').textContent = $('#insp-title').textContent;
   openDetail();
@@ -2476,6 +2624,11 @@ function iselWire() {
     else if (e.key === 'Enter' && items[iselState.idx] && !e.target.closest('[data-isel-add],[data-isel-all]')) { e.preventDefault(); iselPick(items[iselState.idx].id); }
     else if (e.key === 'Tab') iselOpen(false);
   });
+  // Traffic flow page: keep the form values, filter by entry point, Enter runs the trace
+  const flowSync = () => { FLOW.req = { host: ($('#flow-host') || {}).value || '', path: ($('#flow-path') || {}).value || '/', port: ($('#flow-port') || {}).value || '', method: ($('#flow-method') || {}).value || 'GET' }; };
+  document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('.flow-form')) flowSync(); });
+  document.addEventListener('change', (e) => { if (e.target.id === 'flow-fe') { FLOW.fe = e.target.value; renderFlow(); } else if (e.target.closest && e.target.closest('.flow-form')) flowSync(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.closest && e.target.closest('.flow-form') && e.target.tagName === 'INPUT') { e.preventDefault(); flowSync(); flowTrace(); } });
   $('#instance-select').addEventListener('change', iselSync);
 }
 
@@ -2618,6 +2771,8 @@ function wire() {
     const cat = e.target.closest('[data-cat]'); if (cat) { state.auditFilter.cat = cat.dataset.cat; renderAudit(); return; }
     if (e.target.closest('[data-val-run]')) { const v = $('#val-version'); VAL.version = v ? v.value.trim() : ''; const b = $('#val-build'); if (b) VAL.build = b.value.trim(); valLoad(true); return; }
     if (e.target.closest('[data-val-build]')) { const b = $('#val-build'); if (b) VAL.build = b.value; VAL.buildOpen = !VAL.buildOpen; renderValidate(); return; }
+    if (e.target.closest('[data-flow-trace]')) { FLOW.req = { host: ($('#flow-host') || {}).value || '', path: ($('#flow-path') || {}).value || '/', port: ($('#flow-port') || {}).value || '', method: ($('#flow-method') || {}).value || 'GET' }; flowTrace(); return; }
+    const ft = e.target.closest('[data-flow-tab]'); if (ft) { FLOW.tab = ft.dataset.flowTab; renderFlow(); return; }
     const vt = e.target.closest('[data-val-tab]'); if (vt) { VAL.tab = vt.dataset.valTab; renderValidate(); return; }
     const vs = e.target.closest('[data-val-sev]'); if (vs) { VAL.sev = vs.dataset.valSev; renderValidate(); return; }
     const ev = e.target.closest('[data-ev]'); if (ev) { state.eventFilter = ev.dataset.ev; renderEvents(); return; }
