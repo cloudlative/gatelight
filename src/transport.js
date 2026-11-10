@@ -5,14 +5,22 @@ const net = require('net');
 const { URL } = require('url');
 
 const MAX_BODY = 32 * 1024 * 1024;
+const READ_ONLY_METHODS = new Set(['GET', 'HEAD']);
+// The only HAProxy Runtime API commands GateLight may send. Everything else (set, enable, disable, add, del, shutdown,
+// clear, commit, prepare, ...), several commands in one line, or any control character is refused.
+const RUNTIME_ALLOWED = new Set(['show stat', 'show info']);
 
 /**
  * Minimal HTTP(S) request helper with timeout, body-size cap and optional
  * basic auth / TLS verification bypass. Redirects are NOT followed (an
  * operator-configured endpoint should answer directly).
  */
-function httpRequest(urlStr, { method = 'GET', username, password, timeout = 7000, insecureTls = false, body, headers = {} } = {}) {
+function httpRequest(urlStr, { method = 'GET', username, password, timeout = 7000, insecureTls = false, body, headers = {}, notification = false } = {}) {
   return new Promise((resolve, reject) => {
+    // GateLight never changes a load balancer: only reads are possible. The one exception is the alert webhook
+    // (a chat / incident receiver, not a proxy), which the alert sender marks explicitly.
+    if (!notification && !READ_ONLY_METHODS.has(String(method).toUpperCase())) return reject(new Error(`Refused: GateLight is read-only and does not send ${method} requests to servers`));
+    if (!notification && body) return reject(new Error('Refused: GateLight is read-only and does not send request bodies to servers'));
     let u;
     try { u = new URL(urlStr); } catch { return reject(new Error(`Invalid URL: ${urlStr}`)); }
     if (!/^https?:$/.test(u.protocol)) return reject(new Error(`Unsupported protocol ${u.protocol}`));
@@ -45,6 +53,7 @@ function httpRequest(urlStr, { method = 'GET', username, password, timeout = 700
 /** Send one command to the HAProxy Runtime API (TCP `host:port` or unix socket path). */
 function runtimeCommand(target, command, timeout = 7000) {
   return new Promise((resolve, reject) => {
+    if (!RUNTIME_ALLOWED.has(command)) return reject(new Error(`Refused: GateLight is read-only; Runtime API command "${String(command).slice(0, 40)}" is not allowed (only ${[...RUNTIME_ALLOWED].join(', ')})`));
     const opts = target.startsWith('/') || target.startsWith('unix:')
       ? { path: target.replace(/^unix:/, '') }
       : (() => { const [host, port] = target.replace(/^tcp:\/\//, '').split(':'); return { host, port: Number(port) }; })();
@@ -137,4 +146,4 @@ async function fetchStats(instance) {
   return { csv: res.body, info: await fetchHtmlInfo(instance) };
 }
 
-module.exports = { httpRequest, runtimeCommand, fetchStats, htmlToInfo };
+module.exports = { httpRequest, runtimeCommand, fetchStats, htmlToInfo, READ_ONLY_METHODS, RUNTIME_ALLOWED };

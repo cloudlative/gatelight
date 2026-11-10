@@ -26,7 +26,7 @@ class Notifier {
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const res = await httpRequest(this.url, {
-          method: 'POST', body, headers: { 'Content-Type': 'application/json' },
+          method: 'POST', body, notification: true, headers: { 'Content-Type': 'application/json' },
           timeout: 5000, insecureTls: this.insecureTls,
         });
         if (res.status < 300) return;

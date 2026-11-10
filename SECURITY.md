@@ -20,3 +20,7 @@ stats user, mount configuration read-only, and do not expose it to the public in
 ## Supported versions
 
 The latest release receives security fixes.
+
+## Read-only by design
+
+GateLight never changes a load balancer. HTTP requests to servers are limited to `GET`/`HEAD` without a body, the HAProxy Runtime API accepts only `show stat` and `show info`, and configuration files are only read. These limits are enforced in `src/transport.js` and checked by `test/readonly.test.js`. The alert webhook is the only outbound write and goes to the URL you configure. If you find a path that can modify a server, please report it as a vulnerability.

@@ -10,6 +10,9 @@
 - API: `GET /api/instances/:id/flow`, `POST /api/instances/:id/flow/trace`, `POST /api/flow`.
 - API: `POST /api/validate`, `GET /api/instances/:id/validate`, `GET /api/validate/versions`.
 
+### Security
+- Read-only toward load balancers is now enforced in code: only `GET`/`HEAD` (no body) to servers, only `show stat` / `show info` on the HAProxy Runtime API, tests prevent any other write path.
+
 ### Changed
 - The app header no longer shows the tagline (it stays on the sign-in page and the website).
 

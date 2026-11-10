@@ -356,7 +356,7 @@ Designed to be safe to run next to production load balancers:
 - Strict CSP (`script-src 'self'`), `X-Content-Type-Options`, no framing, `no-store` on the API, per-IP rate limiting, body-size limits, explicit static allowlist.
 - The container runs as non-root, read-only filesystem, all capabilities dropped, loopback-only port by default.
 
-Give GateLight a **read-only** stats user. Report vulnerabilities per [SECURITY.md](SECURITY.md).
+**GateLight is read-only toward your load balancers, and the code enforces it.** It only ever reads: `GET`/`HEAD` for the HAProxy stats page and the NGINX `stub_status` / Plus API, the two HAProxy Runtime API commands `show stat` and `show info` (anything else, such as `set`, `enable`, `disable`, `add`, `del` or `shutdown`, or several commands on one line, is refused before it is sent), a plain TCP connect for NGINX probing, and it reads configuration files without ever writing them. Validation and the Traffic flow tracer run on the config text inside GateLight and send nothing to your servers. The only outbound write is the alert webhook you configure yourself. This is covered by tests (`test/readonly.test.js`). Give GateLight a **read-only** stats user as well, so the server enforces it too. Report vulnerabilities per [SECURITY.md](SECURITY.md).
 
 ## Limitations (today)
 
