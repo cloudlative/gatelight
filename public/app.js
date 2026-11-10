@@ -1342,15 +1342,15 @@ function flowSvg(flows) {
   const clip = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
   let out = `<svg class="flow-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Listener to rule to backend pool map" preserveAspectRatio="xMinYMin meet">`;
   out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="760" y="14" class="fs-h">POOLS, BACKEND IPS &amp; PORTS</text>`;
-  const edge = (x1, y1, x2, y2, cls, label) => { const mx = (x1 + x2) / 2; return `<path class="fs-e ${cls || ''}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>${label ? `<text class="fs-pl" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${esc(label)}</text>` : ''}`; };
+  const edge = (x1, y1, x2, y2, cls, label, tip) => { const mx = (x1 + x2) / 2; const d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; return `<g class="fs-eg"><title>${esc(tip || label || '')}</title><path class="fs-e ${cls || ''}" d="${d}"/><path class="fs-hit" d="${d}"/>${label ? `<text class="fs-pl" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${esc(label)}</text>` : ''}</g>`; };
   flows.forEach((f, i) => {
     const y = ly(i, flows.length); const pi = poolIdx.get(f.pool.name); const py = ly(pi, pools.length);
-    f.listeners.filter((l) => l.port).forEach((l) => { const li = lisIdx.get(`${f.frontend}|${l.port}|${l.tls}`); out += edge(190, ly(li, lis.length), 360, y, f.shadowedBy ? 'dead' : ''); });
+    f.listeners.filter((l) => l.port).forEach((l) => { const li = lisIdx.get(`${f.frontend}|${l.port}|${l.tls}`); out += edge(190, ly(li, lis.length), 360, y, f.shadowedBy ? 'dead' : '', '', `${l.tls ? 'TLS ' : ''}port ${l.port} on ${f.frontend}\n→ ${f.match.type === 'default' ? 'default rule' : f.match.text}`); });
     const pm = f.portMap[f.portMap.length - 1];
     const label = f.portMap.map((p) => `${p.in}→${p.out.length ? p.out.join('/') : '?'}`).slice(0, 3).join(' · ');
-    out += edge(640, y, 760, py, `${f.pool.undefined ? 'bad' : ''} ${f.shadowedBy ? 'dead' : ''} ${pm && pm.tls === 're-encrypt' ? 'enc' : ''}`, label);
+    out += edge(640, y, 760, py, `${f.pool.undefined ? 'bad' : ''} ${f.shadowedBy ? 'dead' : ''} ${pm && pm.tls === 're-encrypt' ? 'enc' : ''}`, label, `${f.frontend} → ${f.pool.name}\n${f.portMap.map((p) => `${p.listenerTls ? '🔒' : ''}:${p.in} → ${p.targets.length ? p.targets.join(', ') : '?'}  (${TLS_LABEL[p.tls] || p.tls})`).join('\n')}${f.pool.undefined ? '\nBackend is not defined' : ''}`);
   });
-  lis.forEach((l, i) => { const y = ly(i, lis.length); out += `<g><rect class="fs-n fs-l" x="10" y="${y - 15}" width="180" height="30" rx="7"/><text class="fs-t" x="20" y="${y + 4}">${l.tls ? '🔒 ' : ''}:${esc(l.port)} · ${esc(clip(l.fe.replace(/:[\d+]+(#\d+)?$/, ''), 20))}</text></g>`; });
+  lis.forEach((l, i) => { const y = ly(i, lis.length); out += `<g><title>${esc(`${l.tls ? 'TLS ' : ''}listener :${l.port} of ${l.fe}\n${flows.filter((f) => f.frontend === l.fe && f.listeners.some((x) => x.port === l.port)).length} routing rule(s)`)}</title><rect class="fs-n fs-l" x="10" y="${y - 15}" width="180" height="30" rx="7"/><text class="fs-t" x="20" y="${y + 4}">${l.tls ? '🔒 ' : ''}:${esc(l.port)} · ${esc(clip(l.fe.replace(/:[\d+]+(#\d+)?$/, ''), 20))}</text></g>`; });
   flows.forEach((f, i) => {
     const y = ly(i, flows.length); const ex = f.example;
     const host = f.match.hosts && f.match.hosts.length ? `${f.match.hosts[0]} ` : '';
@@ -1360,7 +1360,8 @@ function flowSvg(flows) {
   });
   pools.forEach((f, i) => { const y = ly(i, pools.length); const ports = [...new Set(f.portMap.flatMap((p) => p.out))]; const hosts = [...new Set(f.members.map((m) => (m.addr.kind === 'socket' ? m.address : m.addr.host)))];
     out += `<g><title>${esc(f.pool.name)}\n${esc(f.portMap.flatMap((p) => p.targets).filter((t, i, a) => a.indexOf(t) === i).join('\n'))}</title><rect class="fs-n fs-p${f.pool.undefined ? ' bad' : ''}" x="760" y="${y - 19}" width="230" height="38" rx="7"/><text class="fs-t" x="770" y="${y - 3}">${esc(clip(f.pool.name, 18))}${f.pool.undefined ? ' (undefined)' : ports.length ? ` · ${ports.slice(0, 3).map((x) => `:${x}`).join(' ')}${ports.length > 3 ? '…' : ''}` : ''}</text><text class="fs-s" x="770" y="${y + 12}">${hosts.length ? esc(clip(`${hosts.slice(0, 2).join(', ')}${hosts.length > 2 ? ` +${hosts.length - 2}` : ''}`, 34)) : f.pool.undefined ? '' : 'no members'}</text></g>`; });
-  return `${out}</svg>`;
+  // <title> tooltips are slow and unreliable: carry the text in data-tip and show it with our own instant tooltip
+  return `${out}</svg>`.replace(/<g( class="[^"]*")?><title>([\s\S]*?)<\/title>/g, (_m, c, t) => `<g${c || ''} data-tip="${t}">`);
 }
 function flowTraceHtml() {
   const t = FLOW.trace;
@@ -2650,6 +2651,19 @@ function iselWire() {
     else if (e.key === 'Enter' && items[iselState.idx] && !e.target.closest('[data-isel-add],[data-isel-all]')) { e.preventDefault(); iselPick(items[iselState.idx].id); }
     else if (e.key === 'Tab') iselOpen(false);
   });
+  // Traffic flow diagram: instant tooltip that follows the pointer
+  const tipEl = () => { let t = $('#fl-tip'); if (!t) { t = document.createElement('div'); t.id = 'fl-tip'; t.className = 'fl-tip'; t.hidden = true; document.body.appendChild(t); } return t; };
+  const tipMove = (e) => {
+    const n = e.target.closest && e.target.closest('.flow-svg [data-tip]'); const t = tipEl();
+    if (!n) { t.hidden = true; return; }
+    if (t.dataset.for !== n.getAttribute('data-tip')) { t.textContent = n.getAttribute('data-tip'); t.dataset.for = n.getAttribute('data-tip'); }
+    t.hidden = false;
+    const w = t.offsetWidth; const h = t.offsetHeight;
+    t.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, e.clientX + 14))}px`;
+    t.style.top = `${e.clientY + 18 + h > window.innerHeight ? Math.max(8, e.clientY - h - 12) : e.clientY + 18}px`;
+  };
+  document.addEventListener('mousemove', tipMove);
+  document.addEventListener('mouseleave', () => { const t = $('#fl-tip'); if (t) t.hidden = true; });
   // Traffic flow page: keep the form values, filter by entry point, Enter runs the trace
   const flowSync = () => { FLOW.req = { host: ($('#flow-host') || {}).value || '', path: ($('#flow-path') || {}).value || '/', port: ($('#flow-port') || {}).value || '', method: ($('#flow-method') || {}).value || 'GET' }; };
   document.addEventListener('input', (e) => { if (e.target.closest && e.target.closest('.flow-form')) flowSync(); });

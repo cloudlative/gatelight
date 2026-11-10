@@ -988,3 +988,8 @@ ul.tree, .tree ul { list-style: none; margin: 0; padding: 0; } .tree ul { margin
 .tag.layer-l7 { border-color: var(--cyan); color: var(--cyan); } .tag.layer-l4 { border-color: var(--amber); color: var(--amber); border-style: dashed; }
 .dot.l7, .dot.l4 { background: transparent; border: 2px solid var(--cyan); } .dot.l4 { border: 2px dashed var(--amber); }
 #topo-layer { background: var(--bg-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12.5px; }
+
+/* diagram hover: wide invisible hit area on lines, highlight on hover */
+.fs-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.fs-eg:hover .fs-e { stroke-opacity: 1; stroke-width: 2.6; } .flow-svg g:hover > .fs-n { stroke-width: 2; filter: brightness(1.25); cursor: pointer; }
+.fl-tip { position: fixed; z-index: 1000; max-width: 380px; padding: 8px 10px; border-radius: 8px; background: var(--bg-3); color: var(--text); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; line-height: 1.45; white-space: pre-line; pointer-events: none; font-family: var(--mono); }
