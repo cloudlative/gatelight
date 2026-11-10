@@ -491,6 +491,20 @@ function isLight() {
   const t = document.documentElement.dataset.theme;
   return t === 'light' || (t !== 'dark' && window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches);
 }
+// ---------- Layer 7 (HTTP) vs layer 4 (TCP) ----------
+// L7 = understands HTTP: routes by host / path / method / header, can rewrite the URI and add headers.
+// L4 = forwards TCP connections by address and port (and TLS SNI); it never sees paths or headers.
+const layerOf = (sec) => (sec && sec.mode === 'tcp' ? 'L4' : 'L7');
+function layerTip(sec) {
+  if (!sec) return '';
+  const l4 = layerOf(sec) === 'L4';
+  const sni = (sec.routes || []).some((r) => !r.commented && (r.matchers || []).some((m) => m.field === 'TLS SNI'));
+  const tls = (sec.binds || []).some((b) => b.ssl && !b.commented);
+  if (!l4) return `L7 · HTTP: routes by host, path, method and headers; can rewrite the URI, add headers${tls ? ', ends TLS here' : ''} and see status codes.`;
+  return `L4 · TCP: forwards connections by address and port${sni ? ' and TLS SNI' : ''}; cannot see paths or headers, so no URI routing or rewriting. ${tls ? 'TLS is ended at this proxy.' : 'TLS (if any) stays encrypted end to end.'}`;
+}
+const layerTag = (sec) => `<span class="tag layer-${layerOf(sec).toLowerCase()}" title="${esc(layerTip(sec))}">${layerOf(sec)}</span>`;
+
 const DARK_NODES = {
   fe: { background: '#0e7490', border: '#22d3ee' }, be: { background: '#3730a3', border: '#818cf8' },
   up: { background: '#065f46', border: '#34d399' }, degraded: { background: '#78350f', border: '#fbbf24' },
@@ -554,8 +568,8 @@ function buildGraph() {
     const id = `fe:${fe.name}`;
     ids.add(id);
     nodes.push({
-      id, label: `${wrapName(fe.name)}\n${r && r.ratePerSec != null ? `${fmtRate(r.ratePerSec)}/s` : `${fe.routes.filter((x) => !x.commented).length} route${fe.routes.filter((x) => !x.commented).length === 1 ? '' : 's'}${fe.binds.some((b) => b.ssl && !b.commented) ? ' 🔒' : ''}`}`, shape: 'diamond', size: 24,
-      color: NODE_COLORS.fe, font: { color: FG, size: 14, face: 'system-ui', vadjust: -2, strokeWidth: 4, strokeColor: BG }, level: 0, _kind: 'frontend', _key: `${fe.name}/FRONTEND`, _section: fe.name, _pool: fe.type === 'listen' && fe.servers.some((x) => !x.commented),
+      id, label: `${wrapName(fe.name)}\n${r && r.ratePerSec != null ? `${fmtRate(r.ratePerSec)}/s` : `${fe.routes.filter((x) => !x.commented).length} route${fe.routes.filter((x) => !x.commented).length === 1 ? '' : 's'}${fe.binds.some((b) => b.ssl && !b.commented) ? ' 🔒' : ''}`} · ${layerOf(fe)}`, shape: 'diamond', size: 24,
+      color: NODE_COLORS.fe, borderWidth: 2, shapeProperties: { borderDashes: layerOf(fe) === 'L4' ? [3, 3] : false }, title: layerTip(fe), _layer: layerOf(fe), font: { color: FG, size: 14, face: 'system-ui', vadjust: -2, strokeWidth: 4, strokeColor: BG }, level: 0, _kind: 'frontend', _key: `${fe.name}/FRONTEND`, _section: fe.name, _pool: fe.type === 'listen' && fe.servers.some((x) => !x.commented),
       _problem: Boolean(r && isProblem(r)),
     });
   });
@@ -573,8 +587,8 @@ function buildGraph() {
     const id = `be:${be.name}`;
     ids.add(id);
     nodes.push({
-      id, label: `${wrapName(be.name)}\n${r ? `${fmtRate(r.ratePerSec)}/s` : `${servers.length} srv`}${orphan ? '\n(orphan)' : ''}`, shape: 'hexagon', size: 22,
-      color: { ...col, border: orphan ? '#fbbf24' : col.border }, borderWidth: orphan ? 3 : 2, shapeProperties: { borderDashes: orphan ? [5, 4] : false },
+      id, label: `${wrapName(be.name)}\n${r ? `${fmtRate(r.ratePerSec)}/s` : `${servers.length} srv`} · ${layerOf(be)}${orphan ? '\n(orphan)' : ''}`, shape: 'hexagon', size: 22,
+      color: { ...col, border: orphan ? '#fbbf24' : col.border }, borderWidth: orphan ? 3 : 2, shapeProperties: { borderDashes: orphan ? [5, 4] : layerOf(be) === 'L4' ? [3, 3] : false }, title: layerTip(be), _layer: layerOf(be),
       font: { color: FG, size: 14, face: 'system-ui', strokeWidth: 4, strokeColor: BG }, level: 1, _kind: 'backend', _key: `${be.name}/BACKEND`, _section: be.name,
       _problem: worst === 'down' || worst === 'degraded',
     });
@@ -594,7 +608,7 @@ function buildGraph() {
         ids.add(id);
         nodes.push({
           id, label: `${sv.name}${r && r.ratePerSec != null ? `\n${fmtRate(r.ratePerSec)}/s` : ''}`, shape: 'dot', size: 11 + Math.min(10, Math.log10((r && r.ratePerSec || 0) + 1) * 5),
-          color: col, font: { color: FG, size: 12, face: 'system-ui', strokeWidth: 4, strokeColor: BG }, level: 2, _kind: 'server', _key: `${be.name}/${sv.name}`, _section: be.name,
+          color: col, font: { color: FG, size: 12, face: 'system-ui', strokeWidth: 4, strokeColor: BG }, level: 2, _kind: 'server', _key: `${be.name}/${sv.name}`, _section: be.name, _layer: layerOf(be),
           _problem: st === 'down' || st === 'degraded',
         });
         edges.push({ id: `e:${id}`, from: serverParent(be), to: id, color: { color: st === 'down' ? '#f87171' : '#334155' }, width: 1, arrows: '' });
@@ -639,7 +653,7 @@ function buildGraph() {
   const clip = (t, n = 30) => (t.length > n ? `${t.slice(0, n - 1)}…` : t);
   for (const [id, list] of uriBy) {
     const n = byId.get(id); const all = [...new Set(list)]; if (!n || !all.length) continue;
-    n.title = `${n.id.startsWith('fe:') ? 'Handles' : 'Serves'} ${all.length} URL rule${all.length === 1 ? '' : 's'}:\n${all.slice(0, 20).join('\n')}${all.length > 20 ? `\n+${all.length - 20} more` : ''}`;
+    n.title = `${n.title ? `${n.title}\n\n` : ''}${n.id.startsWith('fe:') ? 'Handles' : 'Serves'} ${all.length} URL rule${all.length === 1 ? '' : 's'}:\n${all.slice(0, 20).join('\n')}${all.length > 20 ? `\n+${all.length - 20} more` : ''}`;
     if (mindmap && urlLabels) n.font = { ...n.font, background: BG, size: 12 };
     if (mindmap && urlLabels) n.label += `\n${all.slice(0, 3).map((u) => clip(u)).join('\n')}${all.length > 3 ? `\n+${all.length - 3} more` : ''}`;
   }
@@ -651,7 +665,8 @@ function buildGraph() {
   }
 
   // Filtering (dim non-matching rather than removing, so layout stays stable)
-  const match = (n) => (!q || n.label.toLowerCase().includes(q) || (n._section || '').toLowerCase().includes(q)) && (!onlyProblems || n._problem);
+  const layerSel = ($('#topo-layer') || {}).value || '';
+  const match = (n) => (!q || n.label.toLowerCase().includes(q) || (n._section || '').toLowerCase().includes(q)) && (!onlyProblems || n._problem) && (!layerSel || !n._layer || n._layer === layerSel);
   for (const n of nodes) {
     n.opacity = match(n) ? 1 : 0.12;
     if (!match(n)) n.font = { ...n.font, color: 'rgba(148,163,184,.25)' };
@@ -676,6 +691,16 @@ function updateLegend() {
 }
 function renderTopology() {
   updateLegend();
+  { // layer filter with counts
+    const sel = $('#topo-layer');
+    if (sel && state.snapshot) {
+      const secs = cfgSections().filter((x) => x.type !== 'defaults' && (feLike(x) || beLike(x)));
+      const n7 = secs.filter((x) => layerOf(x) === 'L7').length; const n4 = secs.length - n7; const keep = sel.value;
+      const html = `<option value="">All layers</option><option value="L7">L7 · HTTP (${n7})</option><option value="L4">L4 · TCP (${n4})</option>`;
+      if (sel.dataset.sig !== html) { sel.innerHTML = html; sel.dataset.sig = html; sel.value = keep; }
+      sel.hidden = !n7 || !n4; if (sel.hidden) sel.value = '';
+    }
+  }
   if (state.topoFor !== state.current && state.snapshot) {
     // Many members make the map unreadable once fitted to the screen: start collapsed, expand on focus.
     state.topoFor = state.current;
@@ -820,7 +845,7 @@ function renderUrlMap() {
     const up = rt.passUrl ? `<code>${esc(rt.passUrl)}</code>${rt.rewriteNote ? `<div class="muted small">${esc(rt.rewriteNote)}</div>` : ''}${(rt.rewrites || []).map((r) => `<div class="muted small mono">rewrite ${esc(r)}</div>`).join('')}` : `<span class="mono small">${esc(poolAddresses(rt.target))}</span>`;
     const missing = routeTargetId(rt).startsWith('missing:');
     return `<tr class="${rt.commented ? 'dim' : ''}" data-urlrow="${esc(fe.name)}|${i}">
-        <td><b>${esc(fe.name)}</b><div class="muted small mono">${esc(binds(fe))}</div></td>
+        <td><b>${esc(fe.name)}</b> ${layerTag(fe)}<div class="muted small mono">${esc(binds(fe))}</div></td>
         <td class="mono small">${esc((rt.hosts || []).join(', ')) || '<span class="muted">any</span>'}</td>
         <td>${rt.type === 'default' ? '<span class="tag">default</span> <span class="muted">everything else</span>' : `<span class="mono">${esc(rt.match || rt.condition)}</span>`}${rt.commented ? ' <span class="muted">(disabled)</span>' : ''}${snapshotType() === 'haproxy' && rt.rawCondition ? `<div class="muted small mono">${esc(rt.rawCondition)}</div>` : ''}</td>
         <td>${missing ? `<span class="sev-error">${esc(rt.target)} (undefined)</span>` : `<b>${esc(rt.target)}</b>`}</td>
@@ -903,8 +928,8 @@ function buildTree() {
   const poolNode = (sec, via) => {
     const r = rows.get(`${sec.name}/BACKEND`) || rows.get(`${sec.name}/FRONTEND`);
     const kids = serverNodes(sec);
-    return mk(`${badge(r)} <b>${esc(sec.name)}</b> <span class="tag">${esc(lbl('backend').toLowerCase())}</span>${sec.balance ? ` <span class="muted small">${esc(sec.balance)}</span>` : ''}<span class="muted small">${esc(rate(r))}</span>`,
-      `${sec.name}  (${lbl('backend').toLowerCase()}${sec.balance ? `, ${sec.balance}` : ''})${r ? `  [${r.state}]` : ''}`, { key: `${sec.name}/BACKEND`, kind: 'backend', children: kids, problem: Boolean(r && isProblem(r)) || kids.some((k) => k.problem), via });
+    return mk(`${badge(r)} <b>${esc(sec.name)}</b> <span class="tag">${esc(lbl('backend').toLowerCase())}</span> ${layerTag(sec)}${sec.balance ? ` <span class="muted small">${esc(sec.balance)}</span>` : ''}<span class="muted small">${esc(rate(r))}</span>`,
+      `${sec.name}  (${lbl('backend').toLowerCase()}, ${layerOf(sec)}${sec.balance ? `, ${sec.balance}` : ''})${r ? `  [${r.state}]` : ''}`, { key: `${sec.name}/BACKEND`, kind: 'backend', children: kids, problem: Boolean(r && isProblem(r)) || kids.some((k) => k.problem), via });
   };
   const fronts = secs.filter(feLike).map((fe) => {
     const r = rows.get(`${fe.name}/FRONTEND`);
@@ -918,8 +943,8 @@ function buildTree() {
       kids.push(rule);
     });
     if (fe.type === 'listen') kids.push(...serverNodes(fe));
-    return mk(`${badge(r)} <b>${esc(fe.name)}</b> <span class="tag">${esc(lbl('frontend').toLowerCase())}</span> <span class="mono muted">${esc(ports({ kind: 'frontend', proxy: fe.name }).trim())}</span>${fe.binds.some((b) => b.ssl && !b.commented) ? ' 🔒' : ''}<span class="muted small">${esc(rate(r))}</span>`,
-      `${fe.name}  (${lbl('frontend').toLowerCase()}${ports({ kind: 'frontend', proxy: fe.name }) ? `,${ports({ kind: 'frontend', proxy: fe.name })}` : ''})${r ? `  [${r.state}]` : ''}`, { key: `${fe.name}/FRONTEND`, kind: 'frontend', children: kids, problem: Boolean(r && isProblem(r)) });
+    return mk(`${badge(r)} <b>${esc(fe.name)}</b> <span class="tag">${esc(lbl('frontend').toLowerCase())}</span> ${layerTag(fe)} <span class="mono muted">${esc(ports({ kind: 'frontend', proxy: fe.name }).trim())}</span>${fe.binds.some((b) => b.ssl && !b.commented) ? ' 🔒' : ''}<span class="muted small">${esc(rate(r))}</span>`,
+      `${fe.name}  (${lbl('frontend').toLowerCase()}, ${layerOf(fe)}${ports({ kind: 'frontend', proxy: fe.name }) ? `,${ports({ kind: 'frontend', proxy: fe.name })}` : ''})${r ? `  [${r.state}]` : ''}`, { key: `${fe.name}/FRONTEND`, kind: 'frontend', children: kids, problem: Boolean(r && isProblem(r)) });
   });
   const used = new Set(secs.filter(feLike).flatMap((fe) => fe.routes.filter((rt) => !rt.commented).map((rt) => rt.target)));
   const stray = secs.filter((x) => x.type === 'backend' && !used.has(x.name)).map((x) => poolNode(x));
@@ -1375,8 +1400,8 @@ function renderFlow() {
   let body = '';
   if (FLOW.tab === 'ports') {
     const rows = d.portMatrix.filter((r) => !FLOW.fe || r.frontend === FLOW.fe);
-    body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend port(s)</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || '<tr><td colspan="6" class="empty">No listeners found</td></tr>'}</tbody></table></div>
+    body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend port(s)</th><th>Layer</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td><span class="tag layer-${r.mode === 'tcp' ? 'l4' : 'l7'}">${r.mode === 'tcp' ? 'L4' : 'L7'}</span></td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No listeners found</td></tr>'}</tbody></table></div>
       <p class="muted small flow-note">${hap ? 'HAProxy: <code>server s 10.0.0.1</code> (no port) uses the same port the client connected to; <code>10.0.0.1:+1000</code> adds 1000 to it; an explicit port always wins.' : 'NGINX: a <code>proxy_pass</code> or upstream <code>server</code> without a port uses 80 (443 for https://).'}</p>`;
   } else if (FLOW.tab === 'uri') {
     body = `<div class="table-wrap"><table class="grid"><thead><tr><th>${esc(lbl('frontend'))}</th><th>Host</th><th>Request matches</th><th>URI changes on the way</th><th>Example</th><th>→ ${esc(lbl('backend'))}</th></tr></thead><tbody>
@@ -1384,7 +1409,7 @@ function renderFlow() {
       return `<tr class="${f.shadowedBy ? 'dim' : ''}"><td><b>${esc(f.frontend)}</b><div class="muted small mono">${f.listeners.map((l) => `${l.tls ? '🔒' : ''}${esc(l.port || 'socket')}`).join(', ')}</div></td>
         <td class="mono small">${esc((f.match.hosts || []).join(', ')) || '<span class="muted">any</span>'}</td>
         <td class="msg">${f.match.type === 'default' ? '<span class="tag">default</span> <span class="muted">everything else</span>' : `<span class="mono">${esc(f.match.text)}</span>`}${f.shadowedBy ? ` <span class="tag until">shadowed by #${f.shadowedBy}</span>` : ''}</td>
-        <td class="msg">${steps.length ? steps.map((s) => `<div class="mono small" title="${esc(s.condText || s.note || '')}"><span class="tag">${esc(s.stage || s.scope)}</span> ${esc(s.text)}${s.cond ? ` <span class="muted">${esc(s.cond)}</span>` : ''}${s.applies === null ? ' <span class="tag" title="Depends on something a host / path test cannot decide">maybe</span>' : ''}${s.note ? `<div class="muted">${esc(s.note)}</div>` : ''}</div>`).join('') : '<span class="muted">none: the backend gets the same URI</span>'}${other ? `<div class="muted small">+ ${other} redirect / deny / auth rule${other === 1 ? '' : 's'} that may answer before this (use Try a request)</div>` : ''}</td>
+        <td class="msg">${f.mode === 'tcp' ? '<span class="tag layer-l4">L4</span> <span class="muted">TCP: paths and headers are never seen, so there is nothing to rewrite</span>' : ''}${f.mode !== 'tcp' && steps.length ? steps.map((s) => `<div class="mono small" title="${esc(s.condText || s.note || '')}"><span class="tag">${esc(s.stage || s.scope)}</span> ${esc(s.text)}${s.cond ? ` <span class="muted">${esc(s.cond)}</span>` : ''}${s.applies === null ? ' <span class="tag" title="Depends on something a host / path test cannot decide">maybe</span>' : ''}${s.note ? `<div class="muted">${esc(s.note)}</div>` : ''}</div>`).join('') : (f.mode === 'tcp' ? '' : '<span class="muted">none: the backend gets the same URI</span>')}${other ? `<div class="muted small">+ ${other} redirect / deny / auth rule${other === 1 ? '' : 's'} that may answer before this (use Try a request)</div>` : ''}</td>
         <td class="mono small">${ex ? (ex.changed ? `${esc(ex.in)} → <b>${esc(ex.out)}</b>${ex.exact ? '' : ' <span class="tag">approx.</span>'}` : `${esc(ex.in)} <span class="muted">unchanged</span>`) : '<span class="muted">–</span>'}</td>
         <td><b>${esc(f.pool.name)}</b><div class="mono small">${f.portMap.map((p) => `${esc(p.in)}→${p.out.length ? p.out.join('/') : '?'}`).join(' · ')}</div></td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">No routing rules</td></tr>'}</tbody></table></div>`;
   } else {
@@ -1627,7 +1652,7 @@ function refreshInspector() {
       html += kv([['Address', `<code>${esc(srv.address)}</code>`], ['Health check', srv.check ? 'enabled' : '<span class="sev-warning">none</span>'], ['Backup', srv.backup ? 'yes' : 'no'],
         ['Options', `<code>${esc(srv.options)}</code>`], ['Defined at', `<a style="color:var(--cyan);cursor:pointer" ${loc(srv)}>line ${srv.line}</a>`]]);
     } else {
-      html += kv([['Section', `${esc(sec.type)} (line <a style="color:var(--cyan);cursor:pointer" ${loc(sec)}>${sec.line}</a>)`], ['Mode', esc(sec.mode)],
+      html += kv([['Section', `${esc(sec.type)} (line <a style="color:var(--cyan);cursor:pointer" ${loc(sec)}>${sec.line}</a>)`], ['Mode', esc(sec.mode)], ['Layer', `${layerTag(sec)} <span class="muted small">${esc(layerTip(sec))}</span>`],
         sec.balance ? ['Balance', esc(sec.balance)] : null,
         sec.serverNames && sec.serverNames.length ? ['Server names', sec.serverNames.map((n) => `<code>${esc(n)}</code>`).join('<br>')] : null,
         sec.binds.length ? ['Binds', sec.binds.filter((b) => !b.commented).map((b) => `<code>${esc(b.addresses.join(', '))}${b.ssl ? ' 🔒' : ''}</code>`).join('<br>')] : null,
@@ -2788,7 +2813,7 @@ function wire() {
     if (e.target.id === 'audit-export') download(`${state.current}-audit.json`, JSON.stringify({ summary: state.snapshot.findingsSummary, findings: state.snapshot.findings }, null, 2), 'application/json');
   });
 
-  ['topo-search', 'topo-problems', 'topo-servers', 'topo-urls'].forEach((id) => $(`#${id}`).addEventListener('input', renderTopology));
+  ['topo-search', 'topo-problems', 'topo-servers', 'topo-urls', 'topo-layer'].forEach((id) => $(`#${id}`).addEventListener('input', renderTopology));
   $('#tree').addEventListener('click', (e) => {
     const b = e.target.closest('[data-tree]');
     if (b) {

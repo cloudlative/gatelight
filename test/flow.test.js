@@ -171,3 +171,11 @@ test('API: /instances/:id/flow and /flow/trace use the instance config', async (
     assert.equal((await get(t.base, '/api/instances/nope/flow')).status, 404);
   } finally { await t.close(); }
 });
+
+test('flows and the port map carry the layer: tcp mode is L4, http mode is L7', () => {
+  const r = buildFlows('haproxy', parseConfig(['frontend t', ' mode tcp', ' bind :1883', ' default_backend q', 'backend q', ' mode tcp', ' server s 10.0.0.1:1883', 'frontend h', ' bind :80', ' default_backend w', 'backend w', ' server s 10.0.0.2:80'].join('\n')));
+  assert.equal(r.portMatrix.find((x) => x.frontend === 't').mode, 'tcp');
+  assert.equal(r.portMatrix.find((x) => x.frontend === 'h').mode, 'http');
+  const n = buildFlows('nginx', parseNginxFiles([{ name: 'nginx.conf', content: 'events {}\nstream { upstream q { server 10.0.0.1:1883; } server { listen 1883; proxy_pass q; } }\nhttp { server { listen 80; location / { proxy_pass http://127.0.0.1:8080; } } }' }]).sections);
+  assert.deepEqual(n.portMatrix.map((x) => `${x.listener}:${x.mode}`).sort(), ['1883:tcp', '80:http']);
+});

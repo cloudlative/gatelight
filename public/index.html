@@ -140,6 +140,7 @@
             <option value="mindmap">Layout: Mind map (radial)</option>
             <option value="tree">Layout: Tree (outline)</option>
           </select>
+          <select id="topo-layer" aria-label="Filter by layer" hidden></select>
           <label class="check"><input type="checkbox" id="topo-problems"> Problems only</label>
           <label class="check" data-graph-only><input type="checkbox" id="topo-servers" checked> Members</label>
           <label class="check" data-graph-only title="Show the URL / host each route matches on the connecting lines"><input type="checkbox" id="topo-urls" checked> URL labels</label>
@@ -150,7 +151,7 @@
           <span class="spacer"></span>
           <span class="legend">
             <i class="dot c-fe"></i><span id="topo-legend-fe">Frontend</span> <i class="dot c-be"></i><span id="topo-legend-be">Backend</span> <i class="dot c-up"></i>Up
-            <i class="dot c-warn"></i>Degraded <i class="dot c-down"></i>Down <i class="dot c-idle"></i>Idle / unchecked
+            <i class="dot c-warn"></i>Degraded <i class="dot c-down"></i>Down <i class="dot c-idle"></i>Idle / unchecked <i class="dot l7"></i>L7 HTTP <i class="dot l4"></i>L4 TCP (dashed)
           </span>
         </div>
         <div id="graph-wrap"><div id="graph"></div><div id="topo-sel" class="topo-sel" hidden></div><div id="graph-hint" class="graph-hint">Click a node to focus its path · double-click it for full details · click empty space to reset · scroll to zoom</div></div>

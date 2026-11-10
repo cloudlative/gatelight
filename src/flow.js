@@ -406,7 +406,7 @@ function portMatrix(flows) {
     for (const pm of f.portMap) {
       const key = `${pm.in}|${f.frontend}|${f.pool.name}`;
       let r = rows.get(key);
-      if (!r) { r = { listener: pm.in, listenerTls: pm.listenerTls, frontend: f.frontend, pool: f.pool.name, tls: pm.tls, out: [], rules: 0, members: f.members.length, dynamic: pm.dynamic, socket: pm.socket, undefined: Boolean(f.pool.undefined) }; rows.set(key, r); }
+      if (!r) { r = { mode: f.mode, listener: pm.in, listenerTls: pm.listenerTls, frontend: f.frontend, pool: f.pool.name, tls: pm.tls, out: [], rules: 0, members: f.members.length, dynamic: pm.dynamic, socket: pm.socket, undefined: Boolean(f.pool.undefined) }; rows.set(key, r); }
       r.rules += 1; for (const o of pm.out) if (!r.out.includes(o)) r.out.push(o);
     }
   }

@@ -5,6 +5,7 @@
 ### Added
 - **Validate** page and engine: version-aware validation of HAProxy (1.7–3.4) and NGINX configurations against the official documentation, with version-dependent recommendations. Knowledge bases are generated from the manuals (`npm run kb:build`).
 - **Traffic flow** page: listener port → backend port map (TLS terminate / re-encrypt / passthrough, HAProxy omitted-port and `+N` rules, check-only `port`), URI map with rewrite chains and examples, a diagram, a "Try a request" tracer, and routing findings (shadowed rules, check-port mismatch, TLS/port mismatch, self-loop, NGINX trailing-slash and `rewrite … break`). Port and URI details also appear in Topology tooltips and the rule inspector.
+- **L7 / L4 in the topology**: every frontend and pool is labelled L7 (HTTP) or L4 (TCP); L4 nodes have a dashed outline, a layer filter and a tooltip explaining what that layer can and cannot see (no paths, headers or rewrites at L4). Also in the tree, URL map, rule inspector and Traffic flow page. The HAProxy example now includes a TCP (MQTT) frontend.
 - API: `GET /api/instances/:id/flow`, `POST /api/instances/:id/flow/trace`, `POST /api/flow`.
 - API: `POST /api/validate`, `GET /api/instances/:id/validate`, `GET /api/validate/versions`.
 
