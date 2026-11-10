@@ -228,7 +228,9 @@ function trHeadHtml() {
   const info = src ? `<span class="tr-file"><b>${esc(src.filename || 'log')}</b>${src.demo ? ' <span class="tag">demo data</span>' : ''} · ${src.bytes ? `${esc(fmtBytes(src.bytes))}${src.gzip ? ' (gz)' : ''} · ` : ''}${fmtInt(src.lines)} lines · ${d.range ? `${esc(trTimeS(d.range.from))} → ${esc(trTimeS(d.range.to))}` : ''}${d.generated && !src.demo ? ` · processed ${esc(new Date(d.generated).toLocaleString())}` : ''}</span>${chips}` : '<span class="muted small">No log uploaded yet</span>';
   const up = TR.up;
   const prog = up ? `<div class="tr-prog" id="tr-prog"><div class="tr-bar${up.done ? ' busy' : ''}"><i style="width:${up.done ? 100 : up.pct}%"></i></div><span class="muted small">${esc(up.text)}</span></div>` : '';
-  return `<div class="panel tr-top"><div class="tr-title"><div><h2 class="tr-h2">Traffic statistics</h2><div class="tr-meta">${info}</div></div><span class="spacer"></span>
+  const live = !(state.snapshot && state.snapshot.instance && state.snapshot.instance.source === 'config-only');
+  const sw = `<div class="seg tsw" role="group" aria-label="Traffic source"><button type="button"${live ? ' data-goto="graphs"' : ' disabled title="This instance has no live statistics endpoint"'}>Live metrics</button><button type="button" class="on" data-goto="traffic">From a log file</button></div>`;
+  return `<div class="panel tr-top"><div class="tr-title"><div>${sw}<h2 class="tr-h2">Traffic from a log file</h2><div class="tr-meta">${info}</div></div><span class="spacer"></span>
       ${can ? `<input type="file" id="tr-file" multiple accept=".log,.txt,.gz,.out,text/plain,application/gzip,application/x-gzip" hidden><button class="btn primary" type="button" data-tr-upload>${d ? 'Add log files' : 'Upload log files'}</button>${d ? '<button class="btn" type="button" data-tr-delete>Delete all</button>' : ''}` : ''}</div>
     ${prog}${TR.upErr ? `<div class="tr-err" role="alert">${esc(TR.upErr)}</div>` : ''}</div>`;
 }

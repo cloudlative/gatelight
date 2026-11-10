@@ -135,7 +135,7 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 - **Traffic flow**: follow a request from listener port to backend `ip:port`, where TLS ends or restarts, and the exact path your backend receives after rewrites. Each relationship is marked **active / idle / down / never used**, and *Try a request* traces any URL through the config.
 - **Four layouts**: *Layers*, *Flow*, *Mind map* (shows the URIs each node handles) and *Tree* (a `tree`-style outline you can fold and copy).
 - **Topology → Network layout** (the former Infrastructure page): the infrastructure behind the load balancer with an aliveness status per server, as a foldable hierarchy (load balancer → networks → hosts → services), or grouped by pool or by host, with "only alive" / "only not alive" filters.
-- **Graphs**: Grafana-style charts for requests/s, session rate, sessions, 5xx, throughput, response time and servers up/down, plus a chart per server, pool and frontend. Drag to zoom, ✋ to pan, step through time, shared crosshair, clickable legends with per-series stats, full-screen. HTTP response and error **donut charts** per instance and per backend.
+- **Traffic → Live metrics** (the former Graphs page): Grafana-style charts for requests/s, session rate, sessions, 5xx, throughput, response time and servers up/down, plus a chart per server, pool and frontend. Drag to zoom, ✋ to pan, step through time, shared crosshair, clickable legends with per-series stats, full-screen. HTTP response and error **donut charts** per instance and per backend.
 - **Services table**: status, IP, port, which frontends reach it, where it leads, sessions, req/s, 5xx/s, trend. Charts on top follow your filters.
 - **Details pages**: click any row, chip or node for a page of its own: health, metrics, relationships, trend, configuration, events and audit findings, with a shareable link and working Back/Forward.
 
@@ -191,7 +191,7 @@ It follows the official semantics. In HAProxy, a server written without a port u
 
 ## Traffic statistics from an HAProxy log
 
-Add instance → **Traffic log** (or the **Traffic statistics** page) accepts HAProxy logs, one or many at once or added one by one, always shown combined (max 20 files per instance, no duplicates; remove any file with its ×). Each is one HAProxy log (`option httplog` / `tcplog`), plain text or `.gz`. It is streamed, never kept: only aggregates are stored in `DATA_DIR/logs` (private, 0600), so a 350 MB log becomes under 1 MB. The default limit is 50 MB per file, so split bigger logs and upload the parts (`LOG_MAX_MB`, up to 500). For bigger logs split them first, the page shows the commands:
+Add instance → **Traffic log** (or **Traffic → From a log file**) accepts HAProxy logs, one or many at once or added one by one, always shown combined (max 20 files per instance, no duplicates; remove any file with its ×). Each is one HAProxy log (`option httplog` / `tcplog`), plain text or `.gz`. It is streamed, never kept: only aggregates are stored in `DATA_DIR/logs` (private, 0600), so a 350 MB log becomes under 1 MB. The default limit is 50 MB per file, so split bigger logs and upload the parts (`LOG_MAX_MB`, up to 500). For bigger logs split them first, the page shows the commands:
 
 ```sh
 tail -n 200000 haproxy.log > part.log          # latest traffic
@@ -218,7 +218,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 <table>
 <tr>
 <td width="50%"><img src="docs/img/overview.png" alt="Overview: health cards you can click into"><br><sub><b>Overview</b>: explained, clickable health cards, traffic chart, what needs attention.</sub></td>
-<td width="50%"><img src="docs/img/graphs.png" alt="Graphs page with clickable legends and donut charts"><br><sub><b>Graphs</b>: zoom, pan, shared crosshair, clickable legends, donut charts for HTTP errors.</sub></td>
+<td width="50%"><img src="docs/img/graphs.png" alt="Graphs page with clickable legends and donut charts"><br><sub><b>Traffic → Live metrics</b>: zoom, pan, shared crosshair, clickable legends, donut charts for HTTP errors.</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/img/infrastructure.png" alt="Topology Network layout: what sits behind the load balancer and whether it is alive"><br><sub><b>Network layout</b> (Topology): networks, hosts and services behind the load balancer, in a foldable hierarchy with aliveness.</sub></td>
@@ -255,7 +255,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 | Check a config before a reload | **Add instance** → *Review a config* → drop it. Nothing is stored |
 | Keep several configs side by side | In the review header press **Save as instance…**, or upload a config in *Add instance* without a URL |
 | Refresh a saved config after editing it | **Update config** (header, Config page, or Settings): drop the new file or folder |
-| Look back in time | **Graphs**: pick a range (5 min to 7 days), drag a chart to zoom, ✋ to pan |
+| Look back in time | **Traffic → Live metrics**: pick a range (5 min to 7 days), drag a chart to zoom, ✋ to pan |
 | Find what is down | **Topology → Network layout** → *Only show what is not alive*, or **Overview** → *Down* |
 | Get back to the overview | Click the **GateLight logo** at any time |
 

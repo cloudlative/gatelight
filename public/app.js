@@ -90,6 +90,7 @@ const VIEW_ALIAS = { audit: 'forge', validate: 'forge' }; // old links keep work
 function switchView(view) {
   if (view === 'infrastructure' || view === 'lbinfra') { const l = $('#topo-layout'); if (l && l.value !== 'network') { l.value = 'network'; if (network) { network.destroy(); network = null; } } view = 'topology'; } // Infrastructure is now a Topology layout
   view = VIEW_ALIAS[view] || view;
+  if (view === 'graphs' && state.mode === 'live' && state.snapshot && state.snapshot.instance && state.snapshot.instance.source === 'config-only') view = 'traffic'; // no live statistics: the log is the traffic page
   if (state.mode === 'review' && !REVIEW_VIEWS.includes(view)) view = 'topology';
   if (state.mode === 'live' && !state.snapshot && !state.current && !['overview', 'connect', 'settings', 'forge'].includes(view)) view = 'overview';
   if (state.view !== view) resetFilters(state.view); // leaving a page clears its filters
@@ -102,7 +103,7 @@ function switchView(view) {
   if (view === 'flow' || view === 'topology') setTimeout(() => flowLoad(false), 0);
   if (view === 'traffic') setTimeout(() => trLoad(false), 0);
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${view}`));
-  $$('#nav button').forEach((b) => { const on = b.dataset.view === view; b.classList.toggle('active', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
+  $$('#nav button').forEach((b) => { const on = b.dataset.view === view || (b.dataset.alt || '').split(' ').includes(view); b.classList.toggle('active', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
   const dkey = view === 'detail' && state.inspected && state.inspected.key ? `/${encodeURIComponent(state.inspected.key)}` : '';
   const want = state.current && state.current !== '__analysis' && !['settings'].includes(view) ? `#${state.current}/${view}${dkey}` : `#${view}`;
   // Each page the user opens is a real history entry, so the browser's Back/Forward move between pages of the app

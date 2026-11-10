@@ -1165,3 +1165,5 @@ ul.tree, .tree ul { list-style: none; margin: 0; padding: 0; } .tree ul { margin
 .fg-tabs { margin-top: 2px; } .fg-ctl .chips { gap: 8px; }
 @media (max-width: 560px) { .fg-card { grid-template-columns: minmax(0, 1fr); } }
 .lbi-wrap { flex: 1; overflow: auto; padding: 12px 18px 28px; min-height: 300px; } .lbi-wrap[hidden] { display: none; }
+.tsw button { display: block; padding: 6px 16px; background: none; border: 0; color: var(--muted); cursor: pointer; } .tsw button.on { background: color-mix(in srgb, var(--cyan) 14%, transparent); color: var(--cyan); font-weight: 600; } .tsw button:disabled { opacity: .45; cursor: not-allowed; } .tsw button + button { border-left: 1px solid var(--line); }
+.tr-top .tsw { margin-bottom: 10px; }
