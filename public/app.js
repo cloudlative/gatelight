@@ -1330,6 +1330,25 @@ function flowPorts() { // distinct listener ports (with TLS) across all entry po
 }
 const portTxt = (p, tls) => `<span class="pt${tls ? ' tls' : ''}">${tls ? '🔒 ' : ''}:${esc(p)}</span>`;
 const outPorts = (pm) => (pm.targets && pm.targets.length ? pm.targets.slice(0, 4).map((t) => `<span class="pt">${esc(t)}</span>`).join(' ') + (pm.targets.length > 4 ? ` <span class="muted small" title="${esc(pm.targets.join(', '))}">+${pm.targets.length - 4}</span>` : '') : pm.out.length ? pm.out.map((o) => `<span class="pt">:${o}</span>`).join(' ') : '') + (pm.dynamic ? ' <span class="pt dyn" title="Resolved from an environment variable at start-up">env var</span>' : '') + (pm.socket ? ' <span class="pt">socket</span>' : '');
+// Is a relationship live? Judged from runtime stats of the pool it leads to (rules are not counted separately by the proxy).
+const FLOW_ST = { active: 'Active', idle: 'Idle', down: 'Down', dead: 'Never used', config: 'Configured' };
+function poolStatus(name, undef) {
+  if (undef) return { k: 'dead', text: 'Backend is not defined: requests get a 503' };
+  const rows = state.snapshot && state.snapshot.rows ? state.snapshot.rows : [];
+  if (!rows.length) return { k: 'config', text: 'No runtime data (configuration only)' };
+  const r = rows.find((x) => x.proxy === name && x.kind === 'backend') || rows.find((x) => x.proxy === name && x.kind === 'frontend');
+  if (!r) return { k: 'config', text: 'Not reported by the load balancer' };
+  const srv = rows.filter((x) => x.proxy === name && x.kind === 'server');
+  const up = srv.filter((x) => x.state === 'up' || x.state === 'nocheck').length;
+  if (srv.length && !up) return { k: 'down', text: `No healthy member (${srv.length} down or in maintenance)` };
+  if (r.ratePerSec > 0) return { k: 'active', text: `Traffic now: ${fmtRate(r.ratePerSec)} req/s${srv.length ? ` · ${up}/${srv.length} members up` : ''}` };
+  return { k: 'idle', text: (r.stot || 0) > 0 ? 'No traffic right now (has served requests before)' : 'No traffic seen yet' };
+}
+function flowStatus(f) {
+  if (f.shadowedBy) return { k: 'dead', text: `Never used: rule #${f.shadowedBy} above it catches the same requests` };
+  return poolStatus(f.pool.name, f.pool.undefined);
+}
+const stDot = (k) => `<span class="st-dot st-${k}" title="${esc(FLOW_ST[k])}"></span>`;
 function flowSvg(flows) {
   // three columns: listeners -> rules -> pools. One row per rule; listeners and pools are shared rows.
   const lis = []; const lisIdx = new Map(); const pools = []; const poolIdx = new Map();
@@ -1342,13 +1361,13 @@ function flowSvg(flows) {
   const clip = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
   let out = `<svg class="flow-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Listener to rule to backend pool map" preserveAspectRatio="xMinYMin meet">`;
   out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="760" y="14" class="fs-h">POOLS, BACKEND IPS &amp; PORTS</text>`;
-  const edge = (x1, y1, x2, y2, cls, label, tip) => { const mx = (x1 + x2) / 2; const d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; return `<g class="fs-eg"><title>${esc(tip || label || '')}</title><path class="fs-e ${cls || ''}" d="${d}"/><path class="fs-hit" d="${d}"/>${label ? `<text class="fs-pl" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${esc(label)}</text>` : ''}</g>`; };
+  const edge = (x1, y1, x2, y2, cls, label, tip, st) => { const mx = (x1 + x2) / 2; const d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; return `<g class="fs-eg"><title>${esc(`${tip || label || ''}${st ? `\n\nStatus: ${FLOW_ST[st.k]}. ${st.text}` : ''}`)}</title><path class="fs-e ${cls || ''} ${st ? `st-${st.k}` : ''}" d="${d}"/><path class="fs-hit" d="${d}"/>${label ? `<text class="fs-pl" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${esc(label)}</text>` : ''}${st && label ? `<circle class="fs-dot st-${st.k}" cx="${mx}" cy="${(y1 + y2) / 2 + 5}" r="4.5"/>` : ''}</g>`; };
   flows.forEach((f, i) => {
-    const y = ly(i, flows.length); const pi = poolIdx.get(f.pool.name); const py = ly(pi, pools.length);
-    f.listeners.filter((l) => l.port).forEach((l) => { const li = lisIdx.get(`${f.frontend}|${l.port}|${l.tls}`); out += edge(190, ly(li, lis.length), 360, y, f.shadowedBy ? 'dead' : '', '', `${l.tls ? 'TLS ' : ''}port ${l.port} on ${f.frontend}\n→ ${f.match.type === 'default' ? 'default rule' : f.match.text}`); });
+    const y = ly(i, flows.length); const pi = poolIdx.get(f.pool.name); const py = ly(pi, pools.length); const st = flowStatus(f);
+    f.listeners.filter((l) => l.port).forEach((l) => { const li = lisIdx.get(`${f.frontend}|${l.port}|${l.tls}`); out += edge(190, ly(li, lis.length), 360, y, f.shadowedBy ? 'dead' : '', '', `${l.tls ? 'TLS ' : ''}port ${l.port} on ${f.frontend}\n→ ${f.match.type === 'default' ? 'default rule' : f.match.text}`, st); });
     const pm = f.portMap[f.portMap.length - 1];
     const label = f.portMap.map((p) => `${p.in}→${p.out.length ? p.out.join('/') : '?'}`).slice(0, 3).join(' · ');
-    out += edge(640, y, 760, py, `${f.pool.undefined ? 'bad' : ''} ${f.shadowedBy ? 'dead' : ''} ${pm && pm.tls === 're-encrypt' ? 'enc' : ''}`, label, `${f.frontend} → ${f.pool.name}\n${f.portMap.map((p) => `${p.listenerTls ? '🔒' : ''}:${p.in} → ${p.targets.length ? p.targets.join(', ') : '?'}  (${TLS_LABEL[p.tls] || p.tls})`).join('\n')}${f.pool.undefined ? '\nBackend is not defined' : ''}`);
+    out += edge(640, y, 760, py, `${f.pool.undefined ? 'bad' : ''} ${f.shadowedBy ? 'dead' : ''} ${pm && pm.tls === 're-encrypt' && (st.k === 'config' || st.k === 'idle') ? 'enc' : ''}`, label, `${f.frontend} → ${f.pool.name}\n${f.portMap.map((p) => `${p.listenerTls ? '🔒' : ''}:${p.in} → ${p.targets.length ? p.targets.join(', ') : '?'}  (${TLS_LABEL[p.tls] || p.tls})`).join('\n')}${f.pool.undefined ? '\nBackend is not defined' : ''}`, st);
   });
   lis.forEach((l, i) => { const y = ly(i, lis.length); out += `<g><title>${esc(`${l.tls ? 'TLS ' : ''}listener :${l.port} of ${l.fe}\n${flows.filter((f) => f.frontend === l.fe && f.listeners.some((x) => x.port === l.port)).length} routing rule(s)`)}</title><rect class="fs-n fs-l" x="10" y="${y - 15}" width="180" height="30" rx="7"/><text class="fs-t" x="20" y="${y + 4}">${l.tls ? '🔒 ' : ''}:${esc(l.port)} · ${esc(clip(l.fe.replace(/:[\d+]+(#\d+)?$/, ''), 20))}</text></g>`; });
   flows.forEach((f, i) => {
@@ -1402,8 +1421,8 @@ function renderFlow() {
   let body = '';
   if (FLOW.tab === 'ports') {
     const rows = d.portMatrix.filter((r) => !FLOW.fe || r.frontend === FLOW.fe);
-    body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend address(es)</th><th>Layer</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
-      ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td><span class="tag layer-${r.mode === 'tcp' ? 'l4' : 'l7'}">${r.mode === 'tcp' ? 'L4' : 'L7'}</span></td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No listeners found</td></tr>'}</tbody></table></div>
+    body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend address(es)</th><th>Status</th><th>Layer</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
+      ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td>${(() => { const st = poolStatus(r.pool, r.undefined); return `<span class="st-chip" title="${esc(st.text)}">${stDot(st.k)} ${esc(FLOW_ST[st.k])}</span>`; })()}</td><td><span class="tag layer-${r.mode === 'tcp' ? 'l4' : 'l7'}">${r.mode === 'tcp' ? 'L4' : 'L7'}</span></td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No listeners found</td></tr>'}</tbody></table></div>
       <p class="muted small flow-note">${hap ? 'HAProxy: <code>server s 10.0.0.1</code> (no port) uses the same port the client connected to; <code>10.0.0.1:+1000</code> adds 1000 to it; an explicit port always wins.' : 'NGINX: a <code>proxy_pass</code> or upstream <code>server</code> without a port uses 80 (443 for https://).'}</p>`;
   } else if (FLOW.tab === 'uri') {
     body = `<div class="table-wrap"><table class="grid"><thead><tr><th>${esc(lbl('frontend'))}</th><th>Host</th><th>Request matches</th><th>URI changes on the way</th><th>Example</th><th>→ ${esc(lbl('backend'))}</th></tr></thead><tbody>
@@ -1415,7 +1434,7 @@ function renderFlow() {
         <td class="mono small">${ex ? (ex.changed ? `${esc(ex.in)} → <b>${esc(ex.out)}</b>${ex.exact ? '' : ' <span class="tag">approx.</span>'}` : `${esc(ex.in)} <span class="muted">unchanged</span>`) : '<span class="muted">–</span>'}</td>
         <td><b>${esc(f.pool.name)}</b><div class="mono small">${f.portMap.map((p) => `${esc(p.in)}→${p.out.length ? p.out.join('/') : '?'}`).join(' · ')}</div></td></tr>`; }).join('') || '<tr><td colspan="6" class="empty">No routing rules</td></tr>'}</tbody></table></div>`;
   } else {
-    body = `<div class="panel flow-diagram">${flows.length ? flowSvg(flows) : '<div class="empty">No routing rules</div>'}<p class="muted small flow-note">Lines carry <code>listener→backend</code> ports. Dashed grey = rule that can never match; amber = TLS re-encrypted to the backend; red = backend not defined.</p></div>`;
+    body = `<div class="panel flow-diagram">${flows.length ? flowSvg(flows) : '<div class="empty">No routing rules</div>'}<p class="muted small flow-note">Lines carry <code>listener→backend</code> ports. Line colour shows whether the relationship is live: <span class="st-dot st-active"></span> active (moving dashes, traffic now) <span class="st-dot st-idle"></span> idle <span class="st-dot st-down"></span> down (no healthy member) <span class="st-dot st-dead"></span> never used (shadowed rule or undefined backend) <span class="st-dot st-config"></span> configured (no runtime data). Traffic is counted per pool, so rules that share a pool share its status.</p></div>`;
   }
   const finds = d.findings.filter((f) => !FLOW.fe || flows.some((x) => x.frontend === FLOW.fe && (f.section === x.frontend || f.section === x.pool.name)));
   const card = (f) => `<div class="finding ${esc(f.severity)}"><div class="ft"><span class="sev-${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span> · ${esc(f.title)}</div><div class="fm">${esc(f.detail || '')} ${f.line ? `<a ${loc(f)}>${esc(f.section || '')}:${f.line}</a>` : ''}</div>${f.fix ? `<div class="fx"><b>Fix</b> ${esc(f.fix)}</div>` : ''}</div>`;

@@ -993,3 +993,12 @@ ul.tree, .tree ul { list-style: none; margin: 0; padding: 0; } .tree ul { margin
 .fs-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
 .fs-eg:hover .fs-e { stroke-opacity: 1; stroke-width: 2.6; } .flow-svg g:hover > .fs-n { stroke-width: 2; filter: brightness(1.25); cursor: pointer; }
 .fl-tip { position: fixed; z-index: 1000; max-width: 380px; padding: 8px 10px; border-radius: 8px; background: var(--bg-3); color: var(--text); border: 1px solid var(--line); box-shadow: var(--shadow); font-size: 12px; line-height: 1.45; white-space: pre-line; pointer-events: none; font-family: var(--mono); }
+
+/* relationship status: active / idle / down / never used / configured */
+.fs-e.st-active { stroke: var(--green); stroke-opacity: .9; stroke-width: 2; stroke-dasharray: 7 5; animation: fsflow 1s linear infinite; }
+.fs-e.st-idle { stroke: var(--slate); stroke-opacity: .7; } .fs-e.st-down { stroke: var(--red); stroke-opacity: .9; stroke-width: 2; } .fs-e.st-dead { stroke: var(--slate); stroke-dasharray: 2 5; stroke-opacity: .6; } .fs-e.st-config { stroke: var(--cyan); }
+@keyframes fsflow { to { stroke-dashoffset: -12; } } @media (prefers-reduced-motion: reduce) { .fs-e.st-active { animation: none; } }
+.st-dot, .fs-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; vertical-align: middle; background: var(--slate); } .fs-dot { stroke: var(--bg-2); stroke-width: 1.5; }
+.st-dot.st-active, .fs-dot.st-active { background: var(--green); fill: var(--green); } .st-dot.st-idle, .fs-dot.st-idle { background: var(--slate); fill: var(--slate); } .st-dot.st-down, .fs-dot.st-down { background: var(--red); fill: var(--red); }
+.st-dot.st-dead { background: transparent; border: 2px dotted var(--slate); box-sizing: border-box; } .fs-dot.st-dead { fill: var(--bg-3); stroke: var(--slate); } .st-dot.st-config, .fs-dot.st-config { background: var(--cyan); fill: var(--cyan); opacity: .8; }
+.st-chip { white-space: nowrap; font-size: 12px; }
