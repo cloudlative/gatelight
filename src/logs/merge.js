@@ -98,7 +98,7 @@ function mergeResults(parts, meta = {}) {
   const nt = [...nz.keys()].sort((a, b) => a - b);
   const noise = { t: nt, n: nt.map((t) => nz.get(t)), msgs: [...msgs.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20), clients: [...nc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30) };
 
-  const st = { lines: 0, http: 0, tcp: 0, conn: 0, events: 0, unparsed: 0, ssl: 0, bytes: 0 };
+  const st = { lines: 0, http: 0, tcp: 0, conn: 0, events: 0, unparsed: 0, ssl: 0, bytes: 0, timed: 0 };
   for (const p of parts) for (const k of Object.keys(st)) st[k] += p.stats[k] || 0;
   const unionClients = new Set(clients.values).size;
   const uniq = Math.max(unionClients, ...parts.map((p) => p.stats.uniqueClients));
@@ -106,7 +106,7 @@ function mergeResults(parts, meta = {}) {
   for (const p of parts) for (const u of p.unparsed || []) { const x = un.get(u.sample); if (x) x.n += u.n; else un.set(u.sample, { ...u }); }
   const ranges = parts.map((p) => p.range).filter(Boolean);
   return {
-    version: 1, product: 'haproxy', generated: Date.now(), ...meta,
+    version: 1, product: parts[0].product || 'haproxy', generated: Date.now(), ...meta,
     range: ranges.length ? { from: Math.min(...ranges.map((r) => r.from)), to: Math.max(...ranges.map((r) => r.to)) } : null,
     bucketMs: outBucket, keys, cols: COLS, colAgg: COL_AGG, edges: parts[0].edges, facts: f, dims, paths, clients, slow, errors, events, eventCount, noise,
     stats: { ...st, uniqueClients: uniq, uniqueApprox: true, bucketMult: Math.round(outBucket / 60000) },

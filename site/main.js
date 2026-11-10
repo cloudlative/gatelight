@@ -26,7 +26,7 @@
 
   // screenshot tour
   const TOUR = [
-    ['Overview', 'Clickable, explained health cards, process facts, a traffic chart and what needs attention. Everything links to the detail behind it.'],
+    ['Overview', 'A status banner first, then what needs attention, performance and process facts. Everything links to the detail behind it.'],
     ['Graphs', 'Zoom by dragging, pan with the hand tool, one shared crosshair, clickable legends and donut charts for HTTP errors. Up to 7 days of history.'],
     ['Infrastructure', 'Load balancer, networks, hosts and services in a foldable hierarchy, each with its aliveness.'],
     ['Topology', 'Frontends, routing rules, pools and servers with live traffic. Click a node to focus its path.'],
@@ -37,6 +37,8 @@
     ['NGINX', 'NGINX too: server blocks, locations and upstreams, plus a resizable URL map.'],
     ['Audit', 'Every finding has a line number and a fix, with charts showing where problems cluster. Click a category to filter.'],
     ['Details', 'Click anything for its own page: health, metrics, relationships, trend, configuration, events and findings.'],
+    ['Events', 'What is down right now and for how long, graphs of server health, downtime and flapping, and the history of changes.'],
+    ['NGINX traffic', 'Upload an NGINX access log and get status codes, URLs, clients and errors; response times appear when the log has them.'],
   ];
   const tabs = $$('.tabs button'); const shots = $$('.shot');
   let timer = null;

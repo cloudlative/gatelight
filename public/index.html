@@ -59,7 +59,7 @@
           <p class="small muted privacy">Analysed in memory by this server only, never stored. Passwords, tokens and <code>stats auth</code> values are redacted. A <code>show stat</code> <code>.csv</code> dropped with a HAProxy config adds live state.</p>
         </section>
       </div>
-      <footer class="sitefoot"><div class="foot-cap"><a href="https://cloudlative.com" target="_blank" rel="noopener noreferrer">More from Cloudlative</a></div><div class="foot-pills"><a class="foot-pill" href="https://braintally.com" target="_blank" rel="noopener noreferrer" title="BrainTally: cognitive assessment platform (braintally.com)" aria-label="BrainTally (braintally.com)"><img src="brands/braintally.svg" alt="" width="22" height="22"><span>BrainTally</span></a><a class="foot-pill" href="https://cyferio.com" target="_blank" rel="noopener noreferrer" title="Cyferio: self-hosted OpenVPN management with RBAC, MAC binding and audit logging (cyferio.com)" aria-label="Cyferio (cyferio.com)"><img src="brands/cyferio.svg" alt="" width="22" height="22"><span>Cyferio</span></a><a class="foot-pill" href="https://invisibly.dev" target="_blank" rel="noopener noreferrer" title="Invisibly Inc: Zero Trust networking, infrastructure access and endpoint control (invisibly.dev)" aria-label="Invisibly Inc (invisibly.dev)"><img src="brands/invisibly.svg" alt="" width="22" height="22"><span>Invisibly Inc</span></a></div><div class="foot-copy">GateLight · open source (MIT)</div></footer>
+      <footer class="sitefoot"><div class="foot-cap">More from Cloudlative</div><div class="foot-pills"><a class="foot-pill" href="https://braintally.com" target="_blank" rel="noopener noreferrer" title="BrainTally: cognitive assessment platform (braintally.com)" aria-label="BrainTally (braintally.com)"><img src="brands/braintally.svg" alt="" width="22" height="22"><span>BrainTally</span></a><a class="foot-pill" href="https://cyferio.com" target="_blank" rel="noopener noreferrer" title="Cyferio: self-hosted OpenVPN management with RBAC, MAC binding and audit logging (cyferio.com)" aria-label="Cyferio (cyferio.com)"><img src="brands/cyferio.svg" alt="" width="22" height="22"><span>Cyferio</span></a><a class="foot-pill" href="https://invisibly.dev" target="_blank" rel="noopener noreferrer" title="Invisibly Inc: Zero Trust networking, infrastructure access and endpoint control (invisibly.dev)" aria-label="Invisibly Inc (invisibly.dev)"><img src="brands/invisibly.svg" alt="" width="22" height="22"><span>Invisibly Inc</span></a></div><div class="foot-copy">GateLight · open source (MIT)</div></footer>
     </div>
   </div>
 
@@ -74,7 +74,7 @@
       <button id="btn-connect" class="btn primary live-only" type="button" hidden title="Connect a HAProxy or NGINX server">+ Connect</button>
       <span id="conn-pill" class="pill pill-muted" role="status">connecting…</span>
       <span class="spacer"></span>
-      <button id="btn-palette" class="btn ghost" title="Search everything (Ctrl/⌘+K)"><span class="muted">Search</span> <kbd>Ctrl K</kbd></button>
+      <button id="btn-palette" class="btn ghost" title="Search everything (Ctrl/⌘+K)"><svg class="sr-ico" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><span class="muted">Search</span> <kbd>Ctrl K</kbd></button>
       <span id="last-update" class="muted small live-only"></span>
       <select id="refresh-every" class="live-only" aria-label="Auto-refresh interval" title="How often this page reloads data">
         <option value="auto">Auto</option><option value="5000">Every 5s</option><option value="10000">Every 10s</option><option value="30000">Every 30s</option><option value="60000">Every 1m</option><option value="off">Paused</option>
@@ -130,30 +130,43 @@
       </section>
 
       <section class="view" id="view-topology">
-        <div class="toolbar">
-          <input id="topo-search" type="search" placeholder="Filter nodes…" aria-label="Filter nodes">
-          <select id="topo-layout" aria-label="Layout">
-            <option value="layers" selected>Layout: Layers (stray on left)</option>
-            <option value="flow">Layout: Flow (tiers)</option>
-            <option value="mindmap">Layout: Mind map (radial)</option>
-            <option value="tree">Layout: Tree (outline)</option>
-            <option value="network">Layout: Network (hosts &amp; aliveness)</option>
-          </select>
-          <select id="topo-layer" aria-label="Filter by layer" hidden></select>
-          <label class="check"><input type="checkbox" id="topo-problems"> Problems only</label>
-          <label class="check" data-graph-only><input type="checkbox" id="topo-servers" checked> Members</label>
-          <label class="check" data-graph-only title="Show the URL / host each route matches on the connecting lines"><input type="checkbox" id="topo-urls" checked> URL labels</label>
-          <button class="btn" id="topo-urlmap" type="button" title="Table of every host / path → target mapping">URL map</button>
-          <button class="btn" data-graph-only id="topo-expand" title="Show every pool and member">▾ Expand all</button>
-          <button class="btn" data-graph-only id="topo-collapse" title="Fold every entry point and pool (shift-click a node to fold just one)">▸ Collapse all</button>
-          <button class="btn" data-graph-only id="topo-fit">Fit</button>
-          <button class="btn" id="topo-fs" type="button" title="Fill the whole screen with the topology (F)">Full screen</button>
-          <button class="btn" data-graph-only id="topo-png" title="Save the diagram as an image">Export PNG</button>
-          <span class="spacer"></span>
-          <span class="legend"><span class="muted" title="Arrows point the way traffic flows">client → frontend → backend → server</span> ·
-            <i class="dot c-fe"></i><span id="topo-legend-fe">Frontend</span> <i class="dot c-be"></i><span id="topo-legend-be">Backend</span> <i class="dot c-up"></i>Up
-            <i class="dot c-warn"></i>Degraded <i class="dot c-down"></i>Down <i class="dot c-idle"></i>Idle / unchecked <i class="dot l7"></i>L7 HTTP <i class="dot l4"></i>L4 TCP (dashed)
-          </span>
+        <div class="toolbar topo-bar">
+          <div class="tb-row">
+            <div class="tb-group tb-find">
+              <input id="topo-search" type="search" placeholder="Filter nodes…" aria-label="Filter nodes">
+              <select id="topo-layout" aria-label="Layout" title="Layout: Layers (stray on left), Flow (tiers), Mind map (radial), Tree (outline) or Network (hosts and aliveness)">
+                <option value="layers" selected>Layers</option>
+                <option value="flow">Flow</option>
+                <option value="mindmap">Mind map</option>
+                <option value="tree">Tree</option>
+                <option value="network">Network</option>
+              </select>
+              <select id="topo-layer" aria-label="Filter by layer" hidden></select>
+            </div>
+            <div class="tb-group tb-toggles" role="group" aria-label="What to show">
+              <label class="check pillcheck"><input type="checkbox" id="topo-problems"> Problems only</label>
+              <label class="check pillcheck" data-graph-only><input type="checkbox" id="topo-servers" checked> Members</label>
+              <label class="check pillcheck" data-graph-only title="Show the URL / host each route matches on the connecting lines"><input type="checkbox" id="topo-urls" checked> URL labels</label>
+            </div>
+            <span class="spacer"></span>
+            <div class="tb-group tb-actions btn-seg" role="group" aria-label="Actions">
+              <button class="btn" id="topo-urlmap" type="button" title="Table of every host / path → target mapping">URL map</button>
+              <button class="btn" data-graph-only id="topo-expand" title="Show every pool and member">▾ Expand all</button>
+              <button class="btn" data-graph-only id="topo-collapse" title="Fold every entry point and pool (shift-click a node to fold just one)">▸ Collapse all</button>
+              <button class="btn" data-graph-only id="topo-fit">Fit</button>
+              <button class="btn" id="topo-fs" type="button" title="Fill the whole screen with the topology (F)">⛶ Full screen</button>
+              <button class="btn" data-graph-only id="topo-png" title="Save the diagram as an image">Export PNG</button>
+            </div>
+          </div>
+          <div class="tb-legend legend">
+            <span class="muted" title="Arrows point the way traffic flows">client → frontend → backend → server</span>
+            <span class="lg-sep"></span>
+            <span class="lg"><i class="dot c-fe"></i><span id="topo-legend-fe">Frontend</span></span><span class="lg"><i class="dot c-be"></i><span id="topo-legend-be">Backend</span></span>
+            <span class="lg-sep"></span>
+            <span class="lg"><i class="dot c-up"></i>Up</span><span class="lg"><i class="dot c-warn"></i>Degraded</span><span class="lg"><i class="dot c-down"></i>Down</span><span class="lg"><i class="dot c-idle"></i>Idle / unchecked</span>
+            <span class="lg-sep"></span>
+            <span class="lg"><i class="dot l7"></i>L7 HTTP</span><span class="lg"><i class="dot l4"></i>L4 TCP (dashed)</span>
+          </div>
         </div>
         <div id="graph-wrap"><div id="graph"></div><div id="topo-sel" class="topo-sel" hidden></div><div id="graph-hint" class="graph-hint">Click a node to focus its path · shift-click to collapse or expand it · double-click it for full details · click empty space to reset · scroll to zoom</div></div>
         <div id="tree" class="treemap" hidden></div>
@@ -193,6 +206,7 @@
           <select id="svc-state" aria-label="State"><option value="">Any state</option><option value="problem">Problems</option><option value="up">Up</option><option value="down">Down</option><option value="maint">Maintenance</option><option value="nocheck">No check</option></select>
           <span class="spacer"></span>
           <button class="btn" id="svc-export">Export CSV</button>
+          <button class="btn" id="svc-fs" data-fs type="button" title="Fill the whole window with the table (Esc to exit)">⛶ Full screen</button>
         </div>
         <div class="table-wrap"><table id="svc-table" class="grid"></table></div>
       </section>
@@ -211,13 +225,14 @@
           <span class="muted small" id="cfg-path"></span>
           <button class="btn live-only" type="button" id="cfg-refresh" hidden title="Read the configuration again from the server (read-only) and show what changed">⟳ Refresh from server</button>
           <button class="btn" id="cfg-download">Download (redacted)</button>
+          <button class="btn" id="cfg-fs" data-fs type="button" title="Fill the whole window with the configuration (Esc to exit)">⛶ Full screen</button>
           <button class="btn primary" type="button" data-cfgup>Update config</button>
         </div>
         <div class="cfg-body"><aside id="cfg-tree" class="cfg-tree" aria-label="Sections"></aside><pre id="cfg-code" class="code"></pre></div>
       </section>
 
     </main>
-    <footer class="appfoot"><span class="foot-brand"><img src="logo.svg" alt="" width="22" height="22"><b>GateLight</b><span class="foot-copy">open source · MIT</span></span><span class="foot-more"><a class="foot-cap" href="https://cloudlative.com" target="_blank" rel="noopener noreferrer">More from Cloudlative</a><a class="foot-pill" href="https://braintally.com" target="_blank" rel="noopener noreferrer" title="BrainTally: cognitive assessment platform (braintally.com)" aria-label="BrainTally (braintally.com)"><img src="brands/braintally.svg" alt="" width="22" height="22"><span>BrainTally</span></a><a class="foot-pill" href="https://cyferio.com" target="_blank" rel="noopener noreferrer" title="Cyferio: self-hosted OpenVPN management with RBAC, MAC binding and audit logging (cyferio.com)" aria-label="Cyferio (cyferio.com)"><img src="brands/cyferio.svg" alt="" width="22" height="22"><span>Cyferio</span></a><a class="foot-pill" href="https://invisibly.dev" target="_blank" rel="noopener noreferrer" title="Invisibly Inc: Zero Trust networking, infrastructure access and endpoint control (invisibly.dev)" aria-label="Invisibly Inc (invisibly.dev)"><img src="brands/invisibly.svg" alt="" width="22" height="22"><span>Invisibly Inc</span></a></span></footer>
+    <footer class="appfoot"><span class="foot-brand"><img src="logo.svg" alt="" width="22" height="22"><b>GateLight</b><span class="foot-copy">open source · MIT</span></span><span class="foot-more"><span class="foot-cap">More from Cloudlative</span><a class="foot-pill" href="https://braintally.com" target="_blank" rel="noopener noreferrer" title="BrainTally: cognitive assessment platform (braintally.com)" aria-label="BrainTally (braintally.com)"><img src="brands/braintally.svg" alt="" width="22" height="22"><span>BrainTally</span></a><a class="foot-pill" href="https://cyferio.com" target="_blank" rel="noopener noreferrer" title="Cyferio: self-hosted OpenVPN management with RBAC, MAC binding and audit logging (cyferio.com)" aria-label="Cyferio (cyferio.com)"><img src="brands/cyferio.svg" alt="" width="22" height="22"><span>Cyferio</span></a><a class="foot-pill" href="https://invisibly.dev" target="_blank" rel="noopener noreferrer" title="Invisibly Inc: Zero Trust networking, infrastructure access and endpoint control (invisibly.dev)" aria-label="Invisibly Inc (invisibly.dev)"><img src="brands/invisibly.svg" alt="" width="22" height="22"><span>Invisibly Inc</span></a></span></footer>
 
   </div>
 
@@ -234,23 +249,23 @@
         <div class="muted small cx-hint" data-cx-for="haproxy">The page behind your <code>stats uri</code>. GateLight appends <code>;csv</code> itself. Running GateLight in Docker and HAProxy on this machine? Use <code>host.docker.internal</code> instead of <code>localhost</code>.</div>
         <div class="muted small cx-hint" data-cx-for="nginx" hidden>The <code>stub_status</code> location (e.g. <code>/nginx_status</code>). Per-upstream health comes from probing the servers in your config.</div>
         <div class="cx-row">
-          <label class="fld">Username <span class="muted">(optional)</span><input id="cx-user" maxlength="256" autocomplete="off" spellcheck="false"></label>
-          <label class="fld">Password <span class="muted">(optional)</span><input id="cx-pass" type="password" maxlength="512" autocomplete="new-password"></label>
+          <label class="fld"><span>Username <span class="muted">(optional)</span></span><input id="cx-user" maxlength="256" autocomplete="off" spellcheck="false"></label>
+          <label class="fld"><span>Password <span class="muted">(optional)</span></span><input id="cx-pass" type="password" maxlength="512" autocomplete="new-password"></label>
         </div>
         <div class="fld cfg-block">
           <span class="cfg-callout"><b>Config</b> (upload to get the relationship map and audit; with no URL above it is saved as a <b>config-only instance</b>)</span>
-          <div class="row"><label class="btn small-btn">Choose files<input type="file" id="cx-cfgfiles" multiple hidden></label><label class="btn small-btn">Choose folder<input type="file" id="cx-cfgfolder" webkitdirectory hidden></label><button type="button" class="btn small-btn" id="cx-cfgclear" hidden>Clear</button></div>
+          <div class="row"><label class="btn small-btn">Choose files<input type="file" id="cx-cfgfiles" multiple hidden></label><label class="btn small-btn">Choose folder<input type="file" id="cx-cfgfolder" webkitdirectory hidden></label><button type="button" class="btn small-btn" id="cx-cfgclear" hidden>Clear</button><span class="cx-attach" id="cx-cfgstatus" role="status"></span></div>
           <label class="fld cx-urls"><span>Config URL(s) <span class="muted">(optional, read-only)</span></span><textarea id="cx-cfgurls" spellcheck="false" rows="2" placeholder="https://host/haproxy.cfg   (one per line; for NGINX list nginx.conf and every included file)"></textarea></label>
           <span class="muted small cx-urlnote">GateLight only <b>GETs</b> these addresses (a location on the server that serves its own config, or a raw file in your config repository). It then shows <b>Refresh from server</b> on the Config page to pull new changes. Nothing is ever written to the server.</span>
           <textarea id="cx-cfgtext" spellcheck="false" rows="4" placeholder="…or paste haproxy.cfg / nginx.conf (a folder with conf.d/ includes works too)"></textarea>
           <span class="muted small" id="cx-cfgnote"></span>
         </div>
-        <div class="fld cfg-block tr-up" data-cx-for="haproxy">
-          <span class="cfg-callout"><b>Traffic log</b> (optional): upload one or more HAProxy logs (shown combined) to get the <b>Traffic statistics</b> dashboard. With no URL or config above it is saved as a <b>log-only instance</b></span>
+        <div class="fld cfg-block tr-up">
+          <span class="cfg-callout"><b>Traffic log</b> (optional): upload one or more <span id="cx-logprod">HAProxy</span> logs (shown combined) to get the <b>Traffic statistics</b> dashboard. With no URL or config above it is saved as a <b>log-only instance</b></span>
           <div class="row"><label class="btn small-btn">Choose log files<input type="file" id="cx-logfile" multiple accept=".log,.txt,.gz,.out,text/plain,application/gzip,application/x-gzip" hidden></label><button type="button" class="btn small-btn" id="cx-logclear" hidden>Remove all</button></div>
           <span class="small" id="cx-lognote"></span>
           <div class="tr-prog" id="cx-logprog" hidden><div class="tr-bar"><i></i></div><span class="muted small"></span></div>
-          <details class="tr-help" open>
+          <details class="tr-help">
             <summary>Log too big? Split it first, then select all the parts</summary>
             <p class="muted small">Maximum <b id="cx-logmax">50 MB</b> per file, plain text (<code>.log</code>, <code>.txt</code>) or gzip (<code>.gz</code>; the limit applies to the compressed size). Only the statistics are kept on the server, never the raw log. Run these on the machine that has the log:</p>
             <div class="tr-cmds">
@@ -282,6 +297,7 @@
         <span class="muted small">Private to this browser. Stored on the server, never sent back.</span>
         <span class="spacer"></span>
         <button type="button" class="btn" id="cx-test">Test connection</button>
+        <button type="button" class="btn" id="cx-cancel" hidden>Cancel edit</button>
         <button type="submit" class="btn primary" id="cx-save">Save &amp; connect</button>
       </div>
     </form>

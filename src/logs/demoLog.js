@@ -1,6 +1,7 @@
 'use strict';
 /** Synthetic HAProxy log for demo mode and screenshots: made-up clients, names and traffic, deterministic. */
 const { createAggregator } = require('./haproxy');
+const nginxLog = require('./nginx');
 
 function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 const pick = (r, list) => { let x = r() * list.reduce((a, b) => a + b[1], 0); for (const [v, w] of list) { x -= w; if (x <= 0) return v; } return list[0][0]; };
@@ -73,4 +74,52 @@ function demoResultText() {
   return cached;
 }
 
-module.exports = { demoLines, demoResultText };
+/** Synthetic NGINX access log (combined format plus $request_time, $upstream_response_time and $upstream_addr). */
+function demoNginxLines(n = 40000, seed = 11) {
+  const r = rng(seed); const day = Date.UTC(2026, 10, 10); const lines = [];
+  const clients = Array.from({ length: 700 }, (_, i) => (i % 9 === 0 ? `2001:db8:${(i * 5).toString(16)}::${(i % 250) + 1}` : `198.51.${100 + (i % 4)}.${(i * 11) % 250 + 1}`));
+  const hot = clients.slice(0, 20);
+  const SITES = [['shop.example.com', 14], ['www.example.com', 6], ['api.example.com', 9]];
+  const ROUTES = [
+    ['shop.example.com', '/', 'web', 40, 16], ['shop.example.com', '/products', 'web', 60, 12], ['shop.example.com', '/products/:id', 'web', 55, 12], ['shop.example.com', '/cart', 'web', 90, 5],
+    ['shop.example.com', '/static/app.js', '', 0, 12], ['shop.example.com', '/static/app.css', '', 0, 9], ['shop.example.com', '/static/logo.svg', '', 0, 5],
+    ['www.example.com', '/', 'web', 35, 6], ['www.example.com', '/blog/:id', 'web', 50, 5],
+    ['api.example.com', '/v1/orders', 'api', 70, 8], ['api.example.com', '/v1/users/:id', 'api', 35, 8], ['api.example.com', '/v1/search', 'api', 140, 4],
+  ];
+  const PEERS = { web: ['10.0.1.11:8080', '10.0.1.12:8080', '10.0.1.13:8080'], api: ['10.0.2.21:9000', '10.0.2.22:9000'] };
+  const UAS = [['Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36', 10], ['Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) Safari/604.1', 6], ['curl/8.5.0', 1], ['Googlebot/2.1 (+http://www.google.com/bot.html)', 2]];
+  const total = ROUTES.reduce((a, x) => a + x[4], 0);
+  const curve = (h) => 0.2 + 0.8 * Math.max(0, Math.sin(((h - 6) / 16) * Math.PI));
+  const w = Array.from({ length: 24 }, (_, h) => curve(h)); const ws = w.reduce((a, b) => a + b, 0); const cum = []; w.reduce((a, x, i) => { cum[i] = a + x / ws; return cum[i]; }, 0);
+  for (let i = 0; i < n; i++) {
+    const u = r(); let h = cum.findIndex((c) => u <= c); if (h < 0) h = 23;
+    const t = day + h * 3600000 + Math.floor(r() * 3600000);
+    const client = r() < 0.3 ? hot[Math.floor(r() * hot.length)] : clients[Math.floor(r() * clients.length)];
+    let x = r() * total; let route = ROUTES[0]; for (const rt of ROUTES) { x -= rt[4]; if (x <= 0) { route = rt; break; } }
+    const [host, tpl, up, base] = route; const isStatic = !up;
+    const incident = up === 'api' && h >= 15 && h < 16; // upstream trouble during the 15:00 hour
+    const peerList = PEERS[up]; const peer = isStatic ? '-' : peerList[Math.floor(r() * peerList.length)];
+    const urt = isStatic ? 0 : Math.max(0.001, (base / 1000) * (incident ? 7 : 1) * (0.4 + r() * 1.4) * (r() < 0.02 ? 12 : 1));
+    const rt = isStatic ? 0.001 + r() * 0.004 : urt + 0.001 + r() * 0.004;
+    let status = 200; const q = r();
+    if (!isStatic && q < (incident ? 0.3 : 0.004)) status = incident ? pick(r, [[502, 4], [504, 3], [500, 2]]) : pick(r, [[500, 2], [502, 1]]);
+    else if (isStatic && q < 0.35) status = 304;
+    else if (q > 0.985) status = pick(r, [[404, 8], [403, 1], [400, 1], [499, 2]]);
+    const path = tpl.replace(':id', String(1000 + Math.floor(r() * 9000))) + (r() < 0.25 ? `?utm=${Math.floor(r() * 9)}` : '');
+    const method = host.startsWith('api') && r() < 0.3 ? 'POST' : 'GET';
+    const bytes = status === 304 ? 0 : Math.round((isStatic ? 38000 : up === 'api' ? 2800 : 14000) * (0.2 + r() * 1.6));
+    const d = new Date(t); const stamp = `${p2(d.getUTCDate())}/${MON[d.getUTCMonth()]}/${d.getUTCFullYear()}:${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())}:${p2(d.getUTCSeconds())} +0000`;
+    lines.push(`${client} - - [${stamp}] "${method} ${path} HTTP/1.1" ${status} ${bytes} "-" "${pick(r, UAS)}" rt=${rt.toFixed(3)} urt=${isStatic ? '-' : urt.toFixed(3)} uaddr=${peer} host=${host}`);
+  }
+  return lines;
+}
+let cachedNginx = null;
+function demoNginxResultText() {
+  if (cachedNginx) return cachedNginx;
+  const a = nginxLog.createAggregator();
+  for (const l of demoNginxLines()) a.push(l);
+  cachedNginx = JSON.stringify(a.finish({ source: { filename: 'demo-access.log', bytes: 0, lines: a.stats.lines, demo: true } }));
+  return cachedNginx;
+}
+
+module.exports = { demoLines, demoResultText, demoNginxLines, demoNginxResultText };

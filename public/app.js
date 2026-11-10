@@ -72,10 +72,11 @@ const beLike = (s) => s.type === 'backend' || s.type === 'listen';
 // shows a half-filtered list. Pages opened from a link that sets a filter keep it, because only the page being left is reset.
 const FILTER_RESETS = {
   topology() { const q = $('#topo-search'); if (q) q.value = ''; const p = $('#topo-problems'); if (p) p.checked = false; const l = $('#topo-layer'); if (l) { l.value = ''; l.dataset.sig = ''; } const u = $('#topo-urls'); if (u) u.checked = true; state.focus = null; state.topoFor = null; const t = $('#topo-sel'); if (t) { t.hidden = true; t.innerHTML = ''; } },
-  services() { for (const id of ['svc-search', 'svc-kind', 'svc-state']) { const e = $(`#${id}`); if (e) e.value = ''; } },
-  graphs() { gr.q = ''; gr.pool = ''; gr.focus.clear(); gr.sig = ''; const e = $('#gr-search'); if (e) e.value = ''; const pl = $('#gr-pool'); if (pl) pl.value = ''; },
+  services() { for (const id of ['svc-search', 'svc-kind', 'svc-state']) { const e = $(`#${id}`); if (e) e.value = ''; } state.sort = { key: 'default', desc: false }; },
+  graphs() { gr.q = ''; gr.pool = ''; gr.focus.clear(); gr.sig = ''; gr.from = gr.to = null; gr.metric = 'rate'; const m = $('#gr-metric'); if (m) m.value = 'rate'; const e = $('#gr-search'); if (e) e.value = ''; const pl = $('#gr-pool'); if (pl) pl.value = ''; },
   config() { const e = $('#cfg-search'); if (e) e.value = ''; state.cfgFilter = ''; cfgRendered = null; },
   events() { state.eventFilter = 'all'; },
+  forge() { if (typeof FG !== 'undefined') { FG.cat = 'all'; FG.sev = 'all'; FG.kind = 'all'; } },
   traffic() { if (typeof trResetFilters === 'function') trResetFilters(); },
   flow() { FLOW.fe = ''; FLOW.st = ''; FLOW.dq = ''; FLOW.sel = null; FLOW.trace = null; FLOW.traceErr = null; FLOW.req = { host: '', path: '/', port: '', method: 'GET' }; },
 };
@@ -210,7 +211,7 @@ function applySnapshot(snap) {
   $('#last-update').textContent = `updated ${fmtTime(snap.ts)}${refreshSetting() === 'off' ? ' · paused' : ''}`;
   const down = snap.summary.servers.down + snap.summary.backends.down;
   const nd = $('#nav-down'); nd.hidden = !down; nd.textContent = down;
-  const na = $('#nav-audit'); const af = snap.findingsSummary; na.hidden = !(af.error + af.warning); na.textContent = af.error + af.warning;
+  const na = $('#nav-audit'); const af = snap.findingsSummary; na.hidden = !(af.error + af.warning); na.textContent = af.error + af.warning; na.title = 'Audit errors and warnings. Config Forge also lists rewrite and validation checks, so its total is higher.';
   iselSync();
   renderView(state.view);
   if (state.inspected) refreshInspector();
@@ -398,6 +399,8 @@ function paintChart(canvas) {
   series.forEach((s, n) => { ctx.fillStyle = s.color; ctx.beginPath(); ctx.arc(hx, scales[n](s.values[i]), 3.5, 0, Math.PI * 2); ctx.fill(); });
   const lines = series.map((s) => ({ c: s.color, t: `${s.label}: ${(s.fmt || (s.label === 'sessions' ? fmtInt : fmtRate))(s.values[i])}` }));
   ctx.font = '11px system-ui'; ctx.textBaseline = 'top';
+  const maxTw = Math.max(60, W - 48); // a chart tooltip never grows wider than its chart: long labels are shortened with an ellipsis
+  lines.forEach((l) => { while (l.t.length > 6 && ctx.measureText(l.t).width > maxTw) l.t = `${l.t.slice(0, Math.max(3, l.t.length - 4)).trimEnd()}…`; });
   const head = fmtTime(times[i]);
   const bw = Math.max(ctx.measureText(head).width, ...lines.map((l) => ctx.measureText(l.t).width + 14)) + 16;
   const bh = 8 + 14 * (lines.length + 1);
@@ -438,7 +441,7 @@ function card(label, value, sub, tone, o = {}) {
   const tag = o.go ? 'button type="button"' : 'div';
   return `<${tag} class="card ${tone || ''}${o.go ? ' clickable' : ''}"${act} title="${esc(o.help || '')}"${o.go ? ` aria-label="${esc(`${label}: ${value}. ${o.help || ''} Click to ${o.cta || 'open'}.`)}"` : ''}>
     <div class="label">${esc(label)}</div><div class="value">${esc(value)}</div><div class="sub">${esc(sub || '')}</div>
-    ${o.help ? `<div class="why">${esc(o.help)}</div>` : ''}${o.cta ? `<div class="go">${esc(o.cta)} →</div>` : ''}</${o.go ? 'button' : 'div'}>`;
+    ${o.help && !o.compact ? `<div class="why">${esc(o.help)}</div>` : ''}${o.cta && !o.compact ? `<div class="go">${esc(o.cta)} →</div>` : ''}</${o.go ? 'button' : 'div'}>`;
 }
 // card id -> { view, filters on the Services table, sort }
 const CARD_GO = {
@@ -469,17 +472,31 @@ function renderOverview() {
 
   const showCta = state.meta.canManage && ['config-only', 'demo'].includes(s.instance.source);
   const cta = showCta ? `<div class="cta"><div><b>${s.instance.source === 'demo' ? 'You are looking at synthetic demo traffic' : 'You are looking at the configuration only'}</b><span class="muted">Connect your ${s.instance.source === 'demo' ? '' : 'live '}HAProxy or NGINX (URL, username, password) to see real health and traffic.</span></div><button class="btn primary" type="button" data-connect>Connect a server</button></div>` : '';
-  $('#view-overview').innerHTML = cta + `
-    <div class="cards">
-      ${hasStats ? card(`${lbl('server')}s up`, `${sum.servers.up + sum.servers.degraded}/${sum.servers.total}`, `${sum.servers.nocheck} unchecked · ${sum.servers.maint} maint`, sum.servers.down ? 'bad' : 'ok', { go: 'servers-up', help: `Backend servers currently passing their health check, out of all configured. “Unchecked” servers have no health check, so GateLight cannot tell if they work.`, cta: 'List servers' }) : ''}
-      ${hasStats ? card('Down', sum.servers.down + sum.backends.down, `${sum.servers.down} ${lbl('server').toLowerCase()}s · ${sum.backends.down} ${lbl('backend').toLowerCase()}s`, sum.servers.down + sum.backends.down ? 'bad' : 'ok', { go: 'down', help: 'Servers failing health checks plus backends with no usable server. Traffic to a down backend gets 503 errors.', cta: 'Show what is down' }) : ''}
-      ${hasStats || info.activeConns != null ? card('Requests / s', fmtRate(sum.ratePerSec), `${fmtInt(sum.sessions)} current ${info.activeConns != null ? 'connections' : 'sessions'}`, '', { go: 'rate', help: 'New HTTP requests per second across all backends, measured over the latest poll. Sessions are connections open right now.', cta: 'Busiest backends' }) : ''}
-      ${hasStats ? card('5xx / s', fmtRate(sum.err5xxPerSec), sum.ratePerSec > 0 ? `${((sum.err5xxPerSec / sum.ratePerSec) * 100).toFixed(2)}% of traffic` : '', sum.err5xxPerSec > 0.5 ? 'warn' : '', { go: 'err5xx', help: 'Server-side errors (HTTP 500–599) returned per second. A rising value usually means a failing application, not the proxy.', cta: 'Backends by errors' }) : ''}
-      ${hasStats ? card('Throughput', `${fmtBytes(sum.bytesIn + sum.bytesOut)}`, 'total in+out since start', '', { go: 'bytes', help: 'Bytes received plus sent since the proxy last restarted (a counter, not a rate).', cta: 'Backends by traffic' }) : ''}
-      ${card('Config findings', f.error + f.warning, `${f.error} errors · ${f.warning} warnings · ${f.info} info`, f.error ? 'bad' : f.warning ? 'warn' : 'ok', { go: 'findings', help: 'Problems the static audit found in the configuration: errors will break or endanger the proxy, warnings are risky settings, info is advice.', cta: 'Review findings' })}
-    </div>
-    ${processPanel(info)}
-    ${hasStats || info.activeConns != null ? `<div class="panel" style="margin-bottom:16px"><h2>Traffic <span class="muted small">${esc(info.version ? `${TYPE_NAME[snapshotType()] || ''} ${info.version}` : '')}${info.uptimeSec != null ? ` · up ${fmtDur(info.uptimeSec)}` : ''}${info.idlePct != null ? ` · idle ${info.idlePct}%` : ''}${info.reading != null ? ` · reading/writing/waiting ${info.reading}/${info.writing}/${info.waiting}` : ''}</span><button class="btn icon chart-expand" type="button" data-cv-expand="overview" title="Pop out: bigger chart, time range, series and stats" aria-label="Pop out traffic chart">⤢</button></h2><canvas id="ov-chart" class="chart" title="Click to pop out"></canvas></div>` : ''}
+  // ---- level 1: one verdict for the whole instance ----
+  const sv = sum.servers; const upN = sv.up + sv.degraded; const downN = hasStats ? sv.down + sum.backends.down : 0;
+  const downRows = problems.filter((r) => r.state === 'down');
+  const tone = !hasStats ? 'neutral' : downN ? 'bad' : (f.error || hot.length || sv.degraded || sum.err5xxPerSec > 0.5) ? 'warn' : 'ok';
+  const since = downRows.length === 1 && downRows[0].lastchg > 0 ? ` for ${fmtDur(downRows[0].lastchg)}` : '';
+  const headline = !hasStats ? 'Configuration loaded' : downN ? (downRows.length === 1 && downRows[0].kind === 'server' ? `${downRows[0].proxy} / ${downRows[0].name} is down${since}` : `${downN} item${downN === 1 ? '' : 's'} down`) : tone === 'warn' ? 'Running, with things to look at' : 'Everything is healthy';
+  const facts = [
+    hasStats ? `${upN} of ${sv.total} servers up${sv.nocheck ? `, ${sv.nocheck} without a health check` : ''}` : null,
+    f.error ? `${f.error} critical config issue${f.error === 1 ? '' : 's'}` : (hasStats ? 'no critical config issues' : `${f.warning} config warning${f.warning === 1 ? '' : 's'}`),
+    hasStats ? `${fmtRate(sum.ratePerSec)} requests/s${sum.err5xxPerSec > 0 ? `, ${fmtRate(sum.err5xxPerSec)} × 5xx/s` : ', no 5xx'}` : null,
+  ].filter(Boolean);
+  const segs = [['up', 'Up', 'var(--green)'], ['degraded', 'Degraded', 'var(--amber)'], ['down', 'Down', 'var(--red)'], ['maint', 'Maintenance', 'var(--indigo)'], ['nocheck', 'No health check', 'var(--slate)']].map(([k, t, c]) => ({ t, c, n: sv[k] || 0 })).filter((x) => x.n);
+  const ico = { ok: '✓', warn: '!', bad: '✕', neutral: 'i' }[tone];
+  const hero = `<section class="ov-hero ${tone}" aria-label="Overall status">
+    <div class="ov-verdict"><span class="ov-ico" aria-hidden="true">${ico}</span>
+      <div><h2>${esc(headline)}</h2><p class="ov-facts">${facts.map(esc).join('<i></i>')}</p>
+        <div class="ov-actions">${downN ? '<button class="btn primary" type="button" data-card="down">Show what is down</button>' : ''}<button class="btn" type="button" data-goto="forge">Config Forge</button><button class="btn" type="button" data-goto="topology">Topology</button></div></div></div>
+    ${hasStats && sv.total ? `<div class="ov-servers"><div class="ov-sv-top"><b>${upN}</b><span>/ ${sv.total} servers up</span></div>
+      <div class="ov-bar" role="img" aria-label="${esc(segs.map((x) => `${x.n} ${x.t}`).join(', '))}">${segs.map((x) => `<i style="flex:${x.n};background:${x.c}" title="${esc(`${x.n} ${x.t}`)}"></i>`).join('')}</div>
+      <div class="ov-legend">${segs.map((x) => `<span><i style="background:${x.c}"></i>${x.n} ${esc(x.t.toLowerCase())}</span>`).join('')}</div></div>` : ''}
+  </section>`;
+  const proc = processPanel(info);
+  const perf = hasStats || info.activeConns != null;
+  $('#view-overview').innerHTML = cta + `${hero}
+    <div class="ov-lvl"><span>Needs attention</span></div>
     <div class="cols">
       <div class="panel"><h2>Needs attention <span class="tag">${problems.length + hot.length}</span></h2><div class="list">
         ${problems.slice(0, 8).map((r) => `<div class="item" data-inspect="${esc(r.proxy)}/${esc(r.name)}">${stBadge(r.state, r.status)}<div class="t"><b>${esc(r.proxy)}${r.kind === 'server' ? ` / ${esc(r.name)}` : ''}</b>${rowEndpoints(r).addrs.length ? ` <span class="mono small muted">${esc(rowEndpoints(r).addrs.slice(0, 2).join(', '))}</span>` : ''}${r.check_status ? `<div class="muted small">${esc(r.check_status)}${r.last_chk ? ` — ${esc(r.last_chk)}` : ''}${r.lastchg != null ? ` · for ${fmtDur(r.lastchg)}` : ''}</div>` : ''}</div></div>`).join('')
@@ -492,7 +509,16 @@ function renderOverview() {
       <div class="panel"><h2>Recent events <a class="muted small" data-goto="events" style="cursor:pointer">view all →</a></h2><div class="list">
         ${state.events.filter((e) => e.level !== 'info').slice(0, 6).map((e) => `<div class="item"><span class="lv-${esc(e.level)}">●</span><div class="t">${esc(e.message)}<div class="muted small">${fmtDateTime(e.ts)}</div></div></div>`).join('') || '<div class="empty">No state changes recorded</div>'}
       </div></div>
-    </div>`;
+    </div>
+    ${perf ? `<div class="ov-lvl"><span>Performance</span></div>
+    <div class="cards ov-kpis">
+      ${hasStats || info.activeConns != null ? card('Requests / s', fmtRate(sum.ratePerSec), `${fmtInt(sum.sessions)} current ${info.activeConns != null ? 'connections' : 'sessions'}`, '', { go: 'rate', help: 'New HTTP requests per second across all backends, measured over the latest poll. Sessions are connections open right now.', compact: true, cta: 'Busiest backends' }) : ''}
+      ${hasStats ? card('5xx / s', fmtRate(sum.err5xxPerSec), sum.ratePerSec > 0 ? `${((sum.err5xxPerSec / sum.ratePerSec) * 100).toFixed(2)}% of traffic` : '', sum.err5xxPerSec > 0.5 ? 'warn' : '', { go: 'err5xx', help: 'Server-side errors (HTTP 500–599) returned per second. A rising value usually means a failing application, not the proxy.', compact: true, cta: 'Backends by errors' }) : ''}
+      ${hasStats ? card('Throughput', `${fmtBytes(sum.bytesIn + sum.bytesOut)}`, 'total in+out since start', '', { go: 'bytes', help: 'Bytes received plus sent since the proxy last restarted (a counter, not a rate).', compact: true, cta: 'Backends by traffic' }) : ''}
+      ${card('Audit findings', f.error + f.warning, `${f.error} errors · ${f.warning} warnings · ${f.info} info · Config Forge lists more`, f.error ? 'bad' : f.warning ? 'warn' : 'ok', { go: 'findings', help: 'Problems the static audit found in the configuration: errors will break or endanger the proxy, warnings are risky settings, info is advice.', compact: true, cta: 'Review findings' })}
+    </div>`  : ''}
+    ${hasStats || info.activeConns != null ? `<div class="panel ov-traffic"><h2>Traffic <span class="muted small">${esc(info.version ? `${TYPE_NAME[snapshotType()] || ''} ${info.version}` : '')}${info.uptimeSec != null ? ` · up ${fmtDur(info.uptimeSec)}` : ''}${info.idlePct != null ? ` · idle ${info.idlePct}%` : ''}${info.reading != null ? ` · reading/writing/waiting ${info.reading}/${info.writing}/${info.waiting}` : ''}</span><button class="btn icon chart-expand" type="button" data-cv-expand="overview" title="Pop out: bigger chart, time range, series and stats" aria-label="Pop out traffic chart">⤢</button></h2><canvas id="ov-chart" class="chart" title="Click to pop out"></canvas></div>` : ''}
+    ${proc ? `<div class="ov-lvl"><span>System</span></div>${proc}` : ''}`;
   const c = $('#ov-chart');
   if (c) {
     const ser = state.series;
@@ -738,7 +764,49 @@ function buildGraph() {
     for (const n of nodes) if (!keep.has(n.id)) { n.opacity = 0.1; n.font = { ...n.font, color: 'rgba(148,163,184,.2)' }; }
     for (const e of edges) if (!(keep.has(e.from) && keep.has(e.to))) { e.color = { ...(e.color || {}), opacity: 0.06 }; e.label = undefined; }
   }
-  return collapseGraph(nodes, edges);
+  const g = collapseGraph(nodes, edges);
+  g.nodes.forEach((n) => applyNodeIcon(n, FG, BG));
+  return g;
+}
+
+// ---------- topology node icons: a rounded badge with a state-coloured ring and a glyph (drawn on the canvas, so dimming and selection still work) ----------
+const ICON_PATHS = {
+  frontend: ['M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4', 'M10 17l5-5-5-5', 'M15 12H3'], // an arrow entering a bracket: where traffic comes in
+  backend: ['M12 2l10 5-10 5L2 7l10-5z', 'M2 17l10 5 10-5', 'M2 12l10 5 10-5'],       // stacked layers: a pool
+  server: ['M5 3h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z', 'M5 13h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2z', 'M7 7h.01', 'M7 17h.01'],
+  missing: ['M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z', 'M12 9v4', 'M12 17h.01'],
+};
+const ICON_P2D = {};
+function applyNodeIcon(n, FG, BG) {
+  const kind = ICON_PATHS[n._kind] ? n._kind : null; if (!kind || typeof Path2D === 'undefined') return;
+  const col = n.color || {}; const light = isLight();
+  const fill = col.background || '#0e1626'; const ring = col.border || '#22d3ee';
+  const dashes = (n.shapeProperties && n.shapeProperties.borderDashes) || null;
+  const orphan = /\(orphan\)/.test(n.label || ''); const problem = Boolean(n._problem);
+  const r = kind === 'frontend' ? 26 : kind === 'backend' ? 24 : kind === 'missing' ? 21 : Math.round(14 + Math.max(0, (n.size || 11) - 11) * 0.5);
+  const label = String(n.label || ''); const alpha = n.opacity == null ? 1 : n.opacity;
+  n.shape = 'custom'; n.size = r; n.borderWidth = 0;
+  n.ctxRenderer = ({ ctx, x, y, state }) => ({
+    drawNode() {
+      ctx.save(); ctx.globalAlpha = alpha;
+      if (problem) { ctx.shadowColor = ring; ctx.shadowBlur = 16; }
+      ctx.beginPath(); ctx.roundRect(x - r, y - r, 2 * r, 2 * r, r * 0.38); ctx.fillStyle = fill; ctx.fill();
+      const hg = ctx.createLinearGradient(x, y - r, x, y + r); hg.addColorStop(0, 'rgba(255,255,255,.16)'); hg.addColorStop(0.6, 'rgba(255,255,255,0)'); ctx.fillStyle = hg; ctx.fill();
+      ctx.shadowBlur = 0; ctx.lineWidth = orphan ? 3 : 2.5; ctx.strokeStyle = ring; ctx.setLineDash(orphan ? [5, 4] : dashes || []); ctx.stroke(); ctx.setLineDash([]);
+      if (state.selected || state.hover) { ctx.beginPath(); ctx.roundRect(x - r - 5, y - r - 5, 2 * r + 10, 2 * r + 10, r * 0.38 + 5); ctx.lineWidth = 2; ctx.strokeStyle = ring; ctx.globalAlpha = alpha * (state.selected ? 0.9 : 0.45); ctx.stroke(); ctx.globalAlpha = alpha; }
+      const sc = (r * 1.05) / 24; ctx.translate(x - 12 * sc, y - 12 * sc); ctx.scale(sc, sc);
+      ctx.lineWidth = 1.9; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = light ? '#fff' : ring;
+      for (const d of ICON_PATHS[kind]) { const p = ICON_P2D[d] || (ICON_P2D[d] = new Path2D(d)); ctx.stroke(p); }
+      ctx.restore();
+    },
+    drawExternalLabel() {
+      const lines = label.split('\n'); ctx.save(); ctx.globalAlpha = alpha; ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round';
+      let yy = y + r + 7;
+      lines.forEach((t, i) => { ctx.font = i === 0 ? '600 13px system-ui, sans-serif' : '11px system-ui, sans-serif'; ctx.lineWidth = 4; ctx.strokeStyle = BG; ctx.strokeText(t, x, yy); ctx.fillStyle = i === 0 ? FG : (light ? '#475569' : '#9fb0c8'); ctx.fillText(t, x, yy); yy += i === 0 ? 16 : 14; });
+      ctx.restore();
+    },
+    nodeDimensions: { width: 2 * r, height: 2 * r },
+  });
 }
 
 function updateLegend() {
@@ -766,6 +834,7 @@ function renderUrlMap() {
     <div class="urlmap-head"><b>URL map</b> <button class="link" type="button" data-flow-uri title="Ports, rewrites and a request tracer">Routing details →</button> <span class="muted small">${shown.length} of ${rows.length} routing rules${mode === 'min' ? '' : ' · click a row to focus it in the graph'}</span><span class="spacer"></span>
       <button class="btn icon" type="button" data-um="min" title="${mode === 'min' ? 'Restore' : 'Minimize'}" aria-label="${mode === 'min' ? 'Restore URL map' : 'Minimize URL map'}">${mode === 'min' ? '▴' : '▁'}</button>
       <button class="btn icon" type="button" data-um="max" title="${mode === 'max' ? 'Restore size' : 'Expand to full height'}" aria-label="${mode === 'max' ? 'Restore URL map size' : 'Expand URL map'}">${mode === 'max' ? '⤡' : '⤢'}</button>
+      <button class="btn icon${document.body.classList.contains('fs-urlmap') ? ' on' : ''}" type="button" data-um-fs title="${document.body.classList.contains('fs-urlmap') ? 'Exit full screen (Esc)' : 'Full screen: only the URL map'}" aria-label="Full screen URL map">${document.body.classList.contains('fs-urlmap') ? '✕' : '⛶'}</button>
       <button class="btn icon" type="button" data-um="close" title="Close" aria-label="Close URL map">✕</button></div>
     <div class="urlmap-scroll"><table class="grid urlmap-table"><thead><tr><th>${esc(lbl('frontend'))}</th><th>Host</th><th>URL / path match</th><th>Target</th><th>${snapshotType() === 'nginx' ? 'Upstream URL' : 'Servers'}</th></tr></thead><tbody>
     ${shown.map(({ fe, rt, i }) => {
@@ -903,9 +972,14 @@ function routeTargetId(rt) {
   return sec ? (sec.type === 'listen' ? `fe:${sec.name}` : `be:${sec.name}`) : `missing:${rt.target}`;
 }
 // Full screen: the topology fills the window (sidebar/header hidden). Uses the browser Fullscreen API when allowed, else just fills the tab.
-function setTopoFs(on) {
+function setTopoFs(on, mode) {
+  // mode: 'map' = only the mind map / tree, 'urlmap' = only the URL map table (independent of each other); anything else = the whole page area
   document.body.classList.toggle('topo-fs', on);
-  const b = $('#topo-fs'); if (b) { b.textContent = on ? 'Exit full screen' : 'Full screen'; b.classList.toggle('on', on); }
+  document.body.classList.toggle('fs-map', Boolean(on && mode === 'map'));
+  document.body.classList.toggle('fs-urlmap', Boolean(on && mode === 'urlmap'));
+  const b = $('#topo-fs'); if (b) { const m = Boolean(on && mode === 'map'); b.textContent = m ? '✕ Exit full screen' : '⛶ Full screen'; b.classList.toggle('on', m); }
+  const u = $('[data-um-fs]'); if (u) { const m = Boolean(on && mode === 'urlmap'); u.textContent = m ? '✕' : '⛶'; u.classList.toggle('on', m); u.title = m ? 'Exit full screen (Esc)' : 'Full screen: only the URL map'; }
+  $$('[data-fs]').forEach((x) => { x.textContent = on ? '✕ Exit full screen' : '⛶ Full screen'; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
   const g = $('#gr-fs'); if (g) { g.textContent = on ? '✕ Exit full screen' : '⛶ Full screen'; g.classList.toggle('on', on); g.setAttribute('aria-pressed', String(on)); }
   if (state.view === 'graphs') setTimeout(() => { if (typeof grPaintCards === 'function') grPaintCards(); }, 160);
   if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => { /* still fills the tab */ });
@@ -913,6 +987,8 @@ function setTopoFs(on) {
   setTimeout(() => { if (network) { network.setSize('100%', '100%'); network.redraw(); network.fit({ animation: false }); } }, 120);
 }
 function toggleTopoFs() { setTopoFs(!document.body.classList.contains('topo-fs')); }
+function toggleMapFs() { setTopoFs(!document.body.classList.contains('fs-map'), 'map'); }
+function toggleUrlmapFs() { setTopoFs(!document.body.classList.contains('fs-urlmap'), 'urlmap'); setTimeout(renderUrlMap, 0); }
 /** "Relationships" card: who sends traffic here, where this sends it, and its siblings. Uses the config when present,
  *  otherwise falls back to what runtime stats imply (server -> its backend, backend -> its servers). */
 function relationsHtml(r, proxy, sec, srv) {
@@ -1342,12 +1418,12 @@ function flowSvg(flows) {
     f.listeners.filter((l) => l.port).forEach((l) => { const k = `${f.frontend}|${l.port}|${l.tls}`; if (!lisIdx.has(k)) { lisIdx.set(k, lis.length); lis.push({ k, fe: f.frontend, port: l.port, tls: l.tls }); } });
     if (!poolIdx.has(f.pool.name)) { poolIdx.set(f.pool.name, pools.length); pools.push(f); }
   });
-  const RH = 62; const rows = Math.max(flows.length, lis.length, pools.length); const H = rows * RH + 36; const W = 1080;
+  const RH = 62; const rows = Math.max(flows.length, lis.length, pools.length); const TOP = 30; const H = rows * RH + 36 + TOP; const W = 1080; // TOP: clear space under the column headings
   const ly = (i, n) => 20 + (n <= 1 ? (rows * RH) / 2 : (i * (rows * RH - RH)) / (n - 1)) + RH / 2 - 8;
   const clip = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
   let cid = 0; const clipBox = (x, y, w, h) => { const id = `fsc${cid++}`; return { id, def: `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="7"/></clipPath>` }; };
   let out = `<svg class="flow-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Listener to rule to backend pool map" preserveAspectRatio="xMinYMin meet">`;
-  out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="770" y="14" class="fs-h">POOLS, BACKEND IPS &amp; PORTS</text>`;
+  out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="770" y="14" class="fs-h">POOLS, BACKEND IPS &amp; PORTS</text><g transform="translate(0,${TOP})">`;
   const edge = (x1, y1, x2, y2, cls, label, tip, st) => { const mx = (x1 + x2) / 2; const d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`; return `<g class="fs-eg"><title>${esc(`${tip || label || ''}${st ? `\n\nStatus: ${FLOW_ST[st.k]}. ${st.text}` : ''}`)}</title><path class="fs-e ${cls || ''} ${st ? `st-${st.k}` : ''}" d="${d}"/><path class="fs-hit" d="${d}"/>${label ? `<text class="fs-pl" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${esc(label)}</text>` : ''}${st && label ? `<circle class="fs-dot st-${st.k}" cx="${mx}" cy="${(y1 + y2) / 2 + 5}" r="4.5"/>` : ''}</g>`; };
   flows.forEach((f, i) => {
     const y = ly(i, flows.length); const pi = poolIdx.get(f.pool.name); const py = ly(pi, pools.length); const st = flowStatus(f);
@@ -1380,7 +1456,7 @@ function flowSvg(flows) {
       <text class="fs-s fs-sp" clip-path="url(#${c.id})" x="780" y="${y + 4}">${esc(l2)}</text>
       <text class="fs-s" clip-path="url(#${c.id})" x="780" y="${y + 18}">${esc(l3)}</text></g>`; });
   // <title> tooltips are slow and unreliable: carry the text in data-tip and show it with our own instant tooltip
-  return `${out}</svg>`.replace(/<g((?: [\w-]+="[^"]*")*)><title>([\s\S]*?)<\/title>/g, (_m, attrs, t) => `<g${attrs} data-tip="${t}">`);
+  return `${out}</g></svg>`.replace(/<g((?: [\w-]+="[^"]*")*)><title>([\s\S]*?)<\/title>/g, (_m, attrs, t) => `<g${attrs} data-tip="${t}">`);
 }
 
 // Domain -> listener -> rule -> pool -> server:port. One card per host name.
@@ -1434,7 +1510,7 @@ function renderFlow() {
     if (!FLOW.loading) setTimeout(() => flowLoad(true), 0);
   }
   const d = FLOW.data;
-  const intro = `<div class="panel val-head"><h3 class="flow-h">Traffic flow</h3><p class="muted small">Where each listener port leads, which pool and member port it reaches, whether TLS ends or restarts on the way, and what the backend receives as the URI. ${snap.instance.type === 'haproxy' ? 'An omitted server port follows the port the client used; <code>+N</code> adds to it; the server <code>port</code> option only moves health checks.' : 'A URI in <code>proxy_pass</code> replaces the matched location prefix.'} Everything is read from the configuration; nothing is sent to your servers.</p></div>`;
+  const intro = `<header class="flow-head val-head"><div><h2>Traffic flow</h2><p class="muted">Follow a request from the listener port to the backend port, and see exactly what the backend receives.</p></div><details class="flow-how"><summary>How to read this</summary><p class="muted small">Where each listener port leads, which pool and member port it reaches, whether TLS ends or restarts on the way, and what the backend receives as the URI. ${snap.instance.type === 'haproxy' ? 'An omitted server port follows the port the client used; <code>+N</code> adds to it; the server <code>port</code> option only moves health checks.' : 'A URI in <code>proxy_pass</code> replaces the matched location prefix.'} Everything is read from the configuration; nothing is sent to your servers.</p></details></header>`;
   if (FLOW.loading && !d) { el.innerHTML = `${intro}<div class="skeleton-cards"><i></i><i></i><i></i></div>`; return; }
   if (FLOW.err) { el.innerHTML = `${intro}<div class="panel"><div class="empty">${esc(FLOW.err)}${/no configuration/i.test(FLOW.err) ? '<br>Attach the config (Settings → edit connection) to see how traffic is mapped.' : ''}</div></div>`; return; }
   if (!d) { el.innerHTML = intro; return; }
@@ -1449,9 +1525,9 @@ function renderFlow() {
       <label>Method<select id="flow-method">${['GET', 'POST', 'PUT', 'DELETE', 'HEAD', 'OPTIONS'].map((m) => `<option${rq.method === m ? ' selected' : ''}>${m}</option>`).join('')}</select></label>
       <button class="btn primary" type="button" data-flow-trace>${FLOW.tracing ? 'Tracing…' : 'Trace'}</button></div>${flowTraceHtml()}</div>`;
   const sum = d.summary;
-  const stats = `<div class="panel val-sum"><div class="val-counts"><span><b>${sum.domains}</b> domain${sum.domains === 1 ? '' : 's'}</span><span><b>${sum.listeners}</b> listener ports</span><span><b>${sum.flows}</b> routing rules</span><span><b>${sum.rewrites}</b> rewrite the URI</span><span><b class="${sum.findings ? 'sev-warning' : ''}">${sum.findings}</b> routing findings</span></div></div>`;
+  const stats = `<div class="panel val-sum flow-sum"><div class="val-counts"><span><b>${sum.domains}</b> domain${sum.domains === 1 ? '' : 's'}</span><span><b>${sum.listeners}</b> listener ports</span><span><b>${sum.flows}</b> routing rules</span><span><b>${sum.rewrites}</b> rewrite the URI</span><span><b class="${sum.findings ? 'sev-warning' : ''}">${sum.findings}</b> routing findings</span></div></div>`;
   const tabs = [['domains', 'Domains'], ['ports', 'Port map'], ['uri', 'URI map'], ['diagram', 'Diagram']];
-  const chips = `<div class="chips">${tabs.map(([k, t]) => `<span class="chip ${FLOW.tab === k ? 'on' : ''}" data-flow-tab="${k}">${t}</span>`).join('')}${FLOW.tab === 'domains' ? `<input id="flow-dq" type="search" placeholder="Filter domains, pools, servers, IPs…" value="${esc(FLOW.dq)}" aria-label="Filter domains" autocomplete="off">` : ''}<span class="muted">|</span><select id="flow-st" aria-label="Filter by status" title="Alive: has a healthy member. Not alive: no healthy member, or the backend is not defined. Unused: no traffic right now, or a rule that can never match. In Domains, servers are filtered one by one by their own state. Needs live stats.">${Object.entries(FLOW_STF).map(([k, t]) => `<option value="${k}"${FLOW.st === k ? ' selected' : ''}>${t}</option>`).join('')}</select>${fes.length > 1 ? `<select id="flow-fe" aria-label="Filter by ${esc(lbl('frontend').toLowerCase())}"><option value="">All ${esc(lbl('frontend').toLowerCase())}s</option>${fes.map((x) => `<option value="${esc(x)}"${FLOW.fe === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}</div>`;
+  const chips = `<div class="chips flow-bar">${tabs.map(([k, t]) => `<span class="chip ${FLOW.tab === k ? 'on' : ''}" data-flow-tab="${k}">${t}</span>`).join('')}${FLOW.tab === 'domains' ? `<input id="flow-dq" type="search" placeholder="Filter domains, pools, servers, IPs…" value="${esc(FLOW.dq)}" aria-label="Filter domains" autocomplete="off">` : ''}<span class="muted">|</span><select id="flow-st" aria-label="Filter by status" title="Alive: has a healthy member. Not alive: no healthy member, or the backend is not defined. Unused: no traffic right now, or a rule that can never match. In Domains, servers are filtered one by one by their own state. Needs live stats.">${Object.entries(FLOW_STF).map(([k, t]) => `<option value="${k}"${FLOW.st === k ? ' selected' : ''}>${t}</option>`).join('')}</select>${fes.length > 1 ? `<select id="flow-fe" aria-label="Filter by ${esc(lbl('frontend').toLowerCase())}"><option value="">All ${esc(lbl('frontend').toLowerCase())}s</option>${fes.map((x) => `<option value="${esc(x)}"${FLOW.fe === x ? ' selected' : ''}>${esc(x)}</option>`).join('')}</select>` : ''}<button class="btn small-btn flow-fs" id="flow-fs" data-fs type="button" title="Fill the whole window with this tab (Esc to exit)">${document.body.classList.contains('topo-fs') ? '✕ Exit full screen' : '⛶ Full screen'}</button></div>`;
   let body = '';
   if (FLOW.tab === 'domains') body = flowDomainsHtml(d, hap);
   else if (FLOW.tab === 'ports') {
@@ -1474,7 +1550,7 @@ function renderFlow() {
   }
   const finds = d.findings.filter((f) => !FLOW.fe || flows.some((x) => x.frontend === FLOW.fe && (f.section === x.frontend || f.section === x.pool.name)));
   const card = (f) => `<div class="finding ${esc(f.severity)}"><div class="ft"><span class="sev-${esc(f.severity)}">${esc(f.severity.toUpperCase())}</span> · ${esc(f.title)}</div><div class="fm">${esc(f.detail || '')} ${f.line ? `<a ${loc(f)}>${esc(f.section || '')}:${f.line}</a>` : ''}</div>${f.fix ? `<div class="fx"><b>Fix</b> ${esc(f.fix)}</div>` : ''}</div>`;
-  el.innerHTML = `${intro}${form}${stats}${chips}${body}${finds.length ? `<h3 class="flow-h flow-fh">Routing findings</h3>${finds.map(card).join('')}` : ''}`;
+  el.innerHTML = `${intro}${form}${stats}${chips}${body}${finds.length ? `<div class="flow-finds"><h3 class="flow-h flow-fh">Routing findings</h3>${finds.map(card).join('')}</div>` : ''}`;
 }
 
 // ---------- PROFILE ----------
@@ -1499,16 +1575,61 @@ function renderProfile() {
 }
 
 // ---------- EVENTS ----------
+/** "Right now": what is already down or out of rotation. The timeline below only knows about changes seen while GateLight was running, so a server that was down before that would otherwise never appear. */
+function eventsNowHtml() {
+  const snap = state.snapshot; const rows = snap && snap.rows ? snap.rows : [];
+  const bad = rows.filter((r) => (r.kind === 'server' || r.kind === 'backend') && ['down', 'maint', 'drain'].includes(r.state));
+  const lab = { down: 'DOWN', maint: 'Maintenance', drain: 'Draining' };
+  const sorted = bad.sort((a, b) => (a.state === 'down' ? 0 : 1) - (b.state === 'down' ? 0 : 1) || (b.lastchg || 0) - (a.lastchg || 0));
+  const line = (r) => {
+    const how = r.lastchg != null && r.lastchg >= 0 ? `for ${fmtDur(r.lastchg)}` : '';
+    const why = r.check_status ? `${r.check_status}${r.check_code ? ` ${r.check_code}` : ''}${r.last_chk ? ` · ${r.last_chk}` : ''}` : '';
+    const name = r.kind === 'backend' ? `${r.proxy} <span class="tag">pool</span>` : `${esc(r.proxy)} / ${esc(r.name)}`;
+    return `<tr data-inspect="${esc(r.proxy)}/${esc(r.name)}"><td><i class="dot ${r.state === 'down' ? 'c-down' : 'c-warn'}"></i></td><td><b>${name}</b></td><td class="lv-${r.state === 'down' ? 'critical' : 'warning'}">${lab[r.state]}${how ? ` <span class="muted">${esc(how)}</span>` : ''}</td><td class="muted small">${esc(why)}</td></tr>`;
+  };
+  const total = rows.filter((r) => r.kind === 'server').length;
+  return `<div class="panel ev-now"><h3 class="flow-h">Right now</h3>${sorted.length
+    ? `<p class="muted small">${sorted.length} item${sorted.length === 1 ? '' : 's'} down or out of rotation (of ${total} servers). The duration is how long HAProxy has reported this state. Click a row for details.</p><table class="grid"><tbody>${sorted.map(line).join('')}</tbody></table>`
+    : `<p class="ev-ok">✓ Nothing is down or out of rotation${total ? ` (${total} servers checked)` : ''}.</p>`}</div>`;
+}
+// ---- graphs on the Events page: server health over time, and who is down or flapping ----
+const EV = { inst: null, hist: null, loading: false };
+async function evLoadHistory() {
+  if (EV.loading || !state.current || state.current === '__analysis') return;
+  EV.loading = true; const id = state.current;
+  try { const d = await api(`/instances/${encodeURIComponent(id)}/history-all?range=1440&max=240`); if (id === state.current) { EV.hist = (d && d.summary) || []; EV.inst = id; } } catch { EV.inst = id; EV.hist = []; }
+  EV.loading = false;
+  if (state.view === 'events') renderEvents();
+}
+function eventsChartsHtml(real) {
+  const rows = (state.snapshot && state.snapshot.rows) || [];
+  const servers = rows.filter((r) => r.kind === 'server');
+  const top = (field, color, fmt) => servers.filter((r) => (r[field] || 0) > 0).sort((a, b) => b[field] - a[field]).slice(0, 8)
+    .map((r) => ({ label: `${r.proxy} / ${r.name}`, value: r[field], text: fmt(r[field]), color, attrs: `data-inspect="${esc(r.proxy)}/${esc(r.name)}"` }));
+  const lv = ['critical', 'warning', 'recovery', 'info'].map((k) => ({ label: k, value: real.filter((e) => e.level === k).length, color: { critical: '#f87171', warning: '#fbbf24', recovery: '#34d399', info: '#22d3ee' }[k] })).filter((x) => x.value);
+  const hist = EV.inst === state.current && EV.hist && EV.hist.length > 1;
+  const chart = `<div class="bc-card ev-wide"><div class="bc-head"><b>Servers up / down</b><span class="muted small">last 24 hours</span></div>${hist ? '<canvas id="ev-health" class="chart" title="Servers passing or failing their health check over time"></canvas>' : `<p class="muted small bc-empty">${EV.loading || EV.inst !== state.current ? 'Loading history…' : 'Collecting data… the history fills in while GateLight watches this instance.'}</p>`}</div>`;
+  return `<div class="svc-charts-grid ev-charts">${chart}
+    ${real.length ? donutCard('Changes by level', lv, { big: String(real.length), sub: 'changes' }, 'Recorded state changes, by how serious they were.') : barChart('Changes by level', [], { sub: 'since GateLight started watching', empty: '✓ No state changes recorded yet' })}
+    ${barChart('Downtime by server', top('downtime', '#f87171', (v) => fmtDur(v)), { sub: 'time spent DOWN since the proxy started', empty: '✓ No server has been down' })}
+    ${barChart('Flapping', top('chkdown', '#fbbf24', (v) => `${fmtInt(v)}×`), { sub: 'times a server went from UP to DOWN', empty: '✓ No server went down' })}
+    ${barChart('Failed health checks', top('chkfail', '#818cf8', (v) => fmtInt(v)), { sub: 'failed checks since the proxy started', empty: '✓ No failed checks' })}</div>`;
+}
 function renderEvents() {
   const f = state.eventFilter;
-  const list = state.events.filter((e) => f === 'all' || e.level === f);
-  $('#view-events').innerHTML = `
-    <div class="chips">${['all', 'critical', 'warning', 'recovery', 'info'].map((x) => `<span class="chip ${f === x ? 'on' : ''}" data-ev="${x}">${x}</span>`).join('')}
-      <span class="muted small">${state.events.length} event${state.events.length === 1 ? '' : 's'} recorded</span></div>
-    <div class="ev-note"><b>What is this?</b> A timeline of what <i>changed</i>: a server going DOWN or coming back UP, a pool losing all its servers, the stats endpoint becoming unreachable, a config file being reloaded. Critical and warning events also trigger your alert webhook. Nothing is listed while everything stays steady, so an empty list is good news.</div>
+  const real = state.events.filter((e) => e.type !== 'monitoring_started'); // "GateLight started monitoring" is a restart marker, not a change in your system
+  const starts = state.events.filter((e) => e.type === 'monitoring_started');
+  const list = real.filter((e) => f === 'all' || e.level === f);
+  const startNote = starts.length ? `<p class="muted small ev-starts">GateLight (re)started monitoring ${starts.length} time${starts.length === 1 ? '' : 's'}; last ${esc(fmtDateTime(Math.max(...starts.map((e) => e.ts))))}. Changes before that are not known.</p>` : '';
+  if (EV.inst !== state.current && !EV.loading) setTimeout(evLoadHistory, 0);
+  $('#view-events').innerHTML = `${eventsNowHtml()}
+    ${eventsChartsHtml(real)}
+    <div class="chips"><b class="ev-h">History</b>${['all', 'critical', 'warning', 'recovery', 'info'].map((x) => `<span class="chip ${f === x ? 'on' : ''}" data-ev="${x}">${x}</span>`).join('')}
+      <span class="muted small">${real.length} change${real.length === 1 ? '' : 's'} recorded</span></div>
     <div class="table-wrap"><table class="grid"><thead><tr><th>Time</th><th>Level</th><th>Event</th></tr></thead><tbody>
     ${list.map((e) => `<tr ${e.proxy ? `data-inspect="${esc(e.proxy)}/${esc(e.name)}"` : ''}><td>${fmtDateTime(e.ts)}</td><td class="lv-${esc(e.level)}">${esc(e.level)}</td><td class="msg">${esc(e.message)}</td></tr>`).join('')
-      || `<tr><td colspan="3" class="empty">${state.events.length ? 'No events at this level' : 'No state changes yet. GateLight records an event whenever a server, pool or the stats endpoint changes state after it started watching.'}</td></tr>`}</tbody></table></div>`;
+      || `<tr><td colspan="3" class="empty">${real.length ? 'No events at this level' : 'No changes seen yet. A server, pool or the stats endpoint going down or coming back up is recorded here from the moment GateLight started watching. Critical and warning changes also trigger your alert webhook.'}</td></tr>`}</tbody></table></div>${startNote}`;
+  const ec = $('#ev-health'); if (ec && EV.hist && EV.hist.length > 1) drawChart(ec, EV.hist.map((p) => p.t), [{ label: 'up', color: '#34d399', values: EV.hist.map((p) => (p.up || 0) + (p.degraded || 0)) }, { label: 'down', color: '#f87171', values: EV.hist.map((p) => p.down || 0), minMax: 1 }]);
 }
 
 // ---------- CONFIG ----------
@@ -1628,8 +1749,9 @@ function renderFleet() {
 function renderSettings() {
   const f = state.meta.features || {};
   const types = ['haproxy', 'nginx'];
-  $('#view-settings').innerHTML = `
-    <div class="panel narrow"><h2>Technologies</h2>
+  $('#view-settings').innerHTML = `<div class="set-wrap">
+    <header class="set-head"><h2>Settings</h2><p class="muted">Which technologies GateLight loads, what this browser shows, and the instances you manage.</p></header>
+    <div class="panel"><div class="panel-h"><h2>Technologies</h2></div>
       <p class="muted">What GateLight loads and polls. Turn a technology off on the server to stop it from being loaded at all.</p>
       <div class="tech-grid">${types.map((t) => {
         const on = f[t] !== false; const mine = state.instances.filter((i) => i.type === t);
@@ -1647,16 +1769,16 @@ function renderSettings() {
       <details class="tech-how"><summary>How to turn a technology on or off</summary>
         <ul class="small muted"><li>Environment: <code>ENABLE_HAPROXY</code> / <code>ENABLE_NGINX</code> set to <code>true</code> or <code>false</code>.</li><li>Or <code>"features"</code> in <code>instances.json</code>. Use <code>"enabled": false</code> on a single instance to pause just that one.</li><li>A restart applies changes. To only hide a technology for yourself, use <b>Display</b> below.</li></ul></details>
     </div>
-    <div class="panel narrow" style="margin-top:16px"><h2>Display</h2>
+    <div class="panel"><div class="panel-h"><h2>Display</h2></div>
       <p class="muted">Per-browser preference: hide a technology from the selector and Fleet view without changing the server.</p>
-      ${types.filter((t) => f[t] !== false).map((t) => `<label class="check" style="margin-right:18px"><input type="checkbox" data-show-type="${t}" ${state.hiddenTypes.includes(t) ? '' : 'checked'}> Show ${TYPE_NAME[t]}</label>`).join('')}
+      <div class="set-checks">${types.filter((t) => f[t] !== false).map((t) => `<label class="check"><input type="checkbox" data-show-type="${t}" ${state.hiddenTypes.includes(t) ? '' : 'checked'}> Show ${TYPE_NAME[t]}</label>`).join('')}</div>
     </div>
-    <div class="panel narrow" style="margin-top:16px"><h2>Instances ${state.meta.canManage ? '<button class="btn primary" type="button" data-connect style="float:right">+ Connect a server</button>' : ''}</h2>
+    <div class="panel"><div class="panel-h"><h2>Instances</h2>${state.meta.canManage ? '<button class="btn primary" type="button" data-connect>+ Connect a server</button>' : ''}</div>
       ${state.meta.canManage ? '' : '<p class="muted small">Servers are defined in <code>config/instances.json</code> or env vars. To add them from this page, start GateLight with <code>ALLOW_UI_INSTANCES=true</code>.</p>'}
       <div class="table-wrap"><table class="grid"><thead><tr><th>Name</th><th>Type</th><th>Source</th><th>Status</th><th>Findings</th><th></th></tr></thead><tbody>
       ${state.instances.map((i) => `<tr data-open-instance="${esc(i.id)}"><td>${esc(i.name)}</td><td>${esc(TYPE_NAME[i.type] || i.type)}</td><td class="mono small">${esc(i.source)}</td><td>${i.ok === false ? `<span class="st st-down" title="${esc(i.error || '')}">error</span>${i.error ? `<div class="muted small" style="max-width:260px">${esc(String(i.error).slice(0, 120))}</div>` : ''}` : i.ok ? '<span class="st st-up">ok</span>' : '…'}</td><td>${i.findings ? `${i.findings.error}e / ${i.findings.warning}w` : ''}</td><td>${i.managed ? `<div class="row-actions"><button class="btn" type="button" data-cx-up="${esc(i.id)}">Update config</button><button class="btn" type="button" data-cx-edit="${esc(i.id)}">Edit</button><button class="btn" type="button" data-cx-del="${esc(i.id)}">Remove</button></div>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
-    </div>`;
+    </div></div>`;
 }
 
 // ---------- INSPECTOR ----------
@@ -1920,9 +2042,9 @@ function renderLanding() {
   const list = state.instances;
   const tone = (i) => (i.ok === false ? 'c-down' : i.serversDown ? 'c-warn' : i.ok ? 'c-up' : 'c-idle');
   $('#lp-saved').innerHTML = list.length ? `<div class="lp-saved-h">${can ? 'Your saved connections <span class="muted">(private to this browser)</span>' : 'Configured servers'}</div>${list.map((i) => `
-    <button type="button" class="lp-conn" data-enter="${esc(i.id)}"><i class="dot ${tone(i)}"></i>
+    <div class="lp-row${cx.editing === i.id ? ' editing' : ''}"><button type="button" class="lp-conn" data-enter="${esc(i.id)}"><i class="dot ${tone(i)}"></i>
       <span class="lp-conn-name">${esc(i.name)}</span><span class="tag">${esc(TYPE_NAME[i.type] || i.type)}</span>
-      <span class="lp-conn-src muted small">${esc(i.source === 'demo' ? 'demo data' : i.source === 'config-only' ? 'config only' : i.source)}</span><span class="lp-go" aria-hidden="true">→</span></button>`).join('')}${can ? '<div class="lp-or"><span>or connect a new server</span></div>' : ''}` : '';
+      <span class="lp-conn-src muted small">${esc(i.source === 'demo' ? 'demo data' : i.source === 'config-only' ? 'config only' : i.source)}</span><span class="lp-go" aria-hidden="true">→</span></button>${can ? `<button type="button" class="btn small-btn lp-edit" data-cx-edit="${esc(i.id)}" title="Change this connection: URL, credentials, config or logs">${cx.editing === i.id ? 'Editing…' : 'Modify'}</button>` : ''}</div>`).join('')}${can ? '<div class="lp-or"><span>or connect a new server</span></div>' : ''}` : '';
   $('#lp-nomanage').hidden = Boolean(can);
   if (can) { cxOpen(null, true); $('#cx-name').blur(); }
   else $('#lp-form-slot').innerHTML = '';
@@ -2114,6 +2236,8 @@ function grWire() {
   $('#gr-zout').addEventListener('click', () => { const w = grWindow(); const c = (w.t0 + w.t1) / 2; const h = (w.t1 - w.t0); grSetWindow(c - h, c + h); grLoad(); });
   $('#gr-live').addEventListener('click', grLiveAgain);
   $('#gr-fs').addEventListener('click', toggleTopoFs);
+  $('#svc-fs').addEventListener('click', toggleTopoFs);
+  $('#cfg-fs').addEventListener('click', toggleTopoFs);
   $('#gr-hand').addEventListener('click', () => { gr.hand = !gr.hand; grUi(); });
   $('#gr-metric').addEventListener('change', (e) => { gr.metric = e.target.value; gr.sig = ''; grPaint(); });
   $('#gr-pool').addEventListener('change', (e) => { gr.pool = e.target.value; gr.sig = ''; grPaint(); });
@@ -2500,19 +2624,28 @@ function cxSync() {
   $$('#cx-form [data-cx-for]').forEach((el) => { el.hidden = el.dataset.cxFor !== t; });
   $('#cx-url-label').textContent = t === 'nginx' ? 'Status URL (stub_status)' : 'Stats URL';
   $('#cx-url').placeholder = t === 'nginx' ? 'http://host/nginx_status' : 'http://host:8404/stats';
-  const hasCfg = cx.files.length > 0 || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig || (t === 'haproxy' && cx.logFiles.length);
+  const hasCfg = cx.files.length > 0 || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig || cx.logFiles.length;
   const live = $('#cx-url').value.trim() || ($('#cx-socket').value || '').trim() || ($('#cx-plus').value || '').trim();
   const configOnly = Boolean(hasCfg && !live);
   $('#cx-test').hidden = configOnly;
   $('#cx-url-opt').hidden = !hasCfg;
-  const logOnly = configOnly && t === 'haproxy' && cx.logFiles.length && !(cx.files.length || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig);
+  const logOnly = configOnly && cx.logFiles.length && !(cx.files.length || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig);
   $('#cx-save').textContent = cx.editing ? (cx.logFiles.length ? `Save & upload ${cx.logFiles.length > 1 ? 'logs' : 'log'}` : 'Save changes') : logOnly ? 'Save & analyse logs' : configOnly ? 'Save config' : cx.inline ? 'Connect' : 'Save & connect';
+  { const lp = $('#cx-logprod'); if (lp) lp.textContent = t === 'nginx' ? 'NGINX access' : 'HAProxy'; const lh = $('#cx-loghelp'); if (lh && lh.dataset.prod !== t) { lh.dataset.prod = t; lh.innerHTML = logHelpHtml(t); } }
   $('#cx-logmax').textContent = fmtBytes((state.meta && state.meta.logMaxBytes) || 50 * 1048576);
 }
 function cxFilesNote() {
+  cxAttachStatus();
   $('#cx-cfgclear').hidden = !cx.files.length;
   $('#cx-cfgnote').textContent = cx.files.length ? `${cx.files.length} file${cx.files.length === 1 ? '' : 's'} ready: ${cx.files.slice(0, 4).map((f) => f.name).join(', ')}${cx.files.length > 4 ? ` +${cx.files.length - 4}` : ''}`
     : (cx.hadConfig ? `A config is already stored (${cx.hadNames}). Choose files or paste to replace it.` : '');
+}
+function cxAttachStatus() {
+  const el = $('#cx-cfgstatus'); if (!el) return;
+  const n = cx.files.length, txt = $('#cx-cfgtext').value.trim();
+  el.className = 'cx-attach ' + (n || txt || cx.hadConfig ? 'on' : 'off');
+  el.textContent = n ? `✓ ${n} file${n === 1 ? '' : 's'} attached: ${cx.files.slice(0, 2).map((f) => f.name).join(', ')}${n > 2 ? ` +${n - 2}` : ''}`
+    : txt ? '✓ Pasted config will be used' : cx.hadConfig ? `✓ Stored config kept (${cx.hadNames})` : 'No file attached';
 }
 async function cxPickFiles(fileList) {
   const list = [...fileList].map((f) => ({ name: f.webkitRelativePath || f.name, file: f }));
@@ -2530,11 +2663,16 @@ function cxBody() {
   };
   if (cx.files.length) b.configFiles = cx.files; else if ($('#cx-cfgtext').value.trim()) b.configText = $('#cx-cfgtext').value; else b.keepConfig = cx.hadConfig;
   b.configUrls = $('#cx-cfgurls').value;
-  if (t === 'haproxy' && cx.logFiles.length) b.logOnly = true;
+  if (cx.logFiles.length) b.logOnly = true;
   if (t === 'haproxy') b.socket = $('#cx-socket').value;
   else { b.plusApiUrl = $('#cx-plus').value; if ($('#cx-url').value.trim() || $('#cx-plus').value.trim() || !(cx.files.length || $('#cx-cfgtext').value.trim() || cx.hadConfig)) b.probe = $('#cx-probe').checked; }
   if (cx.editing) b.id = cx.editing;
   return b;
+}
+/** Saved-connections list: highlight the row being modified, and show Cancel while editing. */
+function cxMarkEditing() {
+  $$('.lp-row').forEach((r) => { const b = r.querySelector('.lp-edit'); const on = Boolean(b) && b.dataset.cxEdit === cx.editing; r.classList.toggle('editing', on); if (b) b.textContent = on ? 'Editing…' : 'Modify'; });
+  const c = $('#cx-cancel'); if (c) c.hidden = !(cx.editing && cx.inline);
 }
 async function cxOpen(id, inline = false) {
   if (!state.meta.canManage) return;
@@ -2561,7 +2699,7 @@ async function cxOpen(id, inline = false) {
       if (d.socket || d.plusApiUrl) $('#cx-form details.adv').open = true;
     } catch (e) { toast(e.message, 'bad'); return; }
   } else { $('#cx-pass').placeholder = ''; $('#cx-form details.adv').open = false; }
-  cxFilesNote(); cxSync();
+  cxFilesNote(); cxSync(); cxMarkEditing();
   if (!inline) { $('#connect').hidden = false; $('#cx-name').focus(); }
 }
 function cxClose() { $('#connect').hidden = true; $('#cx-pass').value = ''; }
@@ -2863,6 +3001,7 @@ function wire() {
   $('#cx-lognote').addEventListener('click', (e) => { const b = e.target.closest('[data-cx-logrm]'); if (b) { cx.logFiles.splice(+b.dataset.cxLogrm, 1); cxLogNote(); cxSync(); } });
   $('#cx-logclear').addEventListener('click', () => { cx.logFiles = []; cxLogNote(); cxSync(); });
   ['#cx-cfgfiles', '#cx-cfgfolder'].forEach((q) => $(q).addEventListener('change', async (e) => { const l = [...e.target.files]; e.target.value = ''; await cxPickFiles(l); }));
+  $('#cx-cancel').addEventListener('click', () => cxOpen(null, true));
   $('#cx-cfgclear').addEventListener('click', () => { cx.files = []; $('#cx-cfgtext').value = ''; cxFilesNote(); cxSync(); });
   ['#cx-url', '#cx-socket', '#cx-plus', '#cx-cfgtext', '#cx-cfgurls'].forEach((q) => $(q).addEventListener('input', () => { if (q === '#cx-cfgtext' && $(q).value) cx.files = []; cxFilesNote(); cxSync(); }));
   grWire();
@@ -2929,7 +3068,7 @@ function wire() {
     if (e.target.closest('[data-topo-sel-x]')) { state.focus = null; topoSelect(null); renderTopology(); return; }
     if (e.target.closest('[data-topo-open]') && topoSel) { const t = topoSel; if (t.route) inspectRoute(t.route); else if (t.node._key) inspect(t.node._key, t.node._kind); else inspectMissing(t.node.id.slice(8)); return; }
     const cuB = e.target.closest('[data-cx-up]'); if (cuB) { state.current = cuB.dataset.cxUp; cuOpen(); return; }
-    const ce = e.target.closest('[data-cx-edit]'); if (ce) { switchView('connect'); cxOpen(ce.dataset.cxEdit, true).then(() => { const f = $('#cx-form'); if (f) f.scrollIntoView({ block: 'start' }); }); return; }
+    const ce = e.target.closest('[data-cx-edit]'); if (ce) { if (state.view !== 'connect') switchView('connect'); cxOpen(ce.dataset.cxEdit, true).then(() => { const f = $('#cx-form'); if (f) f.scrollIntoView({ block: 'start' }); }); return; }
     const cd = e.target.closest('[data-cx-del]'); if (cd) { cxDelete(cd.dataset.cxDel); return; }
     if (e.target.closest('[data-connect]')) { switchView('connect'); return; } // the Add instance page, not a pop-up dialog
     const gl = e.target.closest('[data-goto-line]'); if (gl) { gotoLine(gl.dataset.gotoLine, gl.dataset.gotoFile); return; }
@@ -2952,6 +3091,7 @@ function wire() {
     if (FLOW.sel && e.target.closest('.flow-svg') && !e.target.closest('.fs-eg')) { FLOW.sel = null; renderFlow(); return; }
     const fd = e.target.closest('[data-flow-dom]');
     if (fd) { const [name, port, tls] = fd.dataset.flowDom.split('|'); const host = name.startsWith('*.') ? `test${name.slice(1)}` : name.startsWith('.') ? `www${name}` : /^[(_~]/.test(name) || name.endsWith('.*') ? '' : name; FLOW.req = { host, path: '/', port, method: 'GET' }; FLOW.trace = null; flowTrace().then(() => { const el = $('.flow-try'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); }); return; }
+    if (e.target.closest('#flow-fs')) { toggleTopoFs(); return; }
     const ft = e.target.closest('[data-flow-tab]'); if (ft) { FLOW.tab = ft.dataset.flowTab; renderFlow(); return; }
     const ev = e.target.closest('[data-ev]'); if (ev) { state.eventFilter = ev.dataset.ev; renderEvents(); return; }
     const th = e.target.closest('th[data-sort]');
@@ -2989,6 +3129,7 @@ function wire() {
     renderUrlMap(); reflow();
   });
   $('#urlmap').addEventListener('click', (e) => {
+    if (e.target.closest('[data-um-fs]')) { e.stopPropagation(); toggleUrlmapFs(); return; }
     const b = e.target.closest('[data-um]'); if (!b) return;
     e.stopPropagation();
     if (b.dataset.um === 'close') { state.urlmapOpen = false; savePref('gatelight.urlmap', false); $('#view-topology').classList.remove('um-max'); }
@@ -3003,7 +3144,7 @@ function wire() {
     const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); savePref('gatelight.urlmapH', state.urlmapH); reflow(); };
     document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
   });
-  $('#topo-fs').addEventListener('click', toggleTopoFs);
+  $('#topo-fs').addEventListener('click', toggleMapFs);
   document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && document.body.classList.contains('topo-fs')) setTopoFs(false); });
   $('#topo-expand').addEventListener('click', () => topoCollapseAll(false));
   $('#topo-collapse').addEventListener('click', () => topoCollapseAll(true));
@@ -3069,7 +3210,7 @@ function wire() {
     if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key === '/') { e.preventDefault(); paletteOpen(); }
     else if (e.key === '?') $('#help').hidden = false;
-    else if (e.key === 'f' && state.view === 'topology') toggleTopoFs();
+    else if (e.key === 'f' && state.view === 'topology') toggleMapFs();
     else if (e.key === 'r') poll(true).then(() => toast('Refreshed', 'ok', 1500));
     else if (e.key === 't') cycleTheme();
     else if (/^[1-9]$/.test(e.key)) { const b = visibleNav()[Number(e.key) - 1]; if (b) switchView(b.dataset.view); }

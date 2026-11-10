@@ -89,7 +89,7 @@ test('ingest: rejects empty, binary, non-HAProxy, oversized and corrupt files wi
   assert.equal((await bad(Buffer.alloc(0))).code, 'EMPTY');
   assert.equal((await bad(Buffer.concat([Buffer.from('abc'), Buffer.from([0, 1, 2, 3]), Buffer.alloc(200, 65)]))).code, 'NOT_TEXT');
   const web = Array.from({ length: 400 }, (_, i) => `10.0.0.${i % 250} - - [10/Nov/2026:06:33:22 +0000] "GET /x HTTP/1.1" 200 12 "-" "curl"`).join('\n');
-  const nx = await bad(Buffer.from(web)); assert.equal(nx.code, 'BAD_FORMAT'); assert.match(nx.message, /NGINX access logs are not supported yet/);
+  const nx = await bad(Buffer.from(web)); assert.equal(nx.code, 'BAD_FORMAT'); assert.match(nx.message, /does not look like an HAProxy log/);
   const big = await bad(Buffer.from(LOG), 1000); assert.equal(big.code, 'TOO_LARGE'); assert.equal(big.status, 413); assert.match(big.message, /Split it/);
   const gzBad = zlib.gzipSync(Buffer.from(LOG)); gzBad[20] ^= 0xff; gzBad[30] ^= 0xff;
   assert.ok(['BAD_GZIP', 'BAD_FORMAT'].includes((await bad(gzBad.subarray(0, gzBad.length - 8))).code));

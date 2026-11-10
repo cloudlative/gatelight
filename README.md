@@ -138,16 +138,22 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 - **Traffic → Live metrics** (the former Graphs page): Grafana-style charts for requests/s, session rate, sessions, 5xx, throughput, response time and servers up/down, plus a chart per server, pool and frontend. Drag to zoom, ✋ to pan, step through time, shared crosshair, clickable legends with per-series stats, full-screen. HTTP response and error **donut charts** per instance and per backend.
 - **Services table**: status, IP, port, which frontends reach it, where it leads, sessions, req/s, 5xx/s, trend. Charts on top follow your filters.
 - **Details pages**: click any row, chip or node for a page of its own: health, metrics, relationships, trend, configuration, events and audit findings, with a shareable link and working Back/Forward.
+- **Overview in levels**: one status banner first (what is down and for how long, with a server-state bar and buttons straight to the problem), then what needs attention, then performance, then process details.
+- **Events: right now and history**: *Right now* lists what is already down or out of rotation with its duration and check result (changes before GateLight started watching are invisible to a timeline), followed by graphs (servers up/down over time, downtime, flapping, failed health checks) and the change history.
+- **Full-screen views** for the Topology mind map and URL map (each on its own), Services, Traffic flow tabs, Config and Config Forge results.
 
 **Know**
 - **Live health**: HAProxy via the stats CSV or the Runtime API; NGINX via `stub_status`, the NGINX Plus API, and/or an active TCP probe of every upstream (so even open-source NGINX gets per-server health).
 - **Config audit (39 rules, shown in Config Forge)**: undefined backends/upstreams, orphaned pools, missing health checks, single points of failure, weak or plaintext credentials, exposed stats / `stub_status`, legacy TLS, path-traversal-prone `alias`, deprecated directives, **config drift** (file ≠ running process), and more. Charts show where the findings cluster.
+- **NGINX request-handling security checks** (Config Forge): SSRF through variables in `proxy_pass`, Host header taken from the client (`$http_host`, `$arg_*`), CR/LF injection (`$uri` or a loose regex capture in a redirect, header or proxied URL), bypassable `$http_origin` / `$http_referer` regexes, `valid_referers none`, and header values written over several lines. Each finding explains the risk and suggests a fix for your NGINX version (for example a `map` allow-list and `add_header … always` from 1.7.5). Checked against the Gixy test suite: every flawed sample is flagged and none of the correct ones.
 - **History that survives restarts**: samples and events are stored in SQLite (raw for 6 hours, then 1-minute averages for 14 days).
 - **Alerting & observability**: Slack / Mattermost / Teams-compatible webhooks on down and recovery; Prometheus `/metrics`.
 
 **Use it your way**
 - **Review a config offline**: drop a `haproxy.cfg`, an `nginx.conf` or a **whole folder** (with `conf.d/` includes). Nothing is saved; it is analysed in memory and cleared with one click.
 - **Refresh from server**: point GateLight at the URL (or file) your config is served from and pull the current version with one click, with a summary of what changed. Read-only: `GET` only.
+- **Modify a connection** from *Add instance*: each saved connection has a **Modify** button (URL, credentials, config, logs), and the config field shows at a glance whether a file is attached.
+- **Filters reset** when you leave a page and come back; links that open a page with a preset filter still apply it.
 - **Keep configs as named instances** and **Update config** whenever the file changes: the map, findings and routing tables are rebuilt and anything that disappeared is dropped.
 - **Connect from the browser**: add a server (URL, user, password) in the UI. Connections are private to the browser that added them.
 - **CI-ready CLI**: `gatelight audit haproxy.cfg --fail-on error`, with GitHub annotation output.
@@ -190,9 +196,9 @@ The **Traffic flow** page answers "if a client asks for this, where does it go, 
 
 It follows the official semantics. In HAProxy, a server written without a port uses **the port the client connected to**, `10.0.0.1:+1000` adds 1000 to it, and the server `port` option only moves **health checks**; `use_backend` rules are first match, frontend `http-request` rules run before the backend is chosen and backend ones after. In NGINX, a URI in `proxy_pass` replaces the matched location prefix, `^~` stops regex checks, and `rewrite … break` keeps the rewritten URI. Conditions that depend on headers or source IP cannot be decided from host, path and port, so they are marked as skipped or "approximate" rather than guessed. API: `GET /api/instances/:id/flow`, `POST /api/instances/:id/flow/trace`, `POST /api/flow` (for a pasted config).
 
-## Traffic statistics from an HAProxy log
+## Traffic statistics from an HAProxy or NGINX log
 
-Add instance → **Traffic log** (or **Traffic → From a log file**) accepts HAProxy logs, one or many at once or added one by one, always shown combined (max 20 files per instance, no duplicates; remove any file with its ×). Each is one HAProxy log (`option httplog` / `tcplog`), plain text or `.gz`. It is streamed, never kept: only aggregates are stored in `DATA_DIR/logs` (private, 0600), so a 350 MB log becomes under 1 MB. The default limit is 50 MB per file, so split bigger logs and upload the parts (`LOG_MAX_MB`, up to 500). For bigger logs split them first, the page shows the commands:
+Add instance → **Traffic log** (or **Traffic → From a log file**) accepts HAProxy or NGINX logs, one or many at once or added one by one, always shown combined (max 20 files per instance, no duplicates; remove any file with its ×). Each is one log: HAProxy (`option httplog` / `tcplog`) or NGINX (see below), plain text or `.gz`. It is streamed, never kept: only aggregates are stored in `DATA_DIR/logs` (private, 0600), so a 350 MB log becomes under 1 MB. The default limit is 50 MB per file, so split bigger logs and upload the parts (`LOG_MAX_MB`, up to 500). For bigger logs split them first, the page shows the commands:
 
 ```sh
 tail -n 200000 haproxy.log > part.log          # latest traffic
@@ -200,7 +206,16 @@ split -C 40M -d --additional-suffix=.log haproxy.log part-   # ~40 MB pieces
 gzip -k part-00.log                             # logs shrink about 10x
 ```
 
-You get KPIs, time charts, breakdowns, top URLs/clients, slow requests, errors and server events, filtered by time, frontend, backend, server, status and protocol. Lines that are not in the HAProxy format are skipped and counted. NGINX logs are planned; the parser is isolated for that. Uploads only work for connections added in the UI, and GateLight still never writes to your load balancers.
+You get KPIs, time charts, breakdowns, top URLs/clients, slow requests, errors and server events, filtered by time, frontend, backend, server, status and protocol. Lines that are not in the expected format are skipped and counted.
+
+**NGINX access logs** are understood in the default `combined` format, optionally followed by `$request_time`, `$upstream_response_time` and `$upstream_addr` (as `rt=0.012 urt=0.010 uaddr=10.0.0.5:8080 host=shop.example.com`, or as bare numbers in that order), in the older `common` format, and as one JSON object per line (`log_format … escape=json`). Lines of the NGINX error log are kept as events. Without timing fields the dashboard leaves out the response-time panels and shows status codes instead (requests, URLs, clients and errors all work); with an upstream field you also get per-upstream and per-peer views. A 7 MB, 51,000-line log is processed in well under a second. Query strings and user agents are never stored.
+
+```sh
+tail -n 200000 /var/log/nginx/access.log > part.log     # latest traffic
+awk '$9 ~ /^5/' access.log > access-5xx.log             # only server errors
+```
+
+Uploads only work for connections added in the UI, and GateLight still never writes to your load balancers.
 
 ## Config Forge: assess and rewrite a configuration
 
@@ -231,7 +246,7 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 </tr>
 <tr>
 <td width="50%"><img src="docs/img/config-forge.png" alt="Config Forge: score, switchable changes and the rewritten configuration"><br><sub><b>Config Forge</b>: assess a config and get a rewritten best-practice version, every change explained.</sub></td>
-<td width="50%"></td>
+<td width="50%"><img src="docs/img/events.png" alt="Events: what is down right now, graphs and the change history"><br><sub><b>Events</b>: what is down right now, with graphs and the change history.</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/img/topology-nginx.png" alt="NGINX topology"><br><sub><b>NGINX too</b>: server blocks, locations and upstreams, plus a resizable URL map.</sub></td>
@@ -241,6 +256,10 @@ API: `POST /api/improve` and `POST /api/instances/:id/improve` return the merged
 <td width="50%"><img src="docs/img/traffic-flow-domains.png" alt="Domains: each host name with its ports, redirects, rules and servers with their addresses"><br><sub><b>Domains</b>: domain → listener port → server address and port, with redirects and live status.</sub></td>
 <td width="50%"><img src="docs/img/traffic-flow-diagram.png" alt="Traffic flow diagram: listeners, rules and pools with ports, member IPs and live status"><br><sub><b>Traffic flow</b>: listener → rule → pool with backend IPs and ports, and live / idle / never-used relationships.</sub></td>
 <td width="50%"><img src="docs/img/traffic-flow.png" alt="Try a request: every step, the winning rule and the rewritten path"><br><sub><b>Try a request</b>: follow any URL step by step through the config.</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/img/traffic-nginx.png" alt="Traffic statistics from an NGINX access log"><br><sub><b>NGINX traffic log</b>: status codes, URLs and clients from a plain access log.</sub></td>
+<td width="50%"><img src="docs/img/traffic-haproxy.png" alt="Traffic statistics from an HAProxy log"><br><sub><b>HAProxy traffic log</b>: response times, backends, servers and errors.</sub></td>
 </tr>
 <tr>
 <td width="50%"><img src="docs/img/details.png" alt="Details page for a backend"><br><sub><b>Details</b>: a page per item, not a panel in the way.</sub></td>

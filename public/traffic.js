@@ -26,10 +26,20 @@ const LOG_CMDS = [
   ['Compress a part (logs shrink about 10×; a .gz is accepted)', 'gzip -k haproxy-part.log'],
   ['Check the size before uploading', 'ls -lh haproxy-part*'],
 ];
-function logHelpHtml() {
+const LOG_CMDS_NGINX = [
+  ['Last 200,000 lines (the most recent traffic)', 'tail -n 200000 /var/log/nginx/access.log > access-part.log'],
+  ['Cut into ~40 MB pieces without breaking a line (access-part-00, -01, …)', 'split -C 40M -d --additional-suffix=.log access.log access-part-'],
+  ['Keep one day and hour (the time looks like [10/Nov/2026:08:15:02 +0000])', "grep -F '[10/Nov/2026:08:' access.log > access-8am.log"],
+  ['Only server errors (5xx) from the default combined format', "awk '$9 ~ /^5/' access.log > access-5xx.log"],
+  ['Rotated logs (access.log.1, access.log.2.gz …) can be selected together; a .gz is accepted as it is', 'ls -lh /var/log/nginx/access.log*'],
+  ['Compress a part (logs shrink about 10×)', 'gzip -k access-part.log'],
+];
+const trProduct = () => { const i = (state.instances || []).find((x) => x.id === state.current); return i ? i.type : 'haproxy'; };
+function logHelpHtml(product) {
+  const cmds = (product || trProduct()) === 'nginx' ? LOG_CMDS_NGINX : LOG_CMDS;
   const max = fmtBytes((state.meta && state.meta.logMaxBytes) || 50 * 1048576);
   return `<p class="muted small">Maximum <b>${esc(max)}</b> per file; select several files at once and they are shown combined: plain text (<code>.log</code>, <code>.txt</code>) or gzip (<code>.gz</code>, the limit applies to the compressed size). Only the statistics are kept on the server, never the raw log. Run these where the log lives:</p>
-    <div class="tr-cmds">${LOG_CMDS.map(([t, c]) => `<div><span class="muted small">${esc(t)}</span><span class="tr-cmd"><code>${esc(c)}</code><button type="button" class="btn icon" data-copy="${esc(c)}" title="Copy" aria-label="Copy command">⧉</button></span></div>`).join('')}</div>
+    <div class="tr-cmds">${cmds.map(([t, c]) => `<div><span class="muted small">${esc(t)}</span><span class="tr-cmd"><code>${esc(c)}</code><button type="button" class="btn icon" data-copy="${esc(c)}" title="Copy" aria-label="Copy command">⧉</button></span></div>`).join('')}</div>
     <p class="muted small">Select all the pieces together, or add more later: each file is processed on its own and the statistics are shown <b>combined</b>. The same file cannot be added twice; overlapping periods are added together. Remove a file with its × next to the title.</p>`;
 }
 (function fillAddForm() { const h = document.getElementById('cx-loghelp'); if (h) h.innerHTML = logHelpHtml(); })();
@@ -70,7 +80,7 @@ function trPrepare(d) {
 }
 function trCanUpload() {
   const i = (state.instances || []).find((x) => x.id === state.current);
-  return Boolean(state.meta && state.meta.canManage && i && i.managed && i.type === 'haproxy');
+  return Boolean(state.meta && state.meta.canManage && i && i.managed && (i.type === 'haproxy' || i.type === 'nginx'));
 }
 
 // ------------------------------------------------------------------------------------------------ data selection and aggregation
@@ -236,8 +246,9 @@ function trHeadHtml() {
 }
 function trEmptyHtml() {
   const can = trCanUpload();
-  return `<div class="panel tr-empty-p"><h3>${can ? 'Upload HAProxy logs to see the traffic' : 'No traffic log for this instance'}</h3>
-    <p class="muted">${can ? 'Pick a complete log, or several parts at once, to be shown combined (<code>option httplog</code> / <code>tcplog</code> lines). You get requests, response times, errors, status codes, servers, URLs, clients and more, with filters.' : 'Traffic statistics come from an HAProxy log uploaded to a connection added in the UI (Add instance → Traffic log).'}</p>
+  const nxp = trProduct() === 'nginx';
+  return `<div class="panel tr-empty-p"><h3>${can ? `Upload ${nxp ? 'NGINX' : 'HAProxy'} logs to see the traffic` : 'No traffic log for this instance'}</h3>
+    <p class="muted">${can ? (nxp ? 'Pick a complete access log, or several parts at once (rotated <code>.gz</code> files too), to be shown combined: the default <code>combined</code> format, with or without <code>$request_time</code> / <code>$upstream_*</code> fields, or JSON lines. You get requests, status codes, errors, URLs, clients and more, with filters; response times appear when the log has them.' : 'Pick a complete log, or several parts at once, to be shown combined (<code>option httplog</code> / <code>tcplog</code> lines). You get requests, response times, errors, status codes, servers, URLs, clients and more, with filters.') : `Traffic statistics come from ${nxp ? 'an NGINX access' : 'an HAProxy'} log uploaded to a connection added in the UI (Add instance → Traffic log).`}</p>
     ${can ? '<button class="btn primary" type="button" data-tr-upload>Choose log files</button>' : ''}
     <details class="tr-help" ${can ? 'open' : ''}><summary>Log too big? Split it first, then select all the parts</summary>${logHelpHtml()}</details></div>`;
 }
@@ -258,6 +269,7 @@ function trFiltersHtml(d, f, sel, A) {
 }
 
 function trBody(d, sel, A, S) {
+  const nx = d.product === 'nginx'; const timed = !nx || (d.stats.timed || 0) > 0; const hasUp = !nx || d.keys.some((k) => k.be !== '(no upstream)');
   const spanS = Math.max(1, (sel.to - sel.from) / 1000);
   const p50 = trPercentile(A.hHttp, d.edges, 0.5); const p95 = trPercentile(A.hHttp, d.edges, 0.95); const p99 = trPercentile(A.hHttp, d.edges, 0.99);
   const errN = (A.cls['5xx'] || 0) + (A.cls.abt || 0);
@@ -265,13 +277,13 @@ function trBody(d, sel, A, S) {
   const kpi = (label, value, sub, tip, tone) => `<div class="tr-kpi${tone ? ` ${tone}` : ''}" data-tip="${trTip([tip])}"><span class="tr-kl">${esc(label)}</span><b class="tr-kv">${value}</b><span class="tr-ks">${sub}</span></div>`;
   const kpis = [
     kpi('Requests', fmtInt(A.http), `${fmtInt(A.http / spanS * 60 < 10 ? Math.round(A.http / spanS * 60) : A.http / spanS * 60)}/min avg · peak ${fmtInt(peakMin)}/min`, 'HTTP requests in the selection, and TCP sessions are counted separately.'),
-    kpi('TCP sessions', fmtInt(A.tcp), A.tcp ? `avg ${esc(trMs(A.ttTcp / A.tcp))} long` : 'no TCP traffic', 'Connections to TCP (layer 4) frontends. The time is the whole session.'),
-    kpi('Avg response', trMs(A.http ? A.tt / A.http : null), `median ${trMs(p50)}`, 'Total time per request (HAProxy "Tt"), including slow clients. Median is estimated from the latency histogram.'),
-    kpi('95th percentile', trMs(p95), `99th ${trMs(p99)}`, '95% of requests were faster than this (estimated from the latency histogram).', p95 > 1000 ? 'warn' : ''),
-    kpi('Error rate', trPct(A.http ? errN / A.http : null), `${fmtInt(errN)} × 5xx or aborted`, '5xx responses plus requests that ended without a status (client or server aborted).', errN / (A.http || 1) > 0.02 ? 'bad' : ''),
+    ...(nx ? [] : [kpi('TCP sessions', fmtInt(A.tcp), A.tcp ? `avg ${esc(trMs(A.ttTcp / A.tcp))} long` : 'no TCP traffic', 'Connections to TCP (layer 4) frontends. The time is the whole session.')]),
+    ...(!timed ? [] : [kpi('Avg response', trMs(A.http ? A.tt / A.http : null), `median ${trMs(p50)}`, 'Total time per request (HAProxy "Tt"), including slow clients. Median is estimated from the latency histogram.'),
+    kpi('95th percentile', trMs(p95), `99th ${trMs(p99)}`, '95% of requests were faster than this (estimated from the latency histogram).', p95 > 1000 ? 'warn' : '')]),
+    kpi('Error rate', trPct(A.http ? errN / A.http : null), `${fmtInt(errN)} × 5xx${nx ? '' : ' or aborted'}`, '5xx responses plus requests that ended without a status (client or server aborted).', errN / (A.http || 1) > 0.02 ? 'bad' : ''),
     kpi('Data sent', fmtBytes(A.bytes), `${fmtBytes(A.bytes / spanS)}/s avg`, 'Bytes returned to clients (HAProxy "bytes_read").'),
     kpi('Unique clients', fmtInt(d.stats.uniqueClients), d.stats.uniqueApprox ? 'whole log, approximate' : 'whole log', 'Distinct client IP addresses in the whole log (not narrowed by the filters).'),
-    kpi('Peak concurrency', fmtInt(A.act), `frontend ${fmtInt(A.fe)} · backend ${fmtInt(A.be)}`, 'Highest number of simultaneous connections the proxy reported in a log line (process / frontend / backend).'),
+    ...(nx ? [] : [kpi('Peak concurrency', fmtInt(A.act), `frontend ${fmtInt(A.fe)} · backend ${fmtInt(A.be)}`, 'Highest number of simultaneous connections the proxy reported in a log line (process / frontend / backend).')]),
   ];
   const cards = [];
   // 1. requests over time
@@ -280,11 +292,11 @@ function trBody(d, sel, A, S) {
   cards.push(trCard('Requests over time', trTimeChart('req', S, reqSeries, { type: 'stack', brush: true, title: 'Requests over time' }), { span: 12, sub: `per ${S.step >= 3600000 ? `${S.step / 3600000} h` : `${S.step / 60000} min`} · drag to zoom into a period` }));
   // 2. response time + throughput
   const avgTt = S.tt.map((v, i) => (S.http[i] ? v / S.http[i] : 0)); const p95s = S.hist.map((h) => trPercentile(h, d.edges, 0.95) || 0); const avgTr = S.trs.map((v, i) => (S.trn[i] ? v / S.trn[i] : 0));
-  cards.push(trCard('Response time', trTimeChart('rt', S, [{ label: '95th percentile', color: '#f87171', vals: p95s }, { label: 'Average (total)', color: '#22d3ee', vals: avgTt }, { label: 'Average server time', color: '#34d399', vals: avgTr }], { type: 'line', fmt: trMs, title: 'Response time' }), { sub: 'total time per request; server time = until the first response byte' }));
+  if (timed) cards.push(trCard('Response time', trTimeChart('rt', S, [{ label: '95th percentile', color: '#f87171', vals: p95s }, { label: 'Average (total)', color: '#22d3ee', vals: avgTt }, { label: 'Average server time', color: '#34d399', vals: avgTr }], { type: 'line', fmt: trMs, title: 'Response time' }), { sub: 'total time per request; server time = until the first response byte' }));
   cards.push(trCard('Throughput', trTimeChart('bw', S, [{ label: 'Data sent to clients per second', color: '#818cf8', vals: S.bytes.map((v) => v / (S.step / 1000)) }], { type: 'area', fmt: (v) => `${fmtBytes(v)}/s`, title: 'Throughput' }), { sub: 'bytes per second' }));
   // 3. errors + concurrency
   cards.push(trCard('Error rate over time', trTimeChart('err', S, [{ label: '5xx + aborted (% of requests)', color: '#f87171', vals: S.err.map((v, i) => (S.http[i] ? (v / S.http[i]) * 100 : 0)) }, { label: '4xx (% of requests)', color: '#fbbf24', vals: S.cls['4xx'].map((v, i) => (S.http[i] ? (v / S.http[i]) * 100 : 0)) }], { type: 'line', fmt: (v) => `${v.toFixed(v < 10 ? 1 : 0)}%`, title: 'Error rate' }), { sub: 'share of HTTP requests' }));
-  cards.push(trCard('Concurrent connections', trTimeChart('conc', S, [{ label: 'Process (all)', color: '#22d3ee', vals: S.act }, { label: 'Frontend', color: '#818cf8', vals: S.fe }, { label: 'Backend', color: '#34d399', vals: S.be }], { type: 'line', title: 'Concurrent connections' }), { sub: 'peak per period, as reported by HAProxy' }));
+  if (!nx) cards.push(trCard('Concurrent connections', trTimeChart('conc', S, [{ label: 'Process (all)', color: '#22d3ee', vals: S.act }, { label: 'Frontend', color: '#818cf8', vals: S.fe }, { label: 'Backend', color: '#34d399', vals: S.be }], { type: 'line', title: 'Concurrent connections' }), { sub: 'peak per period, as reported by HAProxy' }));
   // 4. donuts
   const stSegs = HTTP_CLASSES.map((c) => ({ label: CLS_LABEL[c], value: A.cls[c] || 0, color: CLS_COLOR[c] })).filter((s) => s.value);
   cards.push(`<div class="span-4 tr-dn">${donutCard('Status classes', stSegs, { big: fmtInt(A.http), sub: 'requests' }, 'HTTP responses by status class')}</div>`);
@@ -296,34 +308,40 @@ function trBody(d, sel, A, S) {
   // 5. backends, servers
   const bes = trGroup(d, A, 'be'); const srvs = trGroup(d, A, 'srv').filter((x) => !/^<.*>$/.test(x.name) || x.n);
   const right = (x) => `${x.ttn ? `<em>${esc(trMs(x.tt / x.ttn))}</em>` : ''}${x.err ? `<em class="bad">${esc(trPct(x.err / x.n))} err</em>` : ''}`;
-  cards.push(trCard(`${lbl('backend')}s`, trHBars(bes.slice(0, 12).map((x) => ({ label: x.name, value: x.n, right: right(x), tip: `${x.name}\n${fmtInt(x.n)} requests\n${fmtBytes(x.bytes)} sent\navg ${trMs(x.ttn ? x.tt / x.ttn : null)}\nerrors ${fmtInt(x.err)}` }))), { sub: 'requests · avg time · error rate' }));
-  cards.push(trCard(`${lbl('server')}s`, trHBars(srvs.slice(0, 12).map((x) => ({ label: x.name, value: x.n, color: x.err / x.n > 0.02 ? 'var(--red)' : 'var(--green)', right: right(x), tip: `${x.name}\n${fmtInt(x.n)} requests\n${fmtBytes(x.bytes)} sent\navg ${trMs(x.ttn ? x.tt / x.ttn : null)}\nerrors ${fmtInt(x.err)}` }))), { sub: 'load share · avg time · error rate' }));
+  if (hasUp) cards.push(trCard(`${lbl('backend')}s`, trHBars(bes.slice(0, 12).map((x) => ({ label: x.name, value: x.n, right: right(x), tip: `${x.name}\n${fmtInt(x.n)} requests\n${fmtBytes(x.bytes)} sent\navg ${trMs(x.ttn ? x.tt / x.ttn : null)}\nerrors ${fmtInt(x.err)}` }))), { sub: 'requests · avg time · error rate' }));
+  if (hasUp) cards.push(trCard(`${lbl('server')}s`, trHBars(srvs.slice(0, 12).map((x) => ({ label: x.name, value: x.n, color: x.err / x.n > 0.02 ? 'var(--red)' : 'var(--green)', right: right(x), tip: `${x.name}\n${fmtInt(x.n)} requests\n${fmtBytes(x.bytes)} sent\navg ${trMs(x.ttn ? x.tt / x.ttn : null)}\nerrors ${fmtInt(x.err)}` }))), { sub: 'load share · avg time · error rate' }));
   // 6. frontends, latency histogram, tcp sessions
   const fes = trGroup(d, A, 'fe');
   cards.push(trCard(`${lbl('frontend')}s`, trHBars(fes.slice(0, 8).map((x) => ({ label: x.name, value: x.n, color: 'var(--cyan)', right: `<em>${esc(fmtBytes(x.bytes))}</em>` }))), { span: 4, sub: 'requests · data sent' }));
+  if (timed) {
   const labels = d.edges.map((e) => (e < 1000 ? `${e}ms` : `${e / 1000}s`)); labels.push(`>${labels[labels.length - 1]}`);
-  const hist = (h, color) => h.map((v, i) => ({ label: i ? `<${labels[i]}`.replace('<>', '>') : '<1ms', value: v, color, tip: `${i ? `${labels[i - 1]} to ${labels[i]}` : 'under 1ms'}: ${fmtInt(v)}` }));
-  const hh = hist(A.hHttp, '#22d3ee'); hh[hh.length - 1].label = labels[labels.length - 1];
-  cards.push(trCard('Response time distribution', trColChart('hist', hh, { title: 'Response time distribution', h: 190 }), { span: 4, sub: 'HTTP requests by total time' }));
-  if (A.tcp) { const th = hist(A.hTcp, '#818cf8'); th[th.length - 1].label = labels[labels.length - 1]; cards.push(trCard('TCP session length', trColChart('hist2', th, { title: 'TCP session length', h: 190 }), { span: 4, sub: 'sessions by duration' })); } else cards.push(trCard('Queue and connect time', trTimeChart('qc', S, [{ label: 'Avg time in queue', color: '#fbbf24', vals: S.tw.map((v, i) => (S.http[i] + S.tcp[i] ? v / (S.http[i] + S.tcp[i]) : 0)) }, { label: 'Avg connect time', color: '#a78bfa', vals: S.tc.map((v, i) => (S.http[i] + S.tcp[i] ? v / (S.http[i] + S.tcp[i]) : 0)) }], { type: 'line', fmt: trMs, h: 190, title: 'Queue and connect time' }), { span: 4, sub: 'waiting for a free server' }));
+    const hist = (h, color) => h.map((v, i) => ({ label: i ? `<${labels[i]}`.replace('<>', '>') : '<1ms', value: v, color, tip: `${i ? `${labels[i - 1]} to ${labels[i]}` : 'under 1ms'}: ${fmtInt(v)}` }));
+    const hh = hist(A.hHttp, '#22d3ee'); hh[hh.length - 1].label = labels[labels.length - 1];
+    cards.push(trCard('Response time distribution', trColChart('hist', hh, { title: 'Response time distribution', h: 190 }), { span: 4, sub: 'HTTP requests by total time' }));
+    if (A.tcp) { const th = hist(A.hTcp, '#818cf8'); th[th.length - 1].label = labels[labels.length - 1]; cards.push(trCard('TCP session length', trColChart('hist2', th, { title: 'TCP session length', h: 190 }), { span: 4, sub: 'sessions by duration' })); } else if (!nx) cards.push(trCard('Queue and connect time', trTimeChart('qc', S, [{ label: 'Avg time in queue', color: '#fbbf24', vals: S.tw.map((v, i) => (S.http[i] + S.tcp[i] ? v / (S.http[i] + S.tcp[i]) : 0)) }, { label: 'Avg connect time', color: '#a78bfa', vals: S.tc.map((v, i) => (S.http[i] + S.tcp[i] ? v / (S.http[i] + S.tcp[i]) : 0)) }], { type: 'line', fmt: trMs, h: 190, title: 'Queue and connect time' }), { span: 4, sub: 'waiting for a free server' }));
+  } else {
+  const codes = trAggDim(d, 'code', sel);
+  const CODE_COL = (v) => (v[0] === '2' ? 'var(--green)' : v[0] === '3' ? 'var(--cyan)' : v[0] === '4' ? 'var(--amber)' : 'var(--red)');
+    cards.push(trCard('Status codes', trHBars(codes.slice(0, 10).map((x) => ({ label: x.v, value: x.n, color: CODE_COL(x.v), right: `<em>${esc(trPct(x.n / (A.http || 1)))}</em>`, tip: `${x.v}: ${fmtInt(x.n)} requests` }))), { span: 8, sub: 'responses by exact status code' }));
+  }
   // 7. heatmap + terminations
-  cards.push(trCard('Requests by hour', trHeat(d, sel, A), { sub: `${esc(lbl('backend').toLowerCase())} × hour of day` }));
+  cards.push(trCard('Requests by hour', trHeat(d, sel, A, hasUp ? 'be' : 'fe'), { sub: `${esc(lbl(hasUp ? 'backend' : 'frontend').toLowerCase())} × hour of day` }));
   const terms = trAggDim(d, 'term', sel);
-  cards.push(trCard('How sessions ended', trHBars(terms.slice(0, 10).map((x) => ({ label: x.v, value: x.n, color: x.v[0] === '-' || x.v[0] === 'L' ? 'var(--green)' : 'var(--amber)', right: `<em>${esc(trTerm(x.v))}</em>`, tip: `${x.v}: ${trTerm(x.v)}\n${fmtInt(x.n)} sessions` }))), { sub: 'termination state: who ended it, and when' }));
+  if (!nx) cards.push(trCard('How sessions ended', trHBars(terms.slice(0, 10).map((x) => ({ label: x.v, value: x.n, color: x.v[0] === '-' || x.v[0] === 'L' ? 'var(--green)' : 'var(--amber)', right: `<em>${esc(trTerm(x.v))}</em>`, tip: `${x.v}: ${trTerm(x.v)}\n${fmtInt(x.n)} sessions` }))), { sub: 'termination state: who ended it, and when' }));
   // 8. paths, slowest
   const paths = trAggPaths(d, sel); const tot = A.http || 1;
-  cards.push(trCard('Top URLs', trTable(['URL', 'Requests', 'Share', 'Avg', 'Max', 'Errors', 'Data'], paths.slice(0, 12).map((p) => `<tr><td class="mono pth" title="${esc(p.path)}">${esc(p.path)}</td><td class="num">${fmtInt(p.n)}</td><td class="num">${trPct(p.n / tot)}</td><td class="num">${esc(trMs(p.tt / p.n))}</td><td class="num">${esc(trMs(p.max))}</td><td class="num ${p.err ? 'bad' : ''}">${p.err ? trPct(p.err / p.n) : '–'}</td><td class="num">${esc(fmtBytes(p.bytes))}</td></tr>`)), { sub: 'whole log · ids in the URL are grouped (:n, :id)' }));
+  cards.push(trCard('Top URLs', trTable(['URL', 'Requests', 'Share', 'Avg', 'Max', 'Errors', 'Data'], paths.slice(0, 12).map((p) => `<tr><td class="mono pth" title="${esc(p.path)}">${esc(p.path)}</td><td class="num">${fmtInt(p.n)}</td><td class="num">${trPct(p.n / tot)}</td><td class="num">${timed ? esc(trMs(p.tt / p.n)) : '–'}</td><td class="num">${timed ? esc(trMs(p.max)) : '–'}</td><td class="num ${p.err ? 'bad' : ''}">${p.err ? trPct(p.err / p.n) : '–'}</td><td class="num">${esc(fmtBytes(p.bytes))}</td></tr>`)), { sub: 'whole log · ids in the URL are grouped (:n, :id)' }));
   const slow = d.slow.filter((r) => sel.keyOk[r[2]] && r[0] >= sel.from && r[0] < sel.to).slice(0, 12);
-  cards.push(trCard('Slowest requests', trTable(['When', 'Time', 'Status', 'Request', 'Server'], slow.map((r) => `<tr><td class="nw">${esc(trTimeS(r[0]))}</td><td class="num">${esc(trMs(r[1]))}</td><td class="num"><span class="tr-st st-${esc(String(r[3])[0])}">${esc(r[3] < 0 ? 'abort' : r[3])}</span></td><td class="mono pth" title="${esc(`${r[4]} ${r[5]}`)}">${esc(r[4])} ${esc(r[5])}</td><td class="nw">${esc(d.keys[r[2]].srv)}</td></tr>`)), { sub: 'longest total time' }));
+  if (timed) cards.push(trCard('Slowest requests', trTable(['When', 'Time', 'Status', 'Request', 'Server'], slow.map((r) => `<tr><td class="nw">${esc(trTimeS(r[0]))}</td><td class="num">${esc(trMs(r[1]))}</td><td class="num"><span class="tr-st st-${esc(String(r[3])[0])}">${esc(r[3] < 0 ? 'abort' : r[3])}</span></td><td class="mono pth" title="${esc(`${r[4]} ${r[5]}`)}">${esc(r[4])} ${esc(r[5])}</td><td class="nw">${esc(d.keys[r[2]].srv)}</td></tr>`)), { sub: 'longest total time' }));
   // 9. clients, hosts
   const cl = trAggClients(d, sel);
   cards.push(trCard('Top clients', trTable(['Client', 'Requests', 'Share', 'Data', 'Errors'], cl.slice(0, 12).map((c) => `<tr><td class="mono">${esc(c.ip)}</td><td class="num">${fmtInt(c.n)}</td><td class="num">${trPct(c.n / (A.n || 1))}</td><td class="num">${esc(fmtBytes(c.bytes))}</td><td class="num ${c.err ? 'bad' : ''}">${c.err ? fmtInt(c.err) : '–'}</td></tr>`)), { sub: 'whole log' }));
   const hosts = trAggDim(d, 'host', sel);
-  cards.push(trCard('Sites and origins', trHBars(hosts.slice(0, 10).map((x) => ({ label: x.v, value: x.n, color: 'var(--indigo)', right: x.err ? `<em class="bad">${esc(trPct(x.err / x.n))} err</em>` : '' })), {}) + (hosts.length ? '' : ''), { sub: 'from the captured request header (capture request header …)' }));
+  if (!nx || hosts.length) cards.push(trCard('Sites and origins', trHBars(hosts.slice(0, 10).map((x) => ({ label: x.v, value: x.n, color: 'var(--indigo)', right: x.err ? `<em class="bad">${esc(trPct(x.err / x.n))} err</em>` : '' })), {}) + (hosts.length ? '' : ''), { sub: d.product === 'nginx' ? 'from the Host header or $host in the log format' : 'from the captured request header (capture request header …)' }));
   // 10. error samples, events
   const errs = d.errors.filter((r) => sel.keyOk[r[1]] && r[0] >= sel.from && r[0] < sel.to).slice(-12).reverse();
   cards.push(trCard('Recent errors', trTable(['When', 'Status', 'Request', 'Server', 'Ended'], errs.map((r) => `<tr><td class="nw">${esc(trTimeS(r[0]))}</td><td class="num"><span class="tr-st st-5">${esc(r[2] < 0 ? 'abort' : r[2])}</span></td><td class="mono pth" title="${esc(`${r[3]} ${r[4]}`)}">${esc(r[3])} ${esc(r[4])}</td><td class="nw">${esc(d.keys[r[1]].srv)}</td><td class="nw" title="${esc(trTerm(r[6]))}">${esc(r[6])}</td></tr>`), { empty: '✓ No 5xx or aborted requests in the sample' }), { sub: '5xx responses and aborted requests' }));
-  cards.push(trCard('Server events and connection errors', trEvents(d, sel), { sub: 'health changes and connection-level failures' }));
+  cards.push(trCard(nx ? 'Error log events' : 'Server events and connection errors', trEvents(d, sel), { sub: nx ? 'lines of the NGINX error log, when included' : 'health changes and connection-level failures' }));
   // 11. data quality
   const st = d.stats;
   cards.push(trCard('About this data', `<div class="tr-dq"><div><b>${fmtInt(st.lines)}</b><span>lines read</span></div><div><b>${fmtInt(st.http + st.tcp)}</b><span>requests understood</span></div><div><b>${fmtInt(st.conn + st.events)}</b><span>connection errors &amp; events</span></div><div class="${st.unparsed ? 'warn' : ''}"><b>${fmtInt(st.unparsed)}</b><span>lines skipped</span></div><div><b>${esc(d.bucketMs >= 3600000 ? `${d.bucketMs / 3600000} h` : `${d.bucketMs / 60000} min`)}</b><span>time resolution</span></div></div>${d.unparsed && d.unparsed.length ? `<details class="tr-help"><summary>Skipped lines (masked samples)</summary>${d.unparsed.map((u) => `<div class="mono small tr-skip">${fmtInt(u.n)} × ${esc(u.sample)}</div>`).join('')}</details>` : ''}<p class="muted small">Skipped lines are lines that are not in HAProxy's http or tcp log format, for example truncated lines. They do not affect the numbers above. Top URLs, clients and sites cover the whole log; time filters use the log's own timestamps.</p>`, { span: 12 }));
@@ -339,9 +357,9 @@ function trAggClients(d, sel) {
   for (const r of d.clients.rows) { if (!sel.keyOk[r[1]]) continue; let x = m.get(r[0]); if (!x) { x = { ip: d.clients.values[r[0]], n: 0, bytes: 0, err: 0 }; m.set(r[0], x); } x.n += r[2]; x.bytes += r[3]; x.err += r[4]; }
   return [...m.values()].sort((a, b) => b.n - a.n);
 }
-function trHeat(d, sel, A) {
+function trHeat(d, sel, A, by = 'be') {
   const F = d.facts; const m = new Map(); const hours = new Set();
-  for (const i of sel.rows) { const be = d.keys[F.k[i]].be; const h = Math.floor(d._ts[i] / 3600000); hours.add(h); let r = m.get(be); if (!r) { r = new Map(); m.set(be, r); } r.set(h, (r.get(h) || 0) + F.n[i]); }
+  for (const i of sel.rows) { const be = d.keys[F.k[i]][by]; const h = Math.floor(d._ts[i] / 3600000); hours.add(h); let r = m.get(be); if (!r) { r = new Map(); m.set(be, r); } r.set(h, (r.get(h) || 0) + F.n[i]); }
   const hs = [...hours].sort((a, b) => a - b).slice(-48); if (!hs.length) return '<div class="tr-empty">No data for this selection</div>';
   const rowsB = [...m.entries()].map(([be, r]) => ({ be, r, tot: sumArr([...r.values()]) })).sort((a, b) => b.tot - a.tot).slice(0, 10);
   const max = Math.max(...rowsB.flatMap((x) => [...x.r.values()]), 1);
@@ -354,7 +372,7 @@ function trEvents(d, sel) {
   const noiseTotal = sumArr(noise.n);
   const list = ev.slice(0, 8).map((e) => `<div class="tr-ev ${e[1]}"><i></i><span class="nw mono small">${esc(trTimeS(e[0]))}</span><span>${esc(e[2])}</span></div>`).join('');
   const conn = noiseTotal ? `<div class="tr-conn"><b>${fmtInt(noiseTotal)}</b> connection errors${msgs.length ? `: ${msgs.map((m) => `${esc(m[0])} (${fmtInt(m[1])})`).join(', ')}` : ''}${clients.length ? `<div class="muted small">most from ${clients.map((c) => `<span class="mono">${esc(c[0])}</span> (${fmtInt(c[1])})`).join(', ')}</div>` : ''}</div>` : '';
-  return `${list || '<div class="tr-empty">✓ No server up/down events in this period</div>'}${d.eventCount > 8 ? `<div class="muted small">${fmtInt(d.eventCount - Math.min(8, ev.length))} more in the log</div>` : ''}${conn}`;
+  return `${list || `<div class="tr-empty">✓ No ${d.product === 'nginx' ? 'error-log events' : 'server up/down events'} in this period</div>`}${d.eventCount > 8 ? `<div class="muted small">${fmtInt(d.eventCount - Math.min(8, ev.length))} more in the log</div>` : ''}${conn}`;
 }
 
 // ------------------------------------------------------------------------------------------------ interaction

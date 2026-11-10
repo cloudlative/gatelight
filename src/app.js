@@ -17,7 +17,7 @@ const { detect: detectVersion } = require('./validate/version');
 const { buildFlows, trace: traceFlow } = require('./flow');
 const { LogStore } = require('./logs/store');
 const { ingestStream, IngestError } = require('./logs/ingest');
-const { demoResultText } = require('./logs/demoLog');
+const { demoResultText, demoNginxResultText } = require('./logs/demoLog');
 const { renderMetrics } = require('./metrics');
 const { securityHeaders, rateLimit } = require('./security');
 const { createAuth } = require('./login');
@@ -335,7 +335,6 @@ function createApp(settings) {
     if (!ui.enabled) return res.status(403).json({ error: 'Uploading logs is disabled. Start GateLight with ALLOW_UI_INSTANCES=true.' });
     const p = req.poller;
     if (!p.instance.managed) return res.status(403).json({ error: 'Logs can only be uploaded to connections added in the UI.' });
-    if (p.instance.type !== 'haproxy') return res.status(400).json({ error: 'Only HAProxy logs are supported for now (NGINX logs are coming).' });
     return next();
   };
   api.put('/instances/:id/logs', withInstance, logGuard, rateLimit({ max: 10 }), async (req, res) => {
@@ -346,9 +345,9 @@ function createApp(settings) {
     if (ingesting >= 2) return res.status(429).json({ error: 'Another log is being processed. Try again in a few seconds.' });
     ingesting++;
     try {
-      const name = decodeURIComponent(String(req.query.filename || req.headers['x-filename'] || 'haproxy.log')).replace(/[^\w .()-]/g, '_').slice(0, 120);
+      const name = decodeURIComponent(String(req.query.filename || req.headers['x-filename'] || 'access.log')).replace(/[^\w .()-]/g, '_').slice(0, 120);
       const t0 = Date.now();
-      const result = await ingestStream(req, { maxBytes: max, filename: name });
+      const result = await ingestStream(req, { maxBytes: max, filename: name, product: req.poller.instance.type === 'nginx' ? 'nginx' : 'haproxy' });
       const replace = req.query.mode === 'replace';
       const added = logs.add(req.params.id, result, { replace });
       touch(req.poller);
@@ -365,7 +364,7 @@ function createApp(settings) {
   api.get('/instances/:id/logs', withInstance, rateLimit({ max: 60 }), (req, res) => {
     try {
       const stored = logs.raw(req.params.id);
-      const raw = stored !== null ? stored : (req.poller.instance.demo && req.poller.instance.type === 'haproxy' ? demoResultText() : null); // demo mode shows a synthetic log
+      const raw = stored !== null ? stored : (req.poller.instance.demo && req.poller.instance.type === 'haproxy' ? demoResultText() : req.poller.instance.demo && req.poller.instance.type === 'nginx' ? demoNginxResultText() : null); // demo mode shows a synthetic log
       if (req.query.meta) { if (raw === null) return res.status(404).json({ error: 'No traffic log has been uploaded for this instance.' }); const j = JSON.parse(raw); return res.json({ generated: j.generated, source: j.source, range: j.range, stats: j.stats, bucketMs: j.bucketMs }); }
       if (raw === null) return res.status(404).json({ error: 'No traffic log has been uploaded for this instance.' });
       res.set('Cache-Control', 'no-store'); return res.type('application/json').send(raw);

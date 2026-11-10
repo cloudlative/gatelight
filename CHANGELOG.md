@@ -3,6 +3,14 @@
 ## Unreleased
 
 ### Added
+- **Traffic statistics for NGINX**: upload NGINX access logs (default `combined` format, optionally with `$request_time`, `$upstream_response_time` and `$upstream_addr`, the older `common` format, or JSON lines) and get the same dashboard as for HAProxy: requests, status codes, errors, URLs, clients, throughput, and, when the log has them, response times and per-upstream views. Without timing fields the response-time panels are left out. Error-log lines become events. Log-only NGINX instances are supported, and the demo has a synthetic NGINX log. Query strings and user agents are never stored.
+- **NGINX request-handling security checks** in Config Forge and the validator (`sec-nginx-*`): SSRF through variables in `proxy_pass`, Host header from the client, CR/LF injection through `$uri` or loose regex captures, bypassable Origin/Referer regexes, `valid_referers none`, multi-line header values. Variables set by `map` / `geo` and `internal` locations are exempt; fixes are version-aware. Verified against the Gixy test suite (every flawed sample flagged, no false positives on the correct ones).
+- **Events page**: a *Right now* section (servers and pools that are down or out of rotation, with how long and the check result), graphs (servers up/down over 24 h, downtime by server, flapping, failed health checks, changes by level) and the history, which no longer lists "started monitoring" restart markers as changes.
+- **Overview in levels**: a status banner with a server-state bar and quick actions, then *Needs attention*, *Performance* and *System*.
+- **Full screen** for the Topology mind map and URL map (independently), Services, Traffic flow tabs, Config and Config Forge results.
+- **Modify** button on each saved connection in *Add instance*; the config upload shows "No file attached" / "✓ N files attached".
+- **Topology**: new node icons (a rounded badge with a state-coloured ring and a glyph: entry point, pool, server, undefined backend; dashed for L4 and orphans, a glow for problems), a grouped toolbar (filters, toggle chips, one segmented action bar, a quiet legend row) and a tidier URL map. **Traffic flow**: compact header with "How to read this", a request form with a primary Trace button, summary tiles, tabs and filters in one bar, and refreshed domain cards.
+- Polished Add instance, Settings, header and footer layouts; tooltips follow the theme and wrap inside their box.
 - **Validate** page and engine: version-aware validation of HAProxy (1.7–3.4) and NGINX configurations against the official documentation, with version-dependent recommendations. Knowledge bases are generated from the manuals (`npm run kb:build`).
 - **Traffic flow** page: listener port → backend port map (TLS terminate / re-encrypt / passthrough, HAProxy omitted-port and `+N` rules, check-only `port`), URI map with rewrite chains and examples, a diagram, a "Try a request" tracer, and routing findings (shadowed rules, check-port mismatch, TLS/port mismatch, self-loop, NGINX trailing-slash and `rewrite … break`). Port and URI details also appear in Topology tooltips and the rule inspector.
 - **L7 / L4 in the topology**: every frontend and pool is labelled L7 (HTTP) or L4 (TCP); L4 nodes have a dashed outline, a layer filter and a tooltip explaining what that layer can and cannot see (no paths, headers or rewrites at L4). Also in the tree, URL map, rule inspector and Traffic flow page. The HAProxy example now includes a TCP (MQTT) frontend.
@@ -27,6 +35,7 @@
 - Read-only toward load balancers is now enforced in code: only `GET`/`HEAD` (no body) to servers, only `show stat` / `show info` on the HAProxy Runtime API, tests prevent any other write path.
 
 ### Changed
+- Filters also reset for Config Forge (category, severity, kind), the Services sort order and the Graphs time window; the Overview *Audit findings* card is labelled to match the nav badge, and Config Forge lists more checks than the audit alone.
 - Filters now reset when you navigate: leaving a page (or switching instance) clears that page's search, status, layer, severity and focus filters, so coming back never shows a half-filtered list. Links that open a page with a preset filter (for example an Overview card) still apply it.
 - The app header no longer shows the tagline (it stays on the sign-in page and the website).
 

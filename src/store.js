@@ -86,7 +86,7 @@ function validateInput(body, ctx, existing) {
   const cfgUrls = rawUrls.map((u) => str(u, 2048)).filter(Boolean).slice(0, 50).map((u) => checkUrl('Config URL', u, ctx.allowedHosts));
   if (cfgUrls.length) def.configUrls = [...new Set(cfgUrls)];
   // A HAProxy log is uploaded right after the instance is created; it can be the instance's only content.
-  if (type === 'haproxy' && b.logOnly === true) def.logOnly = true;
+  if (b.logOnly === true) def.logOnly = true;
   if (type === 'nginx' && b.probe !== undefined) def.probe = Boolean(b.probe);
   // Config uploaded in the browser (replaces the old "put a file in config/" method). Stored with the instance.
   let files = cleanFiles(b.configFiles);

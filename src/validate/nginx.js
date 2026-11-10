@@ -16,6 +16,7 @@ const { suggest } = require('./suggest');
 const { NGINX_PARAM_SINCE } = require('./curated');
 const { astFromFiles } = require('../nginxConfig');
 const { recommendNginx } = require('./recommendNginx');
+const { securityNginx } = require('./securityNginx');
 
 const THIRD_PARTY = /^(lua_|.*_by_lua|more_|brotli|modsecurity|pagespeed|vhost_traffic|vts_|testcookie_|upload_|echo_|redis2?_|srcache_|set_misc|encrypted_session|array_var|form_input|iconv_|rds_|xss_|dav_ext|fancyindex|geoip2_|auth_ldap|ldap_|vod_|rtmp|application|play|record|push_stream|nchan|naxsi|subs_filter|substitutions|sorted_args|opentracing|otel_|zstd|auth_pam|shib_|ajp_|ngx_|jwt_|ssl_ct|sticky|dynamic_etag|cache_purge|proxy_cache_purge|accounting|auth_digest|bot_|captcha|clojure|cookie_flag|dns_|drizzle|eval|fips|geoip_|graphite|hmac|http_|js_|keyval|lower|mp4_|njs|perl_|process_|recaptcha|replace_filter|secure_token|session_log|shibboleth|sts_|upstream_|waf_|zone_sync)/;
 const DUPLICATE_SENSITIVE = new Set(['root', 'alias', 'client_max_body_size', 'keepalive_timeout', 'sendfile', 'tcp_nopush', 'tcp_nodelay', 'default_type', 'server_tokens', 'ssl_protocols', 'ssl_ciphers', 'ssl_prefer_server_ciphers', 'ssl_session_timeout', 'proxy_pass', 'proxy_http_version', 'proxy_read_timeout', 'proxy_connect_timeout', 'proxy_send_timeout', 'worker_processes', 'worker_connections', 'user', 'pid', 'gzip', 'charset', 'resolver_timeout', 'error_log_tag', 'client_body_timeout', 'client_header_timeout', 'send_timeout', 'sendfile_max_chunk', 'types_hash_max_size', 'server_names_hash_bucket_size', 'underscores_in_headers']);
@@ -398,6 +399,7 @@ function analyzeNginx(input, { version, build, notes: loadNotes } = {}) {
 
   const model = { ast, files: loaded, defs };
   recommendNginx({ ast, target, add, kb, V, defs, buildInfo, model });
+  securityNginx({ ast, target, add, V });
   findings.sort((a, b) => (a.file === b.file ? (a.line || 0) - (b.line || 0) : String(a.file).localeCompare(String(b.file))));
   return { findings, model: { files: loaded.map((f) => f.name) }, target: { requested, version: target, note }, kb: { generated: kb.generated, source: kb.source, latest: kb.latest }, hasSyntaxErrors };
 }

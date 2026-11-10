@@ -90,7 +90,7 @@ function createAggregator(opts = {}) {
   const slow = []; const errors = []; const events = []; let eventCount = 0;
   const noise = new Map();              // bucket -> n  (connection-level errors such as SSL handshake failures)
   const noiseMsgs = new Map(); const noiseClients = new TopMap(300);
-  const st = { lines: 0, http: 0, tcp: 0, conn: 0, events: 0, unparsed: 0, ssl: 0, bytes: 0 };
+  const st = { lines: 0, http: 0, tcp: 0, conn: 0, events: 0, unparsed: 0, ssl: 0, bytes: 0, timed: 0 };
   const unparsed = new Map();
   let minT = Infinity; let maxT = -Infinity; let year = new Date().getUTCFullYear();
 
@@ -114,7 +114,7 @@ function createAggregator(opts = {}) {
     if (r.act > row[C.act]) row[C.act] = r.act; if (r.cfe > row[C.fe]) row[C.fe] = r.cfe; if (r.cbe > row[C.be]) row[C.be] = r.cbe; if (r.csv > row[C.srvc]) row[C.srvc] = r.csv;
     if (r.sq > row[C.sq]) row[C.sq] = r.sq; if (r.bq > row[C.bq]) row[C.bq] = r.bq;
     row[C.retr] += r.retr; row[C.abn] += abn; if (cls === 'abt') row[C.abt]++;
-    row[COLS.length + histBin(tt)]++;
+    if (r.timed !== false) { row[COLS.length + histBin(tt)]++; st.timed++; } // NGINX logs without $request_time carry no timing at all
 
     const hour = Math.floor(r.t / 3600000);
     const bytes = r.bytes > 0 ? r.bytes : 0; const err = cls === '5xx' || cls === 'abt' || abn ? 1 : 0;
@@ -257,7 +257,7 @@ function createAggregator(opts = {}) {
     };
   }
 
-  return { push, finish, stats: st };
+  return { push, finish, stats: st, addRequest, addEvent, miss };
 }
 
 /** Does this sample of lines look like an HAProxy log? (share of lines that parse). */

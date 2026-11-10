@@ -8,16 +8,20 @@
 const zlib = require('zlib');
 const { pipeline, Readable } = require('stream');
 const { StringDecoder } = require('string_decoder');
-const { createAggregator } = require('./haproxy');
+const haproxy = require('./haproxy');
+const nginx = require('./nginx');
 
 class IngestError extends Error { constructor(code, message, status = 422) { super(message); this.code = code; this.status = status; } }
 
 const SNIFF_LINES = 200;
 const mb = (b) => `${Math.round(b / 1048576)} MB`;
-const NOT_HAPROXY = 'This does not look like an HAProxy log. Expected lines such as "Nov 10 06:33:22 host haproxy[123]: 1.2.3.4:5678 [10/Nov/2026:06:33:22.359] frontend backend/server 0/0/0/165/165 200 453 - - ---- 1/1/0/0/0 0/0 \\"GET / HTTP/1.1\\"" (option httplog or tcplog). NGINX access logs are not supported yet.';
+const NOT_HAPROXY = 'This does not look like an HAProxy log. Expected lines such as "Nov 10 06:33:22 host haproxy[123]: 1.2.3.4:5678 [10/Nov/2026:06:33:22.359] frontend backend/server 0/0/0/165/165 200 453 - - ---- 1/1/0/0/0 0/0 \\"GET / HTTP/1.1\\"" (option httplog or tcplog). ';
+const NOT_NGINX = 'This does not look like an NGINX access log. Expected lines such as \'93.180.71.3 - - [17/May/2015:08:05:32 +0000] "GET /downloads/product_1 HTTP/1.1" 304 0 "-" "Debian APT-HTTP/1.3"\' (the default combined format, optionally followed by $request_time and $upstream_* fields), or one JSON object per line.';
 
-async function ingestStream(readable, { maxBytes, filename = 'upload', onProgress } = {}) {
-  const agg = createAggregator();
+async function ingestStream(readable, { maxBytes, filename = 'upload', onProgress, product = 'haproxy' } = {}) {
+  const isNginx = product === 'nginx';
+  const agg = (isNginx ? nginx : haproxy).createAggregator();
+  const NOT_LOG = isNginx ? NOT_NGINX : NOT_HAPROXY;
   let received = 0; let expanded = 0; let first = true;
   const decoder = new StringDecoder('utf8');
   let tail = ''; let sniffed = 0; let sniffOk = 0; let sniffDone = false;
@@ -27,7 +31,7 @@ async function ingestStream(readable, { maxBytes, filename = 'upload', onProgres
     const ok = agg.push(line);
     if (!sniffDone && line.length >= 20) {
       sniffed++; if (ok) sniffOk++;
-      if (sniffed >= SNIFF_LINES) { sniffDone = true; if (sniffOk / sniffed < 0.2) throw new IngestError('BAD_FORMAT', NOT_HAPROXY); }
+      if (sniffed >= SNIFF_LINES) { sniffDone = true; if (sniffOk / sniffed < 0.2) throw new IngestError('BAD_FORMAT', NOT_LOG); }
     }
   };
   const feedText = (text) => {
@@ -66,7 +70,7 @@ async function ingestStream(readable, { maxBytes, filename = 'upload', onProgres
     for await (const buf of text) {
       expanded += buf.length;
       if (expanded > maxExpanded) throw new IngestError('TOO_LARGE', `The file expands to more than ${mb(maxExpanded)}. Split it into smaller parts first.`, 413);
-      if (first) { first = false; if (buf.includes(0)) throw new IngestError('NOT_TEXT', 'This looks like a binary file, not a text log. Upload the plain-text haproxy.log (or a .gz of it).'); }
+      if (first) { first = false; if (buf.includes(0)) throw new IngestError('NOT_TEXT', 'This looks like a binary file, not a text log. Upload the plain-text log (or a .gz of it).'); }
       feedText(decoder.write(buf));
     }
   } catch (e) {
@@ -77,7 +81,7 @@ async function ingestStream(readable, { maxBytes, filename = 'upload', onProgres
   feedText(`${decoder.end()}\n`);
   if (tail) { feedLine(tail); tail = ''; }
   const stats = agg.stats;
-  if (!stats.http && !stats.tcp) throw new IngestError('BAD_FORMAT', NOT_HAPROXY);
+  if (!stats.http && !stats.tcp) throw new IngestError('BAD_FORMAT', NOT_LOG);
   return agg.finish({ source: { filename: String(filename).slice(0, 200), bytes: received, expandedBytes: gz ? expanded : received, lines: stats.lines, gzip: gz } });
 }
 

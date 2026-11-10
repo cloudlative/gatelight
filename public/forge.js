@@ -53,7 +53,7 @@ function renderForge() {
   const verSel = prodTyped === 'haproxy' && FG.versions && FG.versions.haproxy
     ? `<select id="fg-version" aria-label="Target HAProxy version"><option value="">Latest (${esc(FG.versions.haproxy.latest)})</option>${FG.versions.haproxy.list.map((v) => `<option value="${esc(v)}"${FG.version === v ? ' selected' : ''}>HAProxy ${esc(v)}</option>`).join('')}</select>`
     : `<input id="fg-version" list="fg-nginx-v" placeholder="${prodTyped === 'haproxy' ? 'Version, e.g. 2.8' : 'Version, e.g. 1.24.0'} (empty = latest)" value="${esc(FG.version)}" aria-label="Target version" autocomplete="off"><datalist id="fg-nginx-v">${(prodTyped === 'haproxy' ? ['3.2', '3.0', '2.9', '2.8', '2.6', '2.4', '2.2', '1.8'] : FG_NGINX_V).map((v) => `<option value="${v}">`).join('')}</datalist>`;
-  el.innerHTML = `<div class="panel fg-top"><div class="fg-title"><div><h2 class="fg-h2">Config Forge</h2><div class="muted">Assess a HAProxy or NGINX configuration and rewrite it to current best practice. Every change comes with the reason, can be switched off, and nothing touches your servers.</div></div></div>
+  el.innerHTML = `<div class="panel fg-top"><div class="fg-title"><div><h2 class="fg-h2">Config Forge</h2><div class="muted">Assess a HAProxy or NGINX configuration and rewrite it to current best practice. Every change comes with the reason, can be switched off, and nothing touches your servers.</div></div><button class="btn fg-fs" id="fg-fs" data-fs type="button" title="Fill the whole window (Esc to exit)">${document.body.classList.contains('topo-fs') ? '✕ Exit full screen' : '⛶ Full screen'}</button></div>
     <div class="fg-srcs" role="tablist">${tab('paste', 'Paste')}${tab('upload', 'Upload files')}${live ? tab('instance', 'This instance') : ''}${tab('example', 'Examples')}</div>
     <div class="fg-input">${forgeInputHtml()}</div>
     <div class="fg-opts"><label>Product<select id="fg-product"><option value="">Auto-detect</option><option value="haproxy"${FG.product === 'haproxy' ? ' selected' : ''}>HAProxy</option><option value="nginx"${FG.product === 'nginx' ? ' selected' : ''}>NGINX</option></select></label>
@@ -177,6 +177,7 @@ document.addEventListener('click', async (e) => {
   if (t.closest('[data-fg-inst]')) { FG.req = 'instance'; FG.src = 'instance'; FG.srcNote = 'This is the redacted copy of the configuration that GateLight holds. Secrets appear as placeholders: restore them before you deploy.'; forgeReset(); forgeRun(); return; }
   const ex = t.closest('[data-fg-ex]');
   if (ex) { try { const r = await api(`/examples/${ex.dataset.fgEx}`); FG.src = 'upload'; FG.files = r.files.map((f) => ({ name: f.name, content: f.content })); FG.text = ''; FG.product = ex.dataset.fgEx; FG.req = 'files'; FG.srcNote = ''; forgeReset(); forgeRun(); } catch (err) { toast(err.message, 'err'); } return; }
+  if (t.closest('#fg-fs')) { toggleTopoFs(); return; }
   const tb = t.closest('[data-fg-tab]'); if (tb) { FG.tab = tb.dataset.fgTab; renderForgeResults(); return; }
   const ct = t.closest('[data-fg-cat]'); if (ct) { FG.cat = ct.dataset.fgCat; renderForgeResults(); return; }
   const kd = t.closest('[data-fg-kind]'); if (kd) { FG.kind = kd.dataset.fgKind; renderForgeResults(); return; }
