@@ -5,6 +5,7 @@ const { DRIVERS } = require('./drivers');
 const { DemoSource } = require('./demo');
 const log = require('./logger');
 const { SERIES_KEY } = require('./history');
+const { fetchConfigFiles } = require('./transport');
 
 const SPARK_POINTS = 60;
 const rowKey = (r) => `${r.proxy}/${r.name}`;
@@ -29,6 +30,8 @@ class InstancePoller {
     this.lastSuccess = null;
     this.reachable = null;
     this.configCache = { mtimeMs: null, path: null };
+    this.fetchedFiles = null;          // config pulled from the server's config URL(s) (GET)
+    this.configFetch = { at: null, ok: null, error: null };
     this.timer = null;
     this.inFlight = null;
     this.demo = instance.demo ? new DemoSource([], () => (this.configCache.sections || [])) : null;
@@ -58,12 +61,68 @@ class InstancePoller {
     return this.inFlight;
   }
 
+  /** Where the configuration comes from: the server's config URL(s), a file on disk, or text uploaded in the UI. */
+  configSource() {
+    const i = this.instance;
+    if (i.configUrls && i.configUrls.length) return 'url';
+    if (i.configFiles && i.configFiles.length) return 'uploaded';
+    if (i.configPath) return 'file';
+    return 'none';
+  }
+
   _loadConfig() {
     const before = this.configCache.sig;
-    this.configCache = this.driver.loadConfig(this.instance, this.configCache.sections ? this.configCache : null);
+    const inst = this.instance;
+    if (this.configSource() === 'url') {
+      if (!this.fetchedFiles) { this.configCache = { ...this.configCache, path: '(from URL)', error: this.configFetch.error || 'Config not fetched yet', sections: this.configCache.sections || [], files: this.configCache.files || [] }; return; }
+      this.configCache = this.driver.loadConfig({ ...inst, configFiles: this.fetchedFiles }, this.configCache.sections ? this.configCache : null);
+      this.configCache.path = '(from URL)';
+    } else this.configCache = this.driver.loadConfig(inst, this.configCache.sections ? this.configCache : null);
     if (before != null && this.configCache.sig != null && before !== this.configCache.sig) {
-      this._event({ level: 'info', type: 'config_changed', message: `Configuration changed on disk and was reloaded (${this.configCache.files.length} file${this.configCache.files.length === 1 ? '' : 's'})` });
+      this._event({ level: 'info', type: 'config_changed', message: this.configSource() === 'url' ? `Configuration changed on the server and was fetched again (${this.configCache.files.length} file${this.configCache.files.length === 1 ? '' : 's'})` : `Configuration changed on disk and was reloaded (${this.configCache.files.length} file${this.configCache.files.length === 1 ? '' : 's'})` });
     }
+  }
+
+  /** Read-only: pull the config from the server's URL(s). Keeps the previous config when the fetch fails. */
+  async _fetchConfig() {
+    try {
+      this.fetchedFiles = await fetchConfigFiles(this.instance);
+      this.configFetch = { at: Date.now(), ok: true, error: null };
+    } catch (e) {
+      this.configFetch = { at: Date.now(), ok: false, error: e.message };
+      log.warn('config fetch failed', { instance: this.instance.id, error: e.message });
+    }
+    return this.configFetch;
+  }
+
+  /**
+   * "Refresh from server": re-read the configuration right now (GET the config URL(s), or re-read the file) and
+   * report what changed. Nothing is ever written to the server.
+   */
+  async refreshConfig() {
+    const source = this.configSource();
+    if (source === 'uploaded' || source === 'none') return { ok: true, source, skipped: true, message: 'This configuration was uploaded, so there is nothing to fetch. Use "Update config" to upload a new version, or add a config URL in the connection settings.' };
+    const prevFiles = (this.configCache.files || []).map((f) => f.raw).join('\n');
+    const prevSections = this.configCache.sections || [];
+    if (source === 'url') {
+      const r = await this._fetchConfig();
+      if (!r.ok) return { ok: false, source, error: r.error };
+    } else this.configCache = { ...this.configCache, sig: null }; // force a re-read of the file
+    const before = this.configCache.sig;
+    this._loadConfig();
+    if (this.configCache.error && !(this.configCache.sections || []).length) return { ok: false, source, error: this.configCache.error };
+    const nowFiles = (this.configCache.files || []).map((f) => f.raw).join('\n');
+    const count = (t) => { const m = new Map(); for (const l of t.split('\n')) m.set(l, (m.get(l) || 0) + 1); return m; };
+    const a = count(prevFiles); const b = count(nowFiles);
+    let linesAdded = 0; let linesRemoved = 0;
+    for (const [l, n] of b) linesAdded += Math.max(0, n - (a.get(l) || 0));
+    for (const [l, n] of a) linesRemoved += Math.max(0, n - (b.get(l) || 0));
+    const keys = (secs) => new Set((secs || []).flatMap((x) => [`${x.type} ${x.name}`, ...(x.servers || []).map((v) => `server ${x.name}/${v.name}`)]));
+    const kb = keys(prevSections); const ka = keys(this.configCache.sections);
+    const changed = prevFiles !== nowFiles;
+    if (changed && before == null) this._event({ level: 'info', type: 'config_changed', message: `Configuration refreshed from the server: +${linesAdded} −${linesRemoved} lines` });
+    await this.poll();
+    return { ok: true, source, changed, linesAdded, linesRemoved, added: [...ka].filter((k) => !kb.has(k)), removed: [...kb].filter((k) => !ka.has(k)), loadedAt: this.configCache.loadedAt || Date.now(), files: (this.configCache.files || []).length };
   }
 
   _event(e) {
@@ -77,6 +136,7 @@ class InstancePoller {
 
   async _poll() {
     const inst = this.instance;
+    if (this.configSource() === 'url' && (!this.configFetch.at || Date.now() - this.configFetch.at > (inst.configRefreshMs || 300000))) await this._fetchConfig();
     this._loadConfig();
     const now = Date.now();
     let rows = [];
@@ -132,6 +192,8 @@ class InstancePoller {
         path: this.configCache.path,
         error: this.configCache.error,
         loadedAt: this.configCache.loadedAt || null,
+        source: this.configSource(), fetchedAt: this.configFetch.at, fetchError: this.configFetch.error,
+        urls: (this.instance.configUrls || []).map((u) => { try { const x = new URL(u); return `${x.origin}${x.pathname}`; } catch { return ''; } }),
         files: (this.configCache.files || []).map((f) => ({ name: f.name, raw: f.raw })),
         sections: (this.configCache.sections || []).map(({ directives, ...rest }) => rest),
       },

@@ -1490,7 +1490,14 @@ function renderConfig() {
   const fsel = $('#cfg-file');
   fsel.hidden = files.length < 2;
   if (files.length > 1) { fsel.innerHTML = files.map((f) => `<option value="${esc(f.name)}">${esc(f.name)}</option>`).join(''); fsel.value = file.name; }
-  $('#cfg-path').textContent = s.config.path || '';
+  { // where the config comes from, and the read-only "Refresh from server" button
+    const c = s.config; const btn = $('#cfg-refresh'); const n = (c.urls || []).length;
+    const ago = (t) => { const m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
+    if (c.source === 'url') $('#cfg-path').innerHTML = `Fetched from <span class="mono">${esc(c.urls[0] || '')}</span>${n > 1 ? ` +${n - 1} more` : ''}${c.fetchedAt ? ` · ${esc(ago(c.fetchedAt))}` : ''}${c.fetchError ? ` · <span class="sev-error" title="${esc(c.fetchError)}">last fetch failed: showing the previous copy</span>` : ''}`;
+    else $('#cfg-path').textContent = c.path || '';
+    btn.hidden = state.mode === 'review' || !['url', 'file'].includes(c.source);
+    btn.title = c.source === 'file' ? 'Read the config file again now (read-only) and show what changed' : 'Fetch the configuration again from the server (GET only) and show what changed';
+  }
   const cacheKey = `${state.current}:${file && file.name}:${raw.length}:${s.findings.length}:${filter}`;
   if (cfgRendered === cacheKey) return;
   cfgRendered = cacheKey;
@@ -2476,7 +2483,7 @@ function cxSync() {
   $$('#cx-form [data-cx-for]').forEach((el) => { el.hidden = el.dataset.cxFor !== t; });
   $('#cx-url-label').textContent = t === 'nginx' ? 'Status URL (stub_status)' : 'Stats URL';
   $('#cx-url').placeholder = t === 'nginx' ? 'http://host/nginx_status' : 'http://host:8404/stats';
-  const hasCfg = cx.files.length > 0 || $('#cx-cfgtext').value.trim() || cx.hadConfig;
+  const hasCfg = cx.files.length > 0 || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig;
   const live = $('#cx-url').value.trim() || ($('#cx-socket').value || '').trim() || ($('#cx-plus').value || '').trim();
   const configOnly = Boolean(hasCfg && !live);
   $('#cx-test').hidden = configOnly;
@@ -2503,6 +2510,7 @@ function cxBody() {
     insecureTls: $('#cx-insecure').checked,
   };
   if (cx.files.length) b.configFiles = cx.files; else if ($('#cx-cfgtext').value.trim()) b.configText = $('#cx-cfgtext').value; else b.keepConfig = cx.hadConfig;
+  b.configUrls = $('#cx-cfgurls').value;
   if (t === 'haproxy') b.socket = $('#cx-socket').value;
   else { b.plusApiUrl = $('#cx-plus').value; if ($('#cx-url').value.trim() || $('#cx-plus').value.trim() || !(cx.files.length || $('#cx-cfgtext').value.trim() || cx.hadConfig)) b.probe = $('#cx-probe').checked; }
   if (cx.editing) b.id = cx.editing;
@@ -2527,7 +2535,7 @@ async function cxOpen(id, inline = false) {
       document.querySelector(`input[name="cx-type"][value="${d.type}"]`).checked = true;
       $('#cx-name').value = d.name || ''; $('#cx-url').value = d.statsUrl || ''; $('#cx-user').value = d.username || '';
       $('#cx-insecure').checked = Boolean(d.insecureTls); $('#cx-socket').value = d.socket || ''; $('#cx-plus').value = d.plusApiUrl || '';
-      $('#cx-probe').checked = d.probe !== false;
+      $('#cx-probe').checked = d.probe !== false; $('#cx-cfgurls').value = (d.configUrls || []).join('\n');
       cx.hadPassword = d.hasPassword; cx.hadConfig = (d.configFiles || []).length > 0; cx.hadNames = (d.configFiles || []).slice(0, 3).join(', ') + ((d.configFiles || []).length > 3 ? '…' : '');
       $('#cx-pass').placeholder = d.hasPassword ? '•••••••• (unchanged)' : '';
       if (d.socket || d.plusApiUrl) $('#cx-form details.adv').open = true;
@@ -2735,6 +2743,19 @@ function wire() {
   $('#cu-drop').addEventListener('drop', async (e) => { e.preventDefault(); $('#cu-drop').classList.remove('over'); cuPick(await filesFromDrop(e.dataTransfer)); });
   $('#cu-drop').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#cu-files').click(); });
   document.addEventListener('click', (e) => { if (e.target.closest('[data-cfgup]')) cuOpen(); });
+  $('#cfg-refresh').addEventListener('click', async () => {
+    const b = $('#cfg-refresh'); if (!state.current || b.disabled) return;
+    b.disabled = true; const old = b.textContent; b.textContent = 'Fetching…';
+    try {
+      const r = await api(`/instances/${encodeURIComponent(state.current)}/config/refresh`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      if (r.skipped) toast(r.message, 'info', 6000);
+      else if (!r.ok) toast(`Could not refresh: ${r.error}`, 'bad', 7000);
+      else if (!r.changed) toast('Configuration fetched: no changes since the last copy', 'ok');
+      else toast(`Configuration refreshed: +${r.linesAdded} −${r.linesRemoved} lines${r.added.length ? ` · new: ${r.added.slice(0, 4).join(', ')}${r.added.length > 4 ? '…' : ''}` : ''}${r.removed.length ? ` · gone: ${r.removed.slice(0, 4).join(', ')}${r.removed.length > 4 ? '…' : ''}` : ''}`, 'ok', 8000);
+      cfgRendered = ''; await poll(true);
+    } catch (e) { toast(`Could not refresh: ${e.message}`, 'bad', 7000); }
+    b.disabled = false; b.textContent = old;
+  });
   $('#btn-home').addEventListener('click', goHome);
   // the saved-connections list lives on the start screen and, once mounted, on the Add instance page: listen on the document
   document.addEventListener('click', (e) => { const c = e.target.closest('[data-enter]'); if (c) { e.preventDefault(); enterLive(c.dataset.enter); } });
@@ -2745,7 +2766,7 @@ function wire() {
   $$('input[name="cx-type"]').forEach((r) => r.addEventListener('change', cxSync));
   ['#cx-cfgfiles', '#cx-cfgfolder'].forEach((q) => $(q).addEventListener('change', async (e) => { const l = [...e.target.files]; e.target.value = ''; await cxPickFiles(l); }));
   $('#cx-cfgclear').addEventListener('click', () => { cx.files = []; $('#cx-cfgtext').value = ''; cxFilesNote(); cxSync(); });
-  ['#cx-url', '#cx-socket', '#cx-plus', '#cx-cfgtext'].forEach((q) => $(q).addEventListener('input', () => { if (q === '#cx-cfgtext' && $(q).value) cx.files = []; cxFilesNote(); cxSync(); }));
+  ['#cx-url', '#cx-socket', '#cx-plus', '#cx-cfgtext', '#cx-cfgurls'].forEach((q) => $(q).addEventListener('input', () => { if (q === '#cx-cfgtext' && $(q).value) cx.files = []; cxFilesNote(); cxSync(); }));
   grWire();
   iselWire();
   $('#view-profile').addEventListener('click', (e) => { if (e.target.closest('[data-prof-theme]')) { $('#btn-theme').click(); renderProfile(); } });

@@ -285,11 +285,12 @@ Prefer files over the UI? Mount `config/instances.json` (path overridable with `
 | `socket` | haproxy | Runtime API `host:port` or unix path: also gives version/uptime and works without an HTTP stats listener |
 | `plusApiUrl` | nginx | NGINX Plus REST API base URL (per-zone, per-peer traffic and health) |
 | `probe` | nginx | TCP-probe every upstream server (default `true` for explicit instances) |
+| `configUrls` (or `configUrl`) / `configRefreshSec` | both | **Config fetched from the server, read-only.** One URL per file (for NGINX list `nginx.conf` and every included file; folders below the shared directory are kept so `include conf.d/*.conf` resolves). Fetched with `GET` only, re-fetched every `configRefreshSec` (default 300) and on demand with **Refresh from server** on the Config page. Stats credentials are only sent to the same host |
 | `configPath` / `includeRoot` | both | Advanced, for pre-provisioned setups: an explicit config file path (no auto-discovery). Prefer uploading in the UI. NGINX `include`s resolve inside `includeRoot` |
 | `username` / `password` | both | Basic auth for the stats endpoint |
 | `insecureTls`, `timeoutMs`, `pollIntervalMs`, `tags`, `enabled` | all | Self-explanatory |
 
-Single-instance shortcut via env: `HAPROXY_STATS_URL`, `HAPROXY_SOCKET`, `NGINX_STATUS_URL`, `NGINX_PLUS_API_URL`, `*_CONFIG_PATH`.
+Single-instance shortcut via env: `HAPROXY_STATS_URL`, `HAPROXY_SOCKET`, `NGINX_STATUS_URL`, `NGINX_PLUS_API_URL`, `*_CONFIG_PATH`, `*_CONFIG_URL`.
 
 ### Environment
 
@@ -320,6 +321,15 @@ Generate a password hash instead of storing the password: `printf '%s' 'your pas
 | NGINX Plus API | per peer, health checks | per zone/peer | Full fidelity |
 | NGINX `stub_status` | – | global connections and req/s | Open-source NGINX exposes nothing per upstream |
 | NGINX TCP probe | per upstream server (reachability) | – | Measured **from the GateLight host**, not NGINX's own view |
+
+### Refresh the configuration from the live server
+
+Neither HAProxy nor NGINX can hand out its running config through the stats, Runtime or Plus APIs, so GateLight reads it from where you already keep it, strictly read-only:
+
+- **Config URL(s)** in the connection settings (or `configUrls` / `*_CONFIG_URL`): a location on the server that serves its own config (for example an internal-only `location = /haproxy.cfg { alias ...; allow 10.0.0.0/8; deny all; }`), or the raw file in your config repository. GateLight only `GET`s it.
+- **A config file** on disk (`configPath`, mounted read-only): re-read on demand.
+- Press **⟳ Refresh from server** on the **Config** page to pull the current version now. You get a summary of what changed (`+12 −3 lines`, new or removed frontends, backends and servers), the map, URL map, Traffic flow, audit and Validate pages rebuild from it, and a `config_changed` event is recorded. If the fetch fails, the last good copy stays and the error is shown.
+- Configs uploaded in the browser have no source to fetch from: use **Update config** to replace them, or add a Config URL.
 
 ## Config audit
 

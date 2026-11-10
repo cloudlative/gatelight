@@ -73,6 +73,38 @@ function runtimeCommand(target, command, timeout = 7000) {
   });
 }
 
+
+/** URL without its query string (tokens often live there): safe for messages and logs. */
+const urlLabel = (u) => { try { const x = new URL(u); return `${x.origin}${x.pathname}`; } catch { return 'the config URL'; } };
+const CFG_URL_LIMITS = { urls: 50, fileBytes: 1024 * 1024, totalBytes: 4 * 1024 * 1024 };
+
+/**
+ * Read-only: fetch the configuration files of a server from the URL(s) it publishes them at (GET only).
+ * Credentials of the stats endpoint are only sent to the same host. Names keep the folder structure below the
+ * common directory, so NGINX `include conf.d/*.conf` still resolves.
+ */
+async function fetchConfigFiles(inst) {
+  const urls = (inst.configUrls || []).slice(0, CFG_URL_LIMITS.urls);
+  const sameHost = (u) => [inst.statsUrl, inst.plusApiUrl].filter(Boolean).some((x) => { try { return new URL(x).host === new URL(u).host; } catch { return false; } });
+  const got = []; let total = 0;
+  for (const url of urls) {
+    let res;
+    try {
+      res = await httpRequest(url, { username: sameHost(url) ? inst.username : undefined, password: sameHost(url) ? inst.password : undefined, timeout: inst.timeoutMs, insecureTls: inst.insecureTls });
+    } catch (e) { throw new Error(`Cannot fetch ${urlLabel(url)}: ${e.message}`); }
+    if (res.status !== 200) throw new Error(`${urlLabel(url)} returned HTTP ${res.status}`);
+    if (res.body.includes('\u0000')) throw new Error(`${urlLabel(url)} is not a text file`);
+    if (res.body.length > CFG_URL_LIMITS.fileBytes) throw new Error(`${urlLabel(url)} is larger than 1 MB`);
+    total += res.body.length;
+    if (total > CFG_URL_LIMITS.totalBytes) throw new Error('Config files are larger than 4 MB in total');
+    got.push({ segs: new URL(url).pathname.split('/').filter(Boolean).map((x) => { try { return decodeURIComponent(x); } catch { return x; } }), content: res.body });
+  }
+  // strip the directory every file shares
+  let common = got.length ? got[0].segs.slice(0, -1) : [];
+  for (const g of got) { let i = 0; while (i < common.length && i < g.segs.length - 1 && common[i] === g.segs[i]) i++; common = common.slice(0, i); }
+  return got.map((g) => ({ name: g.segs.slice(common.length).join('/') || 'config', content: g.content }));
+}
+
 const htmlInfoCache = new WeakMap();
 const HTML_INFO_TTL_MS = 60000;
 
@@ -146,4 +178,4 @@ async function fetchStats(instance) {
   return { csv: res.body, info: await fetchHtmlInfo(instance) };
 }
 
-module.exports = { httpRequest, runtimeCommand, fetchStats, htmlToInfo, READ_ONLY_METHODS, RUNTIME_ALLOWED };
+module.exports = { fetchConfigFiles, urlLabel, httpRequest, runtimeCommand, fetchStats, htmlToInfo, READ_ONLY_METHODS, RUNTIME_ALLOWED };

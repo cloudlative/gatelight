@@ -10,6 +10,8 @@
 - API: `GET /api/instances/:id/flow`, `POST /api/instances/:id/flow/trace`, `POST /api/flow`.
 - API: `POST /api/validate`, `GET /api/instances/:id/validate`, `GET /api/validate/versions`.
 
+- **Refresh from server**: fetch the configuration again on demand (button on the Config page) from the server's config URL(s) or file, read-only (`GET` only), with a summary of what changed. New `configUrls` / `*_CONFIG_URL` setting and a Config URL(s) field in the connection form. API: `POST /api/instances/:id/config/refresh`.
+
 ### Security
 - Read-only toward load balancers is now enforced in code: only `GET`/`HEAD` (no body) to servers, only `show stat` / `show info` on the HAProxy Runtime API, tests prevent any other write path.
 

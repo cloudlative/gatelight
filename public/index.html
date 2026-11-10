@@ -207,6 +207,7 @@
           <select id="cfg-file" aria-label="Config file" hidden></select>
           <span class="spacer"></span>
           <span class="muted small" id="cfg-path"></span>
+          <button class="btn live-only" type="button" id="cfg-refresh" hidden title="Read the configuration again from the server (read-only) and show what changed">⟳ Refresh from server</button>
           <button class="btn" id="cfg-download">Download (redacted)</button>
           <button class="btn primary" type="button" data-cfgup>Update config</button>
         </div>
@@ -237,6 +238,8 @@
         <div class="fld cfg-block">
           <span class="cfg-callout"><b>Config</b> (upload to get the relationship map and audit; with no URL above it is saved as a <b>config-only instance</b>)</span>
           <div class="row"><label class="btn small-btn">Choose files<input type="file" id="cx-cfgfiles" multiple hidden></label><label class="btn small-btn">Choose folder<input type="file" id="cx-cfgfolder" webkitdirectory hidden></label><button type="button" class="btn small-btn" id="cx-cfgclear" hidden>Clear</button></div>
+          <label class="fld cx-urls"><span>Config URL(s) <span class="muted">(optional, read-only)</span></span><textarea id="cx-cfgurls" spellcheck="false" rows="2" placeholder="https://host/haproxy.cfg   (one per line; for NGINX list nginx.conf and every included file)"></textarea></label>
+          <span class="muted small cx-urlnote">GateLight only <b>GETs</b> these addresses (a location on the server that serves its own config, or a raw file in your config repository). It then shows <b>Refresh from server</b> on the Config page to pull new changes. Nothing is ever written to the server.</span>
           <textarea id="cx-cfgtext" spellcheck="false" rows="4" placeholder="…or paste haproxy.cfg / nginx.conf (a folder with conf.d/ includes works too)"></textarea>
           <span class="muted small" id="cx-cfgnote"></span>
         </div>

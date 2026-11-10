@@ -44,15 +44,15 @@ function legacyEnvInstances(env) {
       type: 'haproxy', name: env.HAPROXY_NAME || 'haproxy',
       statsUrl: env.HAPROXY_STATS_URL, socket: env.HAPROXY_SOCKET,
       username: env.HAPROXY_STATS_USER, password: env.HAPROXY_STATS_PASS,
-      configPath: env.HAPROXY_CONFIG_PATH, insecureTls: bool(env.HAPROXY_INSECURE_TLS),
+      configPath: env.HAPROXY_CONFIG_PATH, configUrls: env.HAPROXY_CONFIG_URL ? [env.HAPROXY_CONFIG_URL] : undefined, insecureTls: bool(env.HAPROXY_INSECURE_TLS),
     });
   }
-  if (env.NGINX_STATUS_URL || env.NGINX_PLUS_API_URL || env.NGINX_CONFIG_PATH) {
+  if (env.NGINX_STATUS_URL || env.NGINX_PLUS_API_URL || env.NGINX_CONFIG_PATH || env.NGINX_CONFIG_URL) {
     out.push({
       type: 'nginx', name: env.NGINX_NAME || 'nginx',
       statsUrl: env.NGINX_STATUS_URL, plusApiUrl: env.NGINX_PLUS_API_URL,
       username: env.NGINX_STATUS_USER, password: env.NGINX_STATUS_PASS,
-      configPath: env.NGINX_CONFIG_PATH, insecureTls: bool(env.NGINX_INSECURE_TLS),
+      configPath: env.NGINX_CONFIG_PATH, configUrls: env.NGINX_CONFIG_URL ? [env.NGINX_CONFIG_URL] : undefined, insecureTls: bool(env.NGINX_INSECURE_TLS),
       probe: bool(env.NGINX_PROBE, true), includeRoot: env.NGINX_INCLUDE_ROOT,
     });
   }
@@ -76,6 +76,8 @@ function normalizeInstance(r, i, env, defaults, seen) {
     password: interpolate(r.password, env) || null,
     insecureTls: Boolean(r.insecureTls),
     configPath: interpolate(r.configPath, env) || null,
+    configUrls: [...(Array.isArray(r.configUrls) ? r.configUrls : []), ...(r.configUrl ? [r.configUrl] : [])].map((u) => interpolate(String(u), env)).filter((u) => /^https?:\/\//i.test(u)).slice(0, 50),
+    configRefreshMs: int(r.configRefreshSec ? r.configRefreshSec * 1000 : null, 300000, 10000),
     configFiles: Array.isArray(r.configFiles) && r.configFiles.length ? r.configFiles : (typeof r.configText === 'string' && r.configText ? [{ name: type === 'nginx' ? 'nginx.conf' : 'haproxy.cfg', content: r.configText }] : null), // uploaded in the UI
     managed: Boolean(r.managed), owner: r.owner || null,
     includeRoot: interpolate(r.includeRoot, env) || null,

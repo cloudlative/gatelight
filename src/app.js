@@ -104,7 +104,7 @@ function createApp(settings) {
   }, 3600000);
   sweep.unref();
   const validateCtx = { features: settings.features, allowedHosts: ui.allowedHosts };
-  const storedKeys = ['owner', 'type', 'name', 'statsUrl', 'plusApiUrl', 'socket', 'username', 'password', 'insecureTls', 'configFiles', 'tags'];
+  const storedKeys = ['owner', 'type', 'name', 'statsUrl', 'plusApiUrl', 'socket', 'username', 'password', 'insecureTls', 'configFiles', 'configUrls', 'tags'];
   const toDef = (inst) => ({ id: inst.id, ...Object.fromEntries(storedKeys.filter((k) => inst[k] != null && inst[k] !== false && inst[k] !== '').map((k) => [k, inst[k]])), ...(inst.type === 'nginx' ? { probe: Boolean(inst.probe) } : {}) });
   const persist = () => store.save([...registry.pollers.values()].filter((p) => p.instance.managed).map((p) => toDef(p.instance)));
   const manage = [
@@ -118,7 +118,7 @@ function createApp(settings) {
   const safeDef = (inst) => ({
     id: inst.id, type: inst.type, name: inst.name, statsUrl: inst.statsUrl, plusApiUrl: inst.plusApiUrl, socket: inst.socket,
     username: inst.username, hasPassword: Boolean(inst.password), insecureTls: inst.insecureTls,
-    configFiles: (inst.configFiles || []).map((f) => f.name), probe: inst.probe, configOnly: !DRIVERS[inst.type].hasSource(inst),
+    configFiles: (inst.configFiles || []).map((f) => f.name), configUrls: inst.configUrls || [], probe: inst.probe, configOnly: !DRIVERS[inst.type].hasSource(inst),
   });
 
   // Try a connection without saving anything.
@@ -302,6 +302,10 @@ function createApp(settings) {
     } catch (e) { return res.status(422).json({ error: `Could not validate configuration: ${e.message}` }); }
   });
 
+  // Read-only "refresh from server": re-fetch the config (GET its URL(s), or re-read the file) and report what changed.
+  api.post('/instances/:id/config/refresh', withInstance, rateLimit({ max: 20 }), async (req, res) => {
+    try { return res.json(await req.poller.refreshConfig()); } catch (e) { return res.status(500).json({ ok: false, error: e.message }); }
+  });
   // Traffic flow: listener port -> backend port and URI mapping, plus a config-only request tracer (src/flow.js).
   const flowRequest = (b) => ({ host: typeof b.host === 'string' ? b.host.slice(0, 255) : '', path: typeof b.path === 'string' ? b.path.slice(0, 2048) : '/', method: typeof b.method === 'string' ? b.method.slice(0, 16) : 'GET', port: b.port != null && /^\d{1,5}$/.test(String(b.port)) ? Number(b.port) : null, tls: typeof b.tls === 'boolean' ? b.tls : null });
   api.get('/instances/:id/flow', withInstance, rateLimit({ max: 60 }), (req, res) => {

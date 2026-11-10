@@ -81,6 +81,10 @@ function validateInput(body, ctx, existing) {
     if (!hostAllowed(m[1].toLowerCase(), ctx.allowedHosts)) throw new Error(`Host "${m[1]}" is not in this server's UI_ALLOWED_HOSTS`);
     def.socket = `${m[1]}:${m[2]}`;
   }
+  // Config published by the server itself: fetched with GET, so "refresh" can pull new changes any time.
+  const rawUrls = Array.isArray(b.configUrls) ? b.configUrls : typeof b.configUrls === 'string' ? b.configUrls.split(/\r?\n/) : [];
+  const cfgUrls = rawUrls.map((u) => str(u, 2048)).filter(Boolean).slice(0, 50).map((u) => checkUrl('Config URL', u, ctx.allowedHosts));
+  if (cfgUrls.length) def.configUrls = [...new Set(cfgUrls)];
   if (type === 'nginx' && b.probe !== undefined) def.probe = Boolean(b.probe);
   // Config uploaded in the browser (replaces the old "put a file in config/" method). Stored with the instance.
   let files = cleanFiles(b.configFiles);
@@ -88,7 +92,7 @@ function validateInput(body, ctx, existing) {
   if (!files.length && b.keepConfig && existing && existing.configFiles && existing.configFiles.length) files = existing.configFiles;
   if (files.length) def.configFiles = files;
   if (type === 'nginx' && b.probe === undefined && !def.statsUrl && !def.plusApiUrl) def.probe = false; // config-only: never probe hosts named in an uploaded file
-  if (!def.statsUrl && !def.plusApiUrl && !def.socket && !(type === 'nginx' && def.probe) && !def.configFiles) {
+  if (!def.statsUrl && !def.plusApiUrl && !def.socket && !(type === 'nginx' && def.probe) && !def.configFiles && !def.configUrls) {
     throw new Error(type === 'haproxy' ? 'Enter the stats URL (e.g. http://host:8404/stats) or a Runtime API host:port, or upload a config to review it without a live connection' : 'Enter the stub_status URL or the NGINX Plus API URL, or upload a config to review it without a live connection');
   }
 
