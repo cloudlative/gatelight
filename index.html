@@ -144,10 +144,11 @@
       <article class="feat reveal d1"><div class="ico c2"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></svg></div><h3>Infrastructure view</h3><p>Networks → hosts → services behind the load balancer, with aliveness for every one and an "only what is down" filter.</p></article>
       <article class="feat reveal d2"><div class="ico c3"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div><h3>Charts with history</h3><p>Grafana-style: zoom, pan, shared crosshair, 5 minutes to 7 days, kept in SQLite across restarts. Donut charts for HTTP errors.</p></article>
       <article class="feat reveal"><div class="ico c4"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div><h3>Config audit, 39 rules</h3><p>Undefined backends, orphaned pools, missing health checks, weak credentials, exposed stats, config drift. Every finding has a line and a fix.</p></article>
-      <article class="feat reveal"><div class="ico c2"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><h3>Validate against any version</h3><p>Check a config against the official docs of the exact release you run: HAProxy 1.7 to 3.4 and NGINX. See what is unknown, too new, removed or deprecated there, with a fix and version-aware recommendations.</p></article>
+      <article class="feat reveal"><div class="ico c2"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><h3>Validate against any version</h3><p>Config Forge checks a config against the official docs of the exact release you run: HAProxy 1.7 to 3.4 and NGINX. See what is unknown, too new, removed or deprecated there, with a fix and version-aware recommendations.</p></article>
       <article class="feat reveal d2"><div class="ico c3"><svg viewBox="0 0 24 24"><path d="M3 7h9a4 4 0 0 1 4 4v6"/><path d="M13 14l3 3 3-3"/><path d="M3 17h5"/></svg></div><h3>Port-to-port and URI mapping</h3><p>Domain to listener to server: which backend address and port each domain reaches, where TLS ends, and the exact path your backend receives after rewrites. Every relationship is marked active, idle, down or never used, and you can filter to what is alive, not alive or unused. Try any URL against the config.</p></article>
       <article class="feat reveal"><div class="ico c4"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2" stroke-dasharray="3 3"/></svg></div><h3>L7 and L4 at a glance</h3><p>Every frontend and pool is labelled HTTP (L7) or TCP (L4), with a layer filter and tooltips on what each layer can and cannot see.</p></article>
       <article class="feat reveal d2"><div class="ico c5"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16V11M12 16V7M17 16v-3"/></svg></div><h3>Traffic statistics from your log</h3><p>Upload one or more HAProxy logs (plain or gzipped, size-limited, shown combined) and see requests, response times, errors, status codes, servers, URLs and clients, with filters. Only aggregates are kept. Instructions for splitting big logs are built in.</p></article>
+      <article class="feat reveal"><div class="ico c3"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></div><h3>Config Forge: rewrite to best practice</h3><p>Paste a HAProxy or NGINX config and get a score, every issue explained, and a rewritten version for your exact release. Each change can be switched off, and nothing touches your servers.</p></article>
       <article class="feat reveal d1"><div class="ico c6"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></div><h3>Refresh from the server</h3><p>Point GateLight at where your config is served and pull the current version with one click, with a summary of what changed. Read-only.</p></article>
       <article class="feat reveal d1"><div class="ico c5"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div><h3>Live health for both</h3><p>HAProxy via CSV or the Runtime API. NGINX via stub_status, the Plus API and an active TCP probe, so even open-source NGINX gets per-server health.</p></article>
       <article class="feat reveal d2"><div class="ico c6"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg></div><h3>Review a config offline</h3><p>Drop a <code>haproxy.cfg</code>, an <code>nginx.conf</code> or a whole folder. Nothing is saved. Keep several as named instances and update them when files change.</p></article>
@@ -168,30 +169,30 @@
     <div class="tour reveal">
       <div class="tabs" role="tablist" aria-label="Screenshots">
         <button role="tab" aria-selected="true" data-tab="0">Overview</button>
-        <button role="tab" aria-selected="false" data-tab="1">Graphs</button>
-        <button role="tab" aria-selected="false" data-tab="2">Infrastructure</button>
+        <button role="tab" aria-selected="false" data-tab="1">Traffic</button>
+        <button role="tab" aria-selected="false" data-tab="2">Network layout</button>
         <button role="tab" aria-selected="false" data-tab="3">Topology</button>
         <button role="tab" aria-selected="false" data-tab="4">Traffic flow</button>
         <button role="tab" aria-selected="false" data-tab="5">Domains</button>
         <button role="tab" aria-selected="false" data-tab="6">Mind map</button>
         <button role="tab" aria-selected="false" data-tab="7">Tree</button>
         <button role="tab" aria-selected="false" data-tab="8">NGINX</button>
-        <button role="tab" aria-selected="false" data-tab="9">Audit</button>
+        <button role="tab" aria-selected="false" data-tab="9">Config Forge</button>
         <button role="tab" aria-selected="false" data-tab="10">Details</button>
       </div>
       <div class="window big">
         <div class="win-bar"><i></i><i></i><i></i><span id="tour-title">GateLight · Overview</span></div>
         <div class="shots">
           <img class="shot on" src="img/overview.png" alt="Overview: explained, clickable health cards and a traffic chart" width="1440" height="900">
-          <img class="shot" src="img/graphs.png" alt="Graphs: zoom, pan, clickable legends and donut charts" width="1440" height="900" loading="lazy">
-          <img class="shot" src="img/infrastructure.png" alt="Infrastructure: networks, hosts and services with aliveness" width="1440" height="900" loading="lazy">
+          <img class="shot" src="img/graphs.png" alt="Traffic: live metrics with zoom, pan, clickable legends and donut charts" width="1440" height="900" loading="lazy">
+          <img class="shot" src="img/infrastructure.png" alt="Topology network layout: networks, hosts and services with aliveness" width="1440" height="900" loading="lazy">
           <img class="shot" src="img/topology-haproxy.png" alt="Topology in the Layers layout" width="1440" height="900" loading="lazy">
           <img class="shot" src="img/traffic-flow-diagram.png" alt="Traffic flow: listeners, rules and pools with ports, member IPs and live status" width="1440" height="900" loading="lazy">
           <img class="shot" src="img/traffic-flow-domains.png" alt="Domains: each host name with its ports, redirects, rules and servers with their addresses" width="1440" height="900" loading="lazy">
           <img class="shot" src="img/topology-mindmap.png" alt="Mind map layout showing the URIs each node handles" width="1440" height="900" loading="lazy">
           <img class="shot" src="img/topology-tree.png" alt="Tree layout like the tree command" width="1440" height="900" loading="lazy">
           <img class="shot" src="img/topology-nginx.png" alt="NGINX topology with a URL map" width="1440" height="900" loading="lazy">
-          <img class="shot" src="img/audit.png" alt="Config audit with charts and findings" width="1440" height="900" loading="lazy">
+          <img class="shot" src="img/audit.png" alt="Config Forge: one list of findings with a score and a rewritten configuration" width="1440" height="900" loading="lazy">
           <img class="shot" src="img/details.png" alt="A details page for one backend" width="1440" height="900" loading="lazy">
         </div>
       </div>
