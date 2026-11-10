@@ -255,7 +255,8 @@ function makeFlow(product, { fe, listeners, rule, index, chain, pool, mode, memb
   for (const l of listeners) {
     if (l.port == null) continue;
     const memberOut = members.map((m) => ({ member: m.name, port: m.addr.kind === 'socket' ? null : resolvePort(m.addr, l.port), tls: m.ssl, dynamic: m.addr.mode === 'env' }));
-    portMap.push({ in: l.port, listenerTls: l.tls, out: [...new Set(memberOut.map((x) => x.port).filter((x) => x != null))], dynamic: memberOut.some((x) => x.dynamic), socket: members.some((m) => m.addr.kind === 'socket'), tls: tlsKind(l.tls, members.some((m) => m.ssl), mode) });
+    const targets = [...new Set(members.map((m) => { const pt = m.addr.kind === 'socket' ? null : resolvePort(m.addr, l.port); return m.addr.kind === 'socket' ? m.address : `${m.addr.host}${m.addr.mode === 'env' ? '' : `:${pt == null ? '?' : pt}`}`; }))];
+    portMap.push({ in: l.port, listenerTls: l.tls, targets, out: [...new Set(memberOut.map((x) => x.port).filter((x) => x != null))], dynamic: memberOut.some((x) => x.dynamic), socket: members.some((m) => m.addr.kind === 'socket'), tls: tlsKind(l.tls, members.some((m) => m.ssl), mode) });
   }
   const f = {
     id: `${fe.name}#${index}`, product, frontend: fe.name, line: rule.line || fe.line, file: fe.file || null,
@@ -406,8 +407,9 @@ function portMatrix(flows) {
     for (const pm of f.portMap) {
       const key = `${pm.in}|${f.frontend}|${f.pool.name}`;
       let r = rows.get(key);
-      if (!r) { r = { mode: f.mode, listener: pm.in, listenerTls: pm.listenerTls, frontend: f.frontend, pool: f.pool.name, tls: pm.tls, out: [], rules: 0, members: f.members.length, dynamic: pm.dynamic, socket: pm.socket, undefined: Boolean(f.pool.undefined) }; rows.set(key, r); }
-      r.rules += 1; for (const o of pm.out) if (!r.out.includes(o)) r.out.push(o);
+      if (!r) { r = { targets: [], mode: f.mode, listener: pm.in, listenerTls: pm.listenerTls, frontend: f.frontend, pool: f.pool.name, tls: pm.tls, out: [], rules: 0, members: f.members.length, dynamic: pm.dynamic, socket: pm.socket, undefined: Boolean(f.pool.undefined) }; rows.set(key, r); }
+      r.rules += 1; for (const t of pm.targets) if (!r.targets.includes(t)) r.targets.push(t);
+      for (const o of pm.out) if (!r.out.includes(o)) r.out.push(o);
     }
   }
   return [...rows.values()].sort((a, b) => Number(a.listener) - Number(b.listener) || a.frontend.localeCompare(b.frontend));

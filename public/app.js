@@ -1329,7 +1329,7 @@ function flowPorts() { // distinct listener ports (with TLS) across all entry po
   return [...m.values()].sort((a, b) => Number(a.port) - Number(b.port) || Number(a.tls) - Number(b.tls));
 }
 const portTxt = (p, tls) => `<span class="pt${tls ? ' tls' : ''}">${tls ? '🔒 ' : ''}:${esc(p)}</span>`;
-const outPorts = (pm) => (pm.out.length ? pm.out.map((o) => `<span class="pt">:${o}</span>`).join(' ') : '') + (pm.dynamic ? ' <span class="pt dyn" title="Resolved from an environment variable at start-up">env var</span>' : '') + (pm.socket ? ' <span class="pt">socket</span>' : '');
+const outPorts = (pm) => (pm.targets && pm.targets.length ? pm.targets.slice(0, 4).map((t) => `<span class="pt">${esc(t)}</span>`).join(' ') + (pm.targets.length > 4 ? ` <span class="muted small" title="${esc(pm.targets.join(', '))}">+${pm.targets.length - 4}</span>` : '') : pm.out.length ? pm.out.map((o) => `<span class="pt">:${o}</span>`).join(' ') : '') + (pm.dynamic ? ' <span class="pt dyn" title="Resolved from an environment variable at start-up">env var</span>' : '') + (pm.socket ? ' <span class="pt">socket</span>' : '');
 function flowSvg(flows) {
   // three columns: listeners -> rules -> pools. One row per rule; listeners and pools are shared rows.
   const lis = []; const lisIdx = new Map(); const pools = []; const poolIdx = new Map();
@@ -1341,7 +1341,7 @@ function flowSvg(flows) {
   const ly = (i, n) => 20 + (n <= 1 ? (rows * RH) / 2 : (i * (rows * RH - RH)) / (n - 1)) + RH / 2 - 8;
   const clip = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
   let out = `<svg class="flow-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="Listener to rule to backend pool map" preserveAspectRatio="xMinYMin meet">`;
-  out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="760" y="14" class="fs-h">POOLS &amp; BACKEND PORTS</text>`;
+  out += `<text x="10" y="14" class="fs-h">LISTENERS</text><text x="360" y="14" class="fs-h">RULES &amp; URI CHANGES</text><text x="760" y="14" class="fs-h">POOLS, BACKEND IPS &amp; PORTS</text>`;
   const edge = (x1, y1, x2, y2, cls, label) => { const mx = (x1 + x2) / 2; return `<path class="fs-e ${cls || ''}" d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}"/>${label ? `<text class="fs-pl" x="${mx}" y="${(y1 + y2) / 2 - 4}" text-anchor="middle">${esc(label)}</text>` : ''}`; };
   flows.forEach((f, i) => {
     const y = ly(i, flows.length); const pi = poolIdx.get(f.pool.name); const py = ly(pi, pools.length);
@@ -1358,7 +1358,8 @@ function flowSvg(flows) {
       <text class="fs-t" x="370" y="${y - 3}">${esc(clip(f.match.type === 'default' ? 'default (everything else)' : `${host}${f.match.short || f.match.text}`, 38))}</text>
       <text class="fs-s" x="370" y="${y + 12}">${f.shadowedBy ? `⚠ shadowed by rule #${f.shadowedBy}` : ex && ex.changed ? `${esc(clip(ex.in, 17))} → ${esc(clip(ex.out, 17))}` : f.chain.some((s) => s.kind === 'terminal' && s.applies === true) ? 'answers with a redirect / deny' : 'path unchanged'}</text></g>`;
   });
-  pools.forEach((f, i) => { const y = ly(i, pools.length); const ports = [...new Set(f.portMap.flatMap((p) => p.out))]; out += `<g><rect class="fs-n fs-p${f.pool.undefined ? ' bad' : ''}" x="760" y="${y - 15}" width="230" height="30" rx="7"/><text class="fs-t" x="770" y="${y + 4}">${esc(clip(f.pool.name, 18))}${f.pool.undefined ? ' (undefined)' : ports.length ? ` · ${ports.slice(0, 3).map((x) => `:${x}`).join(' ')}${ports.length > 3 ? '…' : ''}` : ''}</text></g>`; });
+  pools.forEach((f, i) => { const y = ly(i, pools.length); const ports = [...new Set(f.portMap.flatMap((p) => p.out))]; const hosts = [...new Set(f.members.map((m) => (m.addr.kind === 'socket' ? m.address : m.addr.host)))];
+    out += `<g><title>${esc(f.pool.name)}\n${esc(f.portMap.flatMap((p) => p.targets).filter((t, i, a) => a.indexOf(t) === i).join('\n'))}</title><rect class="fs-n fs-p${f.pool.undefined ? ' bad' : ''}" x="760" y="${y - 19}" width="230" height="38" rx="7"/><text class="fs-t" x="770" y="${y - 3}">${esc(clip(f.pool.name, 18))}${f.pool.undefined ? ' (undefined)' : ports.length ? ` · ${ports.slice(0, 3).map((x) => `:${x}`).join(' ')}${ports.length > 3 ? '…' : ''}` : ''}</text><text class="fs-s" x="770" y="${y + 12}">${hosts.length ? esc(clip(`${hosts.slice(0, 2).join(', ')}${hosts.length > 2 ? ` +${hosts.length - 2}` : ''}`, 34)) : f.pool.undefined ? '' : 'no members'}</text></g>`; });
   return `${out}</svg>`;
 }
 function flowTraceHtml() {
@@ -1400,7 +1401,7 @@ function renderFlow() {
   let body = '';
   if (FLOW.tab === 'ports') {
     const rows = d.portMatrix.filter((r) => !FLOW.fe || r.frontend === FLOW.fe);
-    body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend port(s)</th><th>Layer</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
+    body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend address(es)</th><th>Layer</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
       ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td><span class="tag layer-${r.mode === 'tcp' ? 'l4' : 'l7'}">${r.mode === 'tcp' ? 'L4' : 'L7'}</span></td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No listeners found</td></tr>'}</tbody></table></div>
       <p class="muted small flow-note">${hap ? 'HAProxy: <code>server s 10.0.0.1</code> (no port) uses the same port the client connected to; <code>10.0.0.1:+1000</code> adds 1000 to it; an explicit port always wins.' : 'NGINX: a <code>proxy_pass</code> or upstream <code>server</code> without a port uses 80 (443 for https://).'}</p>`;
   } else if (FLOW.tab === 'uri') {

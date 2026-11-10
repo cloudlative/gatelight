@@ -39,6 +39,7 @@ test('HAProxy flows: listener port -> member port, TLS termination, rewrite chai
   assert.deepEqual(api.ports.sort(), ['443', '80', '8080']);
   assert.deepEqual(api.portMap.find((p) => p.in === '443').out, [9000]);
   assert.equal(api.portMap.find((p) => p.in === '443').tls, 'terminate');
+  assert.deepEqual(api.portMap.find((p) => p.in === '443').targets, ['10.0.0.1:9000', '10.0.0.2:9000']); // member IP:port, resolved for this listener
   assert.ok(api.chain.some((s) => s.action === 'replace-path' && s.stage === 'frontend'));
   assert.ok(api.chain.some((s) => s.action === 'set-path' && s.stage === 'backend'));
   const legacy = r.flows.find((f) => f.pool.name === 'legacy');
