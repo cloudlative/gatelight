@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "start": "node server.js",
-    "test": "node --test --test-force-exit",
+    "test": "node --test --test-timeout=60000",
     "audit": "node src/cli.js audit",
     "kb:build": "node tools/kb/haproxy.js && node tools/kb/nginx.js && node tools/kb/apache.js && node tools/kb/caddy.js && node tools/kb/traefik.js"
   },
