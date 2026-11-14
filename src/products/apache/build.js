@@ -44,6 +44,9 @@ function build(input, opts = {}) {
   const acmeSites = tlsSites.filter((s) => s.tls.mode === 'acme');
   const httpsPoolUse = new Set(spec.sites.flatMap((s) => [...s.routes.map((r) => r.pool), s.defaultPool].filter((p) => p && pools.get(p).scheme === 'https').map(() => s.name)));
   const wsLegacy = spec.sites.some((s) => s.websocket) && !gte('2.4.47');
+  // `upgrade=` is a worker parameter: for balancer:// targets it goes on each BalancerMember, never on ProxyPass
+  // (httpd -t: "ProxyPass unknown Balancer parameter"). https://httpd.apache.org/docs/2.4/mod/mod_proxy.html#proxypass
+  const wsPools = new Set(spec.sites.filter((s) => s.websocket).flatMap((s) => [...s.routes.map((r) => r.pool), ...(s.defaultPool ? [s.defaultPool] : [])]));
 
   // ------------------------------------------------------------------ server-wide
   const g = [];
@@ -133,6 +136,7 @@ function build(input, opts = {}) {
       if (sv.backup) parts.push('status=+H');
       parts.push(`connectiontimeout=${p.timeouts.connect}`, `timeout=${p.timeouts.server}`);
       if (hc && hcOk) parts.push('hcmethod=GET', `hcuri=${hc.path}`, `hcinterval=${hc.interval}`, `hcpasses=${hc.rise}`, `hcfails=${hc.fall}`);
+      if (wsPools.has(p.name) && gte('2.4.47')) parts.push('upgrade=websocket');
       g.push(`    ${parts.join(' ')}`);
     });
     g.push(`    ProxySet lbmethod=${lb}${sticky ? ' stickysession=ROUTEID' : ''}`);
@@ -168,8 +172,12 @@ function build(input, opts = {}) {
   for (const s of spec.sites) {
     const out = [];
     const hosts = s.hosts;
-    const primary = hosts[0] || null;
-    const names = () => { const l = []; if (primary) l.push(`    ServerName ${primary}`); if (hosts.length > 1) l.push(`    ServerAlias ${hosts.slice(1).join(' ')}`); return l; };
+    // ServerName takes no wildcard (httpd -t: "Invalid ServerName ... use ServerAlias"): the first plain name is the
+    // ServerName and every other name, wildcards included, is a ServerAlias. Only wildcards: the base domain names it.
+    const plain = hosts.find((h) => !h.includes('*'));
+    const primary = plain || (hosts[0] ? hosts[0].replace(/^\*\./, '') : null);
+    const aliases = hosts.filter((h) => h !== primary);
+    const names = () => { const l = []; if (primary) l.push(`    ServerName ${primary}`); if (aliases.length) l.push(`    ServerAlias ${aliases.join(' ')}`); return l; };
     const usedHere = [...s.routes.map((r) => r.pool), ...(s.defaultPool ? [s.defaultPool] : [])];
     const logLines = spec.options.accessLog ? [`    ErrorLog ${Lx.logDir}/${s.name}_error${layout === 'debian' ? '.log' : '_log'}`, `    CustomLog ${Lx.logDir}/${s.name}_access${layout === 'debian' ? '.log' : '_log'} ${spec.options.logFormat === 'json' ? 'gatelight_json' : 'gatelight_combined'}`] : [];
     const httpsPortSuffix = s.https && s.https.port !== 443 ? `:${s.https.port}` : '';
@@ -201,7 +209,7 @@ function build(input, opts = {}) {
         b.push('    <Location "/">', '        AuthType Basic', `        AuthName ${q(s.basicAuth.realm)}`, '        AuthBasicProvider file', `        AuthUserFile ${q(file)}`, '        Require valid-user', '    </Location>');
         if (scheme === 'https' || !s.https) notes.push(`Site "${s.name}": create ${file} (readable by the httpd user only) with these lines (bcrypt hashes as given, the format \`htpasswd -B\` writes):\n${s.basicAuth.users.map((u) => `${u.user}:${u.hash}`).join('\n')}`);
       }
-      const ws = s.websocket && gte('2.4.47') ? ' upgrade=websocket' : '';
+      const ws = ''; // WebSocket upgrade is set on the BalancerMember lines (see wsPools)
       if (s.websocket && wsLegacy) b.push('    RewriteEngine On');
       const rules = [...s.routes, ...(s.defaultPool ? [{ path: '/', match: 'prefix', pool: s.defaultPool, stripPrefix: false, rewriteTo: null, isDefault: true }] : [])];
       for (const r of rules) {
@@ -252,6 +260,9 @@ function build(input, opts = {}) {
   }
 
   // ------------------------------------------------------------------ assemble
+  // %O / %I / %S in a LogFormat need mod_logio. Debian/Ubuntu build it in and RHEL's conf.modules.d loads it,
+  // but a standalone httpd.conf must load it (httpd -t: "Unrecognized LogFormat directive %O").
+  if (layout === 'standalone' && /LogFormat\b[^\n]*%[IOS]\b/.test(g.join('\n'))) mods.add('logio');
   const modList = [...mods].sort();
   const MOD_ID = (m) => `${m}_module`;
   const loadLines = ['# Modules', 'LoadModule mpm_event_module modules/mod_mpm_event.so', 'LoadModule unixd_module modules/mod_unixd.so', 'LoadModule log_config_module modules/mod_log_config.so', 'LoadModule mime_module modules/mod_mime.so', 'LoadModule dir_module modules/mod_dir.so', 'LoadModule setenvif_module modules/mod_setenvif.so',

@@ -47,7 +47,7 @@ function parseModule(html, mod) {
   const blocks = [...html.matchAll(re)];
   const pageHasFlag = html.match(/not built by default[^]*?<code>(--with-[a-z0-9_-]+)<\/code>/i);
   const flag = pageHasFlag ? pageHasFlag[1] : null;
-  const isCommercial = /This module is available as part of (?:our\s+)?<a[^>]*>commercial subscription/i.test(html);
+  const isCommercial = /This module (?:is|was) available as part of (?:our\s+)?<a[^>]*>commercial subscription/i.test(html); // "was": retired Plus modules (status, upstream_conf)
   blocks.forEach((b, i) => {
     const table = b[2];
     const rows = [...table.matchAll(/<th>\s*([^<]+?):?\s*<\/th>\s*<td>([\s\S]*?)<\/td>/g)];

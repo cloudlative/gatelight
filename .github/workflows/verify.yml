@@ -1,0 +1,33 @@
+name: Verify with the real programs
+# Builds every Config Builder spec, the bundled examples and Config Doctor's rewrites, then runs each product's own
+# config test in its official image (nginx -t, haproxy -c, httpd -t / apache2ctl -t, caddy validate, a Traefik start).
+# Weekly as well, so a new upstream release that rejects GateLight's output is noticed without a code change.
+on:
+  push:
+    branches: [main]
+    paths: ['src/**', 'tools/verify/**', 'examples/**', '.github/workflows/verify.yml']
+  pull_request:
+    paths: ['src/**', 'tools/verify/**', 'examples/**', '.github/workflows/verify.yml']
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [haproxy, nginx, apache-standalone, apache-debian, apache-rhel, caddy, traefik]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: Check generated configs with ${{ matrix.product }}
+        run: node tools/verify/run.js --product ${{ matrix.product }} --json verify-${{ matrix.product }}.json
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: 'verify-${{ matrix.product }}', path: 'verify-${{ matrix.product }}.json', if-no-files-found: ignore }

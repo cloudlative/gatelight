@@ -303,3 +303,24 @@ test('detect: Apache configs score high, other products low', () => {
   assert.ok(apache.detect('example.com {\n  reverse_proxy 10.0.0.1:8080\n}\n') < 0.2);
   assert.ok(apache.detect('[entryPoints.web]\n  address = ":80"\n') < 0.2);
 });
+
+// Found by running real httpd on generated configurations (tools/verify): each of these stops httpd from starting.
+test('validator: startup errors httpd reports that each directive alone would not show', () => {
+  const { validate } = require('../src/products/apache/validate');
+  const conf = [
+    'ServerRoot "/usr/local/apache2"', 'Listen 80',
+    'LoadModule mpm_event_module modules/mod_mpm_event.so', 'LoadModule unixd_module modules/mod_unixd.so', 'LoadModule authz_core_module modules/mod_authz_core.so',
+    'LoadModule log_config_module modules/mod_log_config.so', 'LoadModule proxy_module modules/mod_proxy.so', 'LoadModule proxy_http_module modules/mod_proxy_http.so', 'LoadModule proxy_balancer_module modules/mod_proxy_balancer.so',
+    'LoadModule slotmem_shm_module modules/mod_slotmem_shm.so', 'LoadModule lbmethod_byrequests_module modules/mod_lbmethod_byrequests.so',
+    'LogFormat "%h %l %u %t \\"%r\\" %>s %O" common',
+    '<Proxy "balancer://app">', '    BalancerMember "http://10.0.0.1:80"', '</Proxy>',
+    '<VirtualHost *:80>', '    ServerName *.example.com', '    ProxyPass "/" "balancer://app/" upgrade=websocket lbmethod=byrequests', '</VirtualHost>',
+  ].join('\n');
+  const ids = validate({ files: [{ name: 'httpd.conf', content: conf }], version: '2.4.62' }).findings.filter((f) => f.severity === 'error').map((f) => f.id);
+  assert.ok(ids.includes('compat-servername-wildcard'), ids.join());
+  assert.ok(ids.includes('compat-logio-not-loaded'), ids.join());
+  assert.ok(ids.includes('compat-balancer-worker-param'), ids.join());
+  const ok = conf.replace('ServerName *.example.com', 'ServerName example.com\n    ServerAlias *.example.com').replace(' upgrade=websocket', '').replace('LoadModule log_config_module', 'LoadModule logio_module modules/mod_logio.so\nLoadModule log_config_module');
+  const left = validate({ files: [{ name: 'httpd.conf', content: ok }], version: '2.4.62' }).findings.filter((f) => /servername-wildcard|logio|balancer-worker/.test(f.id));
+  assert.deepEqual(left, []);
+});

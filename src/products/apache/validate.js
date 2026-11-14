@@ -223,6 +223,7 @@ function validate({ files, version, build } = {}) {
     }
   }
   walkTree(ast, []);
+  startupRules({ ast, add, loaded, hasLoad });
   recommend({ ast, target, add, loaded, hasLoad, layout, L });
 
   findings.sort((a, b) => (a.file === b.file ? (a.line || 0) - (b.line || 0) : String(a.file).localeCompare(String(b.file))));
@@ -230,6 +231,33 @@ function validate({ files, version, build } = {}) {
 }
 
 // ------------------------------------------------------------------------------------------- recommendations
+// Worker (member) parameters that httpd refuses on a ProxyPass to balancer:// ("ProxyPass unknown Balancer parameter").
+// Balancer-level ones (lbmethod, stickysession, maxattempts, nofailover, timeout, failonstatus, ...) are fine there.
+const WORKER_ONLY = new Set(['upgrade', 'connectiontimeout', 'keepalive', 'retry', 'ttl', 'loadfactor', 'route', 'status', 'max', 'min', 'smax', 'acquire', 'flushpackets', 'flushwait', 'iobuffersize', 'receivebuffersize', 'redirect', 'secret', 'disablereuse', 'enablereuse', 'ping', 'mapping', 'responsefieldsize', 'hcmethod', 'hcuri', 'hcinterval', 'hcpasses', 'hcfails', 'hctemplate', 'hcexpr']);
+
+/**
+ * Mistakes that make httpd refuse to start although every directive on its own is valid. Each one was found by
+ * running real httpd on generated configurations (tools/verify).
+ */
+function startupRules({ ast, add, loaded, hasLoad }) {
+  const all = [];
+  (function walk(nodes) { for (const n of nodes) { all.push(n); if (n.children && !n.inactive) walk(n.children); } })(ast);
+  const docs = (mod, name) => `${kb.docsBase}${mod}.html#${name.toLowerCase()}`;
+  for (const n of all) {
+    const base = { file: n.file, line: n.line, section: '' };
+    if (n.lname === 'servername' && /\*/.test(n.args[0] || '')) {
+      add({ ...base, id: 'compat-servername-wildcard', severity: 'error', category: 'syntax', title: `ServerName "${n.args[0]}" contains a wildcard`, detail: 'ServerName takes one plain host name; httpd stops with "Invalid ServerName ... use ServerAlias to set multiple server names".', fix: `Use a plain name as ServerName and put "${n.args[0]}" in ServerAlias.`, docs: docs('core', 'ServerName') });
+    }
+    if ((n.lname === 'logformat' || n.lname === 'customlog') && hasLoad && !loaded.has('logio_module') && /%(?:\{[^}]*\})?[IOS]\b/.test(n.args.join(' '))) {
+      add({ ...base, id: 'compat-logio-not-loaded', severity: 'error', category: 'syntax', title: `${n.name || 'LogFormat'} uses %I / %O / %S, which need mod_logio`, detail: 'Without mod_logio httpd stops with "Unrecognized LogFormat directive %O". Debian/Ubuntu build it in and RHEL loads it by default; a hand-written httpd.conf must load it.', fix: 'Add `LoadModule logio_module modules/mod_logio.so`, or use %b instead of %O.', docs: `${kb.docsBase}mod_logio.html` });
+    }
+    if ((n.lname === 'proxypass' || n.lname === 'proxypassmatch') && /^balancer:\/\//i.test(n.args[1] || '')) {
+      const bad = n.args.slice(2).map((a) => a.split('=')[0].toLowerCase()).filter((k) => WORKER_ONLY.has(k));
+      if (bad.length) add({ ...base, id: 'compat-balancer-worker-param', severity: 'error', category: 'syntax', title: `${bad.join(', ')} cannot be set on a ProxyPass to ${n.args[1]}`, detail: 'These are worker (member) parameters; on a balancer:// target httpd stops with "ProxyPass unknown Balancer parameter".', fix: `Put ${bad.map((b) => `${b}=…`).join(', ')} on each BalancerMember of the balancer instead.`, docs: docs('mod_proxy', 'ProxyPass') });
+    }
+  }
+}
+
 function recommend({ ast, target, add, loaded, hasLoad, layout }) {
   const rec = (f) => add({ category: 'recommendation', severity: 'info', ...f });
   const all = [];
