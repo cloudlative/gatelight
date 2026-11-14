@@ -6,7 +6,7 @@ const path = require('path');
 
 const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.css'), 'utf8');
 const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
-const js = ['app.js', 'traffic.js', 'forge.js'].map((f) => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8')).join('\n');
+const js = [...fs.readdirSync(path.join(__dirname, '..', 'public', 'js')).map((f) => `js/${f}`), 'traffic.js', 'forge.js', 'builder.js'].map((f) => fs.readFileSync(path.join(__dirname, '..', 'public', f), 'utf8')).join('\n');
 
 test('an inactive page is never displayed: only "#view-x.active" may show a page', () => {
   // `#view-x { display: flex }` would beat `.view { display: none }` and leave the page on screen under every other page

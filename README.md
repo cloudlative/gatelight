@@ -481,12 +481,16 @@ persistent history needs Node 22.5+ (the Docker image has it; older Node keeps h
 ```bash
 npm ci
 npm test            # parsers, audit rules, API/security, sign-in, uploads, alerting, history, include sandbox
+                    # (fails if fewer tests ran than test/.test-count; after adding tests: npm test -- --update-count)
 DEMO_MODE=true npm start
+node tools/verify/run.js [--product nginx,caddy] [--quick]   # check generated configs with the real programs (needs Docker)
 ```
 
-Layout: `src/haproxyConfig.js`, `src/nginxConfig.js` (parsers → one shared topology model) · `src/audit.js`, `src/nginxAudit.js` ·
-`src/drivers.js` (per-technology adapters) · `src/poller.js` (polling, derived rates, state-change detection) · `src/history.js` (SQLite history and events) ·
-`public/` (UI, no build step).
+Layout: `src/products/` (one module per proxy behind one contract, see `CONTRACT.md`; HAProxy and NGINX adapt `src/haproxyConfig.js`, `src/nginxConfig.js`, `src/audit.js`, `src/nginxAudit.js`) ·
+`src/build/` (Config Builder) · `src/flow.js` (Request Routing) · `src/drivers.js` (poller adapters) · `src/poller.js` (polling, derived rates, state-change detection) · `src/history.js` (SQLite history and events) ·
+`public/` (UI, no build step: `public/js/*.js` one file per page, loaded in order by `index.html`; `traffic.js`, `forge.js`, `builder.js`).
+
+**Checked with the real programs.** [`verify.yml`](.github/workflows/verify.yml) builds every Config Builder spec, the bundled examples and Config Doctor's rewrites, and runs each product's own config test in its official image on every change and weekly: `haproxy -c` (2.0–3.2), `nginx -t` (1.18–1.27), `httpd -t` and `apache2ctl -t` (httpd image, Ubuntu `apache2`, AlmaLinux `httpd`), `caddy validate` (2.6–2.10) and a Traefik start (2.11–3.4). For the examples, which contain deliberate mistakes, it checks that GateLight reports an error on the same line the real program rejects.
 
 Images are built by [`docker.yml`](.github/workflows/docker.yml) (multi-arch `linux/amd64` + `linux/arm64`) and published to
 `ghcr.io/cloudlative/gatelight` from `main` and from `v*.*.*` tags.

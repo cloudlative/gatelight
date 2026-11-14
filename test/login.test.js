@@ -21,7 +21,7 @@ test('the main page and API need a session; the sign-in page and its assets do n
     assert.equal((await fetch(`${t.base}/api/instances`)).status, 401);
     assert.equal((await fetch(`${t.base}/api/instances`)).headers.get('www-authenticate'), null, 'no browser Basic prompt');
     for (const p of ['/login', '/login.js', '/app.css', '/logo.svg', '/healthz', '/brands/cyferio.svg', '/brands/invisibly.svg', '/brands/braintally.svg']) assert.equal((await fetch(`${t.base}${p}`)).status, 200, p);
-    for (const p of ['/app.js', '/index.html', '/metrics', '/readyz', '/api/meta']) assert.notEqual((await fetch(`${t.base}${p}`)).status, 200, `${p} must stay behind the login`);
+    for (const p of ['/js/core.js', '/builder.js', '/index.html', '/metrics', '/readyz', '/api/meta']) assert.notEqual((await fetch(`${t.base}${p}`)).status, 200, `${p} must stay behind the login`);
   } finally { await t.close(); }
 });
 

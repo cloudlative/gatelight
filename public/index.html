@@ -404,7 +404,25 @@
   <div id="toasts" class="toasts" aria-live="polite"></div>
 
   <script src="vendor/vis-network.min.js"></script>
-  <script src="app.js"></script>
+  <!-- UI, one file per page; they share one global scope and must load in this order (the same order as the old single app.js) -->
+  <script src="js/core.js"></script>
+  <script src="js/overview.js"></script>
+  <script src="js/topology.js"></script>
+  <script src="js/services.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/flow.js"></script>
+  <script src="js/profile.js"></script>
+  <script src="js/events.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/inspector.js"></script>
+  <script src="js/analyze.js"></script>
+  <script src="js/graphs.js"></script>
+  <script src="js/infra.js"></script>
+  <script src="js/chartview.js"></script>
+  <script src="js/connect.js"></script>
+  <script src="js/switcher.js"></script>
+  <script src="js/main.js"></script>
   <script src="traffic.js"></script>
   <script src="forge.js"></script>
   <script src="builder.js"></script>
