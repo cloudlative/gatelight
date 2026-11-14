@@ -18,7 +18,9 @@ test('demo mode serves both technologies with type-specific labels', async () =>
   const t = await demo();
   try {
     const { json } = await get(t.base, '/api/instances');
-    assert.deepEqual(json.instances.map((i) => i.type).sort(), ['haproxy', 'nginx']);
+    const types = json.instances.map((i) => i.type);
+    for (const t of ['haproxy', 'nginx']) assert.ok(types.includes(t), t);
+    assert.ok(types.every((t) => ['haproxy', 'nginx', 'apache', 'caddy', 'traefik'].includes(t)));
     const ng = (await get(t.base, '/api/instances/demo-nginx/snapshot')).json;
     assert.equal(ng.instance.labels.backend, 'Upstream');
     assert.ok(ng.rows.length > 5 && ng.findings.length > 0);
@@ -29,14 +31,15 @@ test('demo mode serves both technologies with type-specific labels', async () =>
 });
 
 test('feature switches: either technology can be disabled', async () => {
-  const off = await demo({ ENABLE_NGINX: 'false' });
+  const others = { ENABLE_APACHE: 'false', ENABLE_CADDY: 'false', ENABLE_TRAEFIK: 'false' };
+  const off = await demo({ ENABLE_NGINX: 'false', ...others });
   try {
     assert.deepEqual((await get(off.base, '/api/instances')).json.instances.map((i) => i.type), ['haproxy']);
     assert.equal((await get(off.base, '/api/meta')).json.features.nginx, false);
     const r = await post(off.base, '/api/analyze', { type: 'nginx', config: 'http { }' });
     assert.equal(r.status, 400); assert.match(r.json.error, /disabled/);
   } finally { await off.close(); }
-  const onlyNginx = await demo({ ENABLE_HAPROXY: 'false' });
+  const onlyNginx = await demo({ ENABLE_HAPROXY: 'false', ...others });
   try { assert.deepEqual((await get(onlyNginx.base, '/api/instances')).json.instances.map((i) => i.type), ['nginx']); } finally { await onlyNginx.close(); }
 });
 

@@ -40,7 +40,8 @@ function auditNginx(sections, { notes = [] } = {}) {
     }
     const sslBinds = fe.binds.filter((b) => b.ssl);
     const d = (name) => fe.directives.filter((x) => x.keyword === name);
-    if (sslBinds.length && !d('ssl_certificate').length) {
+    // a server with `ssl_reject_handshake on` refuses every handshake and needs no certificate (nginx 1.19.4+)
+    if (sslBinds.length && !d('ssl_certificate').length && !d('ssl_reject_handshake').some((x) => x.args[0] === 'on')) {
       add({ id: 'nginx-ssl-no-cert', severity: 'error', category: 'correctness', section: fe.name, file: fe.file, line: fe.line, title: `Server "${fe.name}" listens with ssl but has no ssl_certificate`, detail: 'The server block may still inherit it from the http{} level, in which case ignore this.', fix: 'Add `ssl_certificate` and `ssl_certificate_key`.' });
     }
     if (sslBinds.length) {
