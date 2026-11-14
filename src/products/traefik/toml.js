@@ -255,6 +255,7 @@ class Parser {
       this.lines.set(keyOf([...path, arr.length]), this.line);
       arr.push(this.value([...path, arr.length]));
       this.ws(true);
+      if (this.eof()) this.err('unterminated array (missing "]")', start);
       if (this.peek() === ',') { this.i++; continue; }
       if (this.peek() === ']') { this.i++; return arr; }
       this.err(`expected "," or "]" in an array, found "${this.s.slice(this.i, this.i + 15).split('\n')[0]}"`);

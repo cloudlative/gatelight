@@ -145,6 +145,7 @@ class Parser {
    */
   parseNode(i, indent, path, inf) {
     const t = inf.text;
+    if (/^\?( |$)/.test(t)) this.err('complex mapping keys ("? key") are not supported', inf.num);
     if (/^-( |$)/.test(t)) return this.parseSeq(i, inf.indent, path, inf);
     if (this.keyMatch(t)) return this.parseMap(i, inf.indent, path, inf);
     // a scalar / flow / alias / block scalar standing alone

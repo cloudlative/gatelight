@@ -179,7 +179,7 @@ function validate({ files, version, build } = {}) {
     }
     // deprecation
     const dep = entries.find((e) => e.dep);
-    if (dep) add({ ...base, id: 'compat-deprecated', severity: 'warning', title: `"${key}" is deprecated`, detail: dep.dep, fix: /SSLCertificateChainFile/i.test(key) ? 'Append the intermediate certificates to the SSLCertificateFile instead.' : /SSLRequire/i.test(key) ? 'Use `Require expr ...`.' : 'Remove it or use the replacement named in the documentation.', docs });
+    if (dep) add({ ...base, id: 'compat-deprecated', severity: 'warning', title: /no effect/i.test(dep.dep) ? `"${key}" has no effect in httpd 2.4` : `"${key}" is deprecated`, detail: dep.dep, fix: /SSLCertificateChainFile/i.test(key) ? 'Append the intermediate certificates to the SSLCertificateFile instead.' : /SSLRequire/i.test(key) ? 'Use `Require expr ...`.' : 'Remove it or use the replacement named in the documentation.', docs });
     else if (e0.mod === 'mod_access_compat') add({ ...base, id: 'compat-deprecated', severity: 'warning', title: `"${key}" is a 2.2-style access control directive (mod_access_compat)`, detail: 'mod_access_compat is provided only for compatibility with old configurations; httpd 2.4 uses Require (mod_authz_host). Mixing both gives surprising results.', fix: key === 'Order' || key === 'Allow' || key === 'Deny' ? 'Replace with Require (e.g. `Require all granted`, `Require ip 10.0.0.0/8`, `Require host example.org`).' : 'Use RequireAll / RequireAny.', docs: `${kb.docsBase.replace(/mod\/$/, '')}upgrading.html#access` });
     // module loaded?
     if (hasLoad && !entries.some((e) => modLoaded(e.mod)) && !stack.some((s) => s.lname === 'ifmodule')) {

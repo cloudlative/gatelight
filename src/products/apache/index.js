@@ -66,6 +66,7 @@ module.exports = {
   improve: (o) => improve(o),
   flow: { defaultPort: parse.defaultPort },
   live: { hasSource: live.hasSource, sources: live.sources, collect: live.collect },
+  liveSources: ['server-status (mod_status ?auto)', 'balancer-manager (mod_proxy_balancer)'],
   logs: { createAggregator: logs.createAggregator, sniff: logs.sniff },
   build: (spec, opts) => build(spec, opts),
 };

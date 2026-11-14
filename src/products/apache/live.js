@@ -146,10 +146,11 @@ async function get(inst, url) {
 
 /**
  * @param inst { statsUrl?: server-status URL, balancerUrl?: balancer-manager URL, username, password, timeoutMs, insecureTls }
- * @param cache unused (kept for the contract)  @param ctx { sections } to align names with the parsed config
+ * @param cache the driver's config cache ({ sections }) — used to align member names with the parsed config
+ * @param ctx optional { sections } (overrides cache.sections)
  */
 async function collect(inst, cache, ctx = {}) {
-  const sections = (ctx && ctx.sections) || [];
+  const sections = (ctx && ctx.sections) || (cache && cache.sections) || []; // the driver passes its config cache
   let rows = []; let info = {}; const warnings = [];
   if (inst.statsUrl) {
     try {

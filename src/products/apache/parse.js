@@ -833,7 +833,7 @@ function finish(r, extraFiles = []) {
   const red = (raw) => redact(raw);
   // the model is built from the redacted text, so no secret reaches sections / routes / directives
   const sections = buildModel(r.redactedAst || r.ast, { defines: r.defines, layout: r.layout });
-  return { sections, notes: r.notes, files: [...r.files.map((f) => ({ name: f.name, raw: red(f.raw), mtimeMs: f.mtimeMs || 0 })), ...extraFiles] };
+  return { sections, notes: r.notes, files: [...r.files.map((f) => ({ name: f.name, raw: red(f.raw), mtimeMs: f.mtimeMs || 0, ...(r.fromDisk ? { abs: f.abs } : {}) })), ...extraFiles] };
 }
 
 function parseFiles(input) {
@@ -855,6 +855,7 @@ function loadPath(mainPath, rootDir) {
   loader.readFile = (abs) => redact(origRead(abs));
   const r = loader.load();
   r.files = r.files.map((f) => ({ ...f }));
+  r.fromDisk = true; // keep absolute paths so the poller can notice edits (mtime) — never sent to the browser by parseFiles
   const out = finish(r);
   out.mainFile = loader.rel(loader.mainPath);
   return out;

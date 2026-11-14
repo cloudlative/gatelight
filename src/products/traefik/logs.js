@@ -96,7 +96,9 @@ function sniff(lines) {
     if (l[0] === '{') { try { const o = JSON.parse(l); if (o && (o.RouterName !== undefined || o.DownstreamStatus !== undefined) && o.RequestMethod) ok++; } catch { /* not json */ } }
     else if (CLF_RE.test(l) && parseTime((CLF_RE.exec(l) || [])[3] || '') !== null) ok++;
   }
-  return { tried, ok, ratio: tried ? ok / tried : 0 };
+  // `specific`: these lines carry Traefik's own fields (router / service URL / duration tail, or Traefik JSON keys), which a
+  // generic combined-format parser (NGINX, Apache) also accepts; a tie should go to Traefik.
+  return { tried, ok, ratio: tried ? ok / tried : 0, specific: ok > 0 };
 }
 
 module.exports = { createAggregator, sniff, parseTime, CLF_RE };

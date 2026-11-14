@@ -121,6 +121,8 @@ function normalizeSpec(input) {
   const options = {
     accessLog: bool(o.accessLog, true), logFormat: o.logFormat === 'json' ? 'json' : 'combined',
     statusPage: { enabled: Boolean(sp.enabled), port: port(sp.port, 8404), allow: (Array.isArray(sp.allow) ? sp.allow : ['127.0.0.1']).map((a) => str(a, 64)).filter((a) => /^[0-9a-fA-F:.]+(\/\d{1,3})?$/.test(a)) },
+    // Apache only: where the files go. debian = apache2 (sites-available, a2enmod), rhel = httpd (conf.d), standalone = one httpd.conf
+    layout: ['debian', 'rhel', 'standalone'].includes(o.layout) ? o.layout : o.layout === 'upstream' ? 'standalone' : 'debian',
     clientTimeout: num(o.clientTimeout, 60, 1, 86400), maxConnections: num(o.maxConnections, 10000, 1, 10000000), workers: o.workers === undefined || o.workers === 'auto' ? 'auto' : num(o.workers, 1, 1, 1024),
   };
   if (errors.length) throw new SpecError([...new Set(errors)]);

@@ -38,6 +38,7 @@ function bdRenderAll() {
       <div class="bd-prods" role="radiogroup" aria-label="Product">${BD.products.map((p) => `<button type="button" class="chip${p.type === BD.product && !BD.compare ? ' on' : ''}" role="radio" aria-checked="${p.type === BD.product && !BD.compare}" data-bd-prod="${p.type}">${esc(p.name)}</button>`).join('')}<button type="button" class="chip${BD.compare ? ' on' : ''}" data-bd-compare title="Build for every product and compare the checks">Compare all</button></div>
       <div class="bd-ctl">
         <label class="small muted">Version <select id="bd-version" aria-label="Target version"${BD.compare ? ' disabled' : ''}><option value="">Latest${prod && prod.versions ? ` (${esc(prod.versions.latest)})` : ''}</option>${vers.map((v) => `<option value="${esc(v)}"${BD.version === v ? ' selected' : ''}>${esc(TYPE_NAME[BD.product])} ${esc(v)}</option>`).join('')}</select></label>
+        ${BD.product === 'apache' && !BD.compare ? `<label class="small muted">Layout <select id="bd-layout" aria-label="Apache layout">${[['debian', 'apache2 (Debian / Ubuntu)'], ['rhel', 'httpd (RHEL / Fedora)'], ['standalone', 'httpd, one httpd.conf (source build)']].map(([v, l]) => `<option value="${v}"${((BD.spec.options || {}).layout || 'debian') === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>` : ''}
         <span class="spacer"></span>
         <button class="btn" type="button" data-bd-example>Load example</button>
         <button class="btn" type="button" data-bd-clear>Start empty</button>
@@ -196,6 +197,7 @@ document.addEventListener('change', (e) => {
     bdSoon(); return;
   }
   if (e.target.id === 'bd-version') { BD.version = e.target.value; bdSave(); bdRun(); }
+  if (e.target.id === 'bd-layout') { BD.spec.options = { ...(BD.spec.options || {}), layout: e.target.value }; BD.file = 0; bdSave(); bdRun(); }
   if (e.target.id === 'bd-import') {
     const file = e.target.files[0]; e.target.value = ''; if (!file) return;
     file.text().then((t) => { const j = JSON.parse(t); BD.spec = j.spec || j; BD.compare = null; bdSave(); bdRenderAll(); bdRun(); toast('Spec loaded', 'ok'); }).catch((err) => toast(`Could not read the file: ${err.message}`, 'err'));
