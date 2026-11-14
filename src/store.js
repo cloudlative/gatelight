@@ -57,6 +57,17 @@ function cleanFiles(input) {
   return out;
 }
 
+const TYPES = ['haproxy', 'nginx', 'apache', 'caddy', 'traefik'];
+const DEFAULT_FILE = { haproxy: 'haproxy.cfg', nginx: 'nginx.conf', apache: 'httpd.conf', caddy: 'Caddyfile', traefik: 'traefik.yml' };
+const URL_LABEL = { haproxy: 'Stats URL', nginx: 'Status URL', apache: 'server-status URL', caddy: 'Admin API URL', traefik: 'API URL' };
+const NEED_SOURCE = {
+  haproxy: 'Enter the stats URL (e.g. http://host:8404/stats) or a Runtime API host:port, or upload a config or a traffic log to look at it without a live connection',
+  nginx: 'Enter the stub_status URL or the NGINX Plus API URL, or upload a config to review it without a live connection',
+  apache: 'Enter the server-status URL (mod_status, e.g. http://host/server-status) and/or the balancer-manager URL, or upload a config or a traffic log to look at it without a live connection',
+  caddy: 'Enter the Caddy admin API URL (e.g. http://127.0.0.1:2019), or upload a Caddyfile / JSON config or a traffic log to look at it without a live connection',
+  traefik: 'Enter the Traefik API URL (e.g. http://host:8080), or upload the static and dynamic config or a traffic log to look at it without a live connection',
+};
+
 /**
  * Validate and normalise a create/update body into a stored-instance definition.
  * `existing` supplies the current password when an update leaves it blank.
@@ -64,7 +75,7 @@ function cleanFiles(input) {
 function validateInput(body, ctx, existing) {
   const b = body && typeof body === 'object' ? body : {};
   const type = str(b.type, 10).toLowerCase();
-  if (!['haproxy', 'nginx'].includes(type)) throw new Error('Type must be haproxy or nginx');
+  if (!TYPES.includes(type)) throw new Error(`Type must be one of ${TYPES.join(', ')}`);
   if (ctx.features && ctx.features[type] === false) throw new Error(`${type} support is disabled on this server`);
   const name = str(b.name, 60);
   if (!name) throw new Error('Give the instance a name');
@@ -73,7 +84,11 @@ function validateInput(body, ctx, existing) {
   const statsUrl = str(b.statsUrl, 2048);
   const plusApiUrl = type === 'nginx' ? str(b.plusApiUrl, 2048) : '';
   const socket = type === 'haproxy' ? str(b.socket, 255) : '';
-  if (statsUrl) def.statsUrl = checkUrl(type === 'haproxy' ? 'Stats URL' : 'Status URL', statsUrl, ctx.allowedHosts);
+  if (statsUrl) def.statsUrl = checkUrl(URL_LABEL[type], statsUrl, ctx.allowedHosts);
+  const balancerUrl = type === 'apache' ? str(b.balancerUrl, 2048) : '';
+  if (balancerUrl) def.balancerUrl = checkUrl('Balancer manager URL', balancerUrl, ctx.allowedHosts);
+  const metricsUrl = ['caddy', 'traefik'].includes(type) ? str(b.metricsUrl, 2048) : '';
+  if (metricsUrl) def.metricsUrl = checkUrl('Metrics URL', metricsUrl, ctx.allowedHosts);
   if (plusApiUrl) def.plusApiUrl = checkUrl('NGINX Plus API URL', plusApiUrl, ctx.allowedHosts);
   if (socket) {
     const m = socket.replace(/^tcp:\/\//, '').match(/^([^:/\s]+):(\d{1,5})$/);
@@ -90,12 +105,12 @@ function validateInput(body, ctx, existing) {
   if (type === 'nginx' && b.probe !== undefined) def.probe = Boolean(b.probe);
   // Config uploaded in the browser (replaces the old "put a file in config/" method). Stored with the instance.
   let files = cleanFiles(b.configFiles);
-  if (!files.length && typeof b.configText === 'string' && b.configText.trim()) files = cleanFiles([{ name: type === 'nginx' ? 'nginx.conf' : 'haproxy.cfg', content: b.configText }]);
+  if (!files.length && typeof b.configText === 'string' && b.configText.trim()) files = cleanFiles([{ name: DEFAULT_FILE[type], content: b.configText }]);
   if (!files.length && b.keepConfig && existing && existing.configFiles && existing.configFiles.length) files = existing.configFiles;
   if (files.length) def.configFiles = files;
   if (type === 'nginx' && b.probe === undefined && !def.statsUrl && !def.plusApiUrl) def.probe = false; // config-only: never probe hosts named in an uploaded file
-  if (!def.statsUrl && !def.plusApiUrl && !def.socket && !(type === 'nginx' && def.probe) && !def.configFiles && !def.configUrls && !def.logOnly) {
-    throw new Error(type === 'haproxy' ? 'Enter the stats URL (e.g. http://host:8404/stats) or a Runtime API host:port, or upload a config or a traffic log to look at it without a live connection' : 'Enter the stub_status URL or the NGINX Plus API URL, or upload a config to review it without a live connection');
+  if (!def.statsUrl && !def.plusApiUrl && !def.socket && !def.balancerUrl && !(type === 'nginx' && def.probe) && !def.configFiles && !def.configUrls && !def.logOnly) {
+    throw new Error(NEED_SOURCE[type]);
   }
 
   const username = str(b.username, 256);
@@ -103,7 +118,7 @@ function validateInput(body, ctx, existing) {
   const pw = typeof b.password === 'string' ? b.password.slice(0, 512) : '';
   // A blank password on edit keeps the stored one, but only while the target and user are unchanged:
   // otherwise an editor could redirect the saved credential to a host of their choosing.
-  const target = (d) => [d.statsUrl && new URL(d.statsUrl).host, d.plusApiUrl && new URL(d.plusApiUrl).host, d.socket].join('|');
+  const target = (d) => [d.statsUrl && new URL(d.statsUrl).host, d.plusApiUrl && new URL(d.plusApiUrl).host, d.balancerUrl && new URL(d.balancerUrl).host, d.metricsUrl && new URL(d.metricsUrl).host, d.socket].join('|');
   if (pw) def.password = pw;
   else if (existing && existing.password && username === (existing.username || '') && target(def) === target(existing)) def.password = existing.password;
 

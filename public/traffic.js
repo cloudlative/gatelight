@@ -36,7 +36,9 @@ const LOG_CMDS_NGINX = [
 ];
 const trProduct = () => { const i = (state.instances || []).find((x) => x.id === state.current); return i ? i.type : 'haproxy'; }; // the instance's type; uploaded logs are detected on their own
 function logHelpHtml(product) {
-  const cmds = (product || trProduct()) === 'nginx' ? LOG_CMDS_NGINX : LOG_CMDS;
+  const prod = product || trProduct();
+  const LOG_PATH = { apache: '/var/log/apache2/access.log', caddy: '/var/log/caddy/access.log', traefik: '/var/log/traefik/access.log' };
+  const cmds = prod === 'haproxy' || !prod ? LOG_CMDS : prod === 'nginx' ? LOG_CMDS_NGINX : LOG_CMDS_NGINX.map(([t, c]) => [t, c.replace(/\/var\/log\/nginx\/access\.log/g, LOG_PATH[prod] || '/var/log/access.log')]);
   const max = fmtBytes((state.meta && state.meta.logMaxBytes) || 50 * 1048576);
   return `<p class="muted small">Maximum <b>${esc(max)}</b> per file; select several files at once and they are shown combined: plain text (<code>.log</code>, <code>.txt</code>) or gzip (<code>.gz</code>, the limit applies to the compressed size). Only the statistics are kept on the server, never the raw log. Run these where the log lives:</p>
     <div class="tr-cmds">${cmds.map(([t, c]) => `<div><span class="muted small">${esc(t)}</span><span class="tr-cmd"><code>${esc(c)}</code><button type="button" class="btn icon" data-copy="${esc(c)}" title="Copy" aria-label="Copy command">⧉</button></span></div>`).join('')}</div>
@@ -80,7 +82,7 @@ function trPrepare(d) {
 }
 function trCanUpload() {
   const i = (state.instances || []).find((x) => x.id === state.current);
-  return Boolean(state.meta && state.meta.canManage && i && i.managed && (i.type === 'haproxy' || i.type === 'nginx'));
+  return Boolean(state.meta && state.meta.canManage && i && i.managed && (i.type === 'haproxy' || i.type === 'nginx' || (productInfo(i.type) && productInfo(i.type).can.logs)));
 }
 
 // ------------------------------------------------------------------------------------------------ data selection and aggregation
@@ -246,9 +248,9 @@ function trHeadHtml() {
 }
 function trEmptyHtml() {
   const can = trCanUpload();
-  const nxp = trProduct() === 'nginx';
-  return `<div class="panel tr-empty-p"><h3>${can ? `Upload ${nxp ? 'NGINX' : 'HAProxy'} logs to see the traffic` : 'No traffic log for this instance'}</h3>
-    <p class="muted">${can ? (nxp ? 'Pick a complete access log, or several parts at once (rotated <code>.gz</code> files too), to be shown combined: the default <code>combined</code> format, with or without <code>$request_time</code> / <code>$upstream_*</code> fields, or JSON lines. You get requests, status codes, errors, URLs, clients and more, with filters; response times appear when the log has them.' : 'Pick a complete log, or several parts at once, to be shown combined (<code>option httplog</code> / <code>tcplog</code> lines). You get requests, response times, errors, status codes, servers, URLs, clients and more, with filters.') : `Traffic statistics come from ${nxp ? 'an NGINX access' : 'an HAProxy'} log uploaded to a connection added in the UI (Add instance → Traffic log).`}</p>
+  const nxp = trProduct() !== 'haproxy'; const pname = TYPE_NAME[trProduct()] || 'NGINX';
+  return `<div class="panel tr-empty-p"><h3>${can ? `Upload ${nxp ? pname : 'HAProxy'} logs to see the traffic` : 'No traffic log for this instance'}</h3>
+    <p class="muted">${can ? (nxp ? 'Pick a complete access log, or several parts at once (rotated <code>.gz</code> files too), to be shown combined: the default <code>combined</code> format, with or without <code>$request_time</code> / <code>$upstream_*</code> fields, or JSON lines. You get requests, status codes, errors, URLs, clients and more, with filters; response times appear when the log has them.' : 'Pick a complete log, or several parts at once, to be shown combined (<code>option httplog</code> / <code>tcplog</code> lines). You get requests, response times, errors, status codes, servers, URLs, clients and more, with filters.') : `Traffic statistics come from ${nxp ? `a ${pname} access` : 'an HAProxy'} log uploaded to a connection added in the UI (Add instance → Traffic log).`}</p>
     ${can ? '<button class="btn primary" type="button" data-tr-upload>Choose log files</button>' : ''}
     <details class="tr-help" ${can ? 'open' : ''}><summary>Log too big? Split it first, then select all the parts</summary>${logHelpHtml()}</details></div>`;
 }
@@ -269,7 +271,7 @@ function trFiltersHtml(d, f, sel, A) {
 }
 
 function trBody(d, sel, A, S) {
-  const nx = d.product === 'nginx'; const timed = !nx || (d.stats.timed || 0) > 0; const hasUp = !nx || d.keys.some((k) => k.be !== '(no upstream)');
+  const nx = d.product !== 'haproxy'; const timed = !nx || (d.stats.timed || 0) > 0; const hasUp = !nx || d.keys.some((k) => k.be !== '(no upstream)');
   const spanS = Math.max(1, (sel.to - sel.from) / 1000);
   const p50 = trPercentile(A.hHttp, d.edges, 0.5); const p95 = trPercentile(A.hHttp, d.edges, 0.95); const p99 = trPercentile(A.hHttp, d.edges, 0.99);
   const errN = (A.cls['5xx'] || 0) + (A.cls.abt || 0);

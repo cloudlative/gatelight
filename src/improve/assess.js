@@ -37,6 +37,7 @@ const sameSection = (a, b) => { const x = bare(a); const y = bare(b); return x =
 
 function staticAudit(product, files, haText) {
   try {
+    if (product !== 'haproxy' && product !== 'nginx') { const m = require('../products').get(product); const p = m.parseFiles(files.map((f) => ({ name: f.name, content: f.original }))); return m.audit(p.sections, { notes: p.notes || [], files: p.files }); }
     if (product === 'nginx') { const p = parseNginxFiles(files.map((f) => ({ name: f.name, content: f.original }))); return auditNginx(p.sections, { notes: p.notes || [] }); }
     return auditConfig(parseConfig(haText), { runtime: { rows: [] } });
   } catch { return []; }
@@ -49,7 +50,7 @@ function assessConfig(o) {
   const text = r.files.length === 1 ? r.files[0].original : r.files.map((f) => f.original).join('\n');
   const audit = Array.isArray(o.audit) ? o.audit : staticAudit(r.product, r.files, text);
   let val = [];
-  try { val = validateConfig({ product: r.product, version: o.version || null, config: r.product === 'haproxy' ? text : undefined, files: r.product === 'nginx' ? r.files.map((f) => ({ name: f.name, content: f.original })) : undefined, build: typeof o.build === 'string' ? o.build : undefined }).findings; } catch { /* the validator is advisory here */ }
+  try { val = validateConfig({ product: r.product, version: o.version || null, config: r.product === 'haproxy' ? text : undefined, files: r.product !== 'haproxy' ? r.files.map((f) => ({ name: f.name, content: f.original })) : undefined, build: typeof o.build === 'string' ? o.build : undefined }).findings; } catch { /* the validator is advisory here */ }
 
   const legacy = [...audit.map((f) => ({ ...f, source: 'audit' })), ...val.map((f) => ({ ...f, source: 'validate' }))];
   const kept = [];
@@ -61,7 +62,7 @@ function assessConfig(o) {
   }
   // the same legacy finding can arrive from both audit and validate: keep one
   const seen = new Set(); const problems = kept.filter((f) => { const k = `${f.rule}|${f.section}|${f.line}`; if (seen.has(k)) return false; seen.add(k); return true; });
-  if (o.versionDetected && o.version) r.notes = r.notes.filter((n) => !/No version was given/.test(n)).concat(`Targeting ${r.product === 'haproxy' ? 'HAProxy' : 'NGINX'} ${o.version}, detected from the running server. Choose another version above to change it.`);
+  if (o.versionDetected && o.version) r.notes = r.notes.filter((n) => !/No version was given/.test(n)).concat(`Targeting ${require('../products').nameOf(r.product)} ${o.version}, detected from the running server. Choose another version above to change it.`);
   const findings = [...forge, ...problems];
   const open = findings.filter((f) => f.kind !== 'optional');
   const scoreBefore = score(open); const scoreAfter = score(open.filter((f) => f.kind === 'input' || f.kind === 'problem' || (f.kind === 'auto' && !f.applied)));

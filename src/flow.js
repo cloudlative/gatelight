@@ -100,6 +100,8 @@ function evalMatcher(m, req) {
   else if (m.field === 'Host' || m.field === 'TLS SNI') v = lc(req.host);
   else if (m.field === 'Method') v = req.method || 'GET';
   else if (m.field === 'dst_port') v = req.port != null ? String(req.port) : null;
+  else if (m.field === 'SNI') v = lc(req.host);
+  else if (m.field === 'Header' && /^host$/i.test(m.name || '')) v = lc(req.host);
   else return null;
   if (v == null) return null;
   const ci = m.caseInsensitive || m.field === 'Host' || m.field === 'TLS SNI';
@@ -113,6 +115,7 @@ function evalMatcher(m, req) {
     case 'has directory': return vals.some((x) => `/${t(v)}/`.includes(`/${t(x)}/`));
     case 'has domain': return vals.some((x) => { const a = t(v); const b = t(x); return a === b || a.endsWith(`.${b}`) || a.includes(`.${b}.`); });
     case 'matches': return vals.some((x) => { try { return new RegExp(x, ci ? 'i' : '').test(v); } catch { return null; } });
+    case 'glob': return vals.some((x) => globRe(t(x)).test(t(v)));
     default: return null;
   }
 }
@@ -128,6 +131,9 @@ function evalCondition(rawCond, matchers, req) {
   if (/^\s*unless\b/.test(rawCond) && r !== null) r = !r;
   return r;
 }
+
+/** Shell-style glob used by Caddy path/host matchers (`/api/*`, `*.example.com`): * matches any run of characters. */
+const globRe = (g) => new RegExp(`^${String(g).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`);
 
 // ------------------------------------------------------------------------------------------------ path rewriting
 const hapFmt = (fmt, m) => (m ? String(fmt).replace(/\\(\d)/g, (_x, i) => m[Number(i)] || '') : String(fmt));
@@ -272,7 +278,7 @@ function makeFlow(product, { fe, listeners, rule, index, chain, pool, mode, memb
     const probe = { host: (f.match.hosts || [])[0] || '', path: pathSample(f.match) || '/', method: 'GET', tls: null, port: null };
     for (const st of chain) st.applies = st.cond ? evalCondition(st.cond, st.matchers, probe) : true;
   }
-  const sample = product === 'haproxy' ? pathSample(f.match) : (rule.matchModifier === '=' || !rule.matchModifier || rule.matchModifier === '^~') && rule.paths && rule.paths[0] ? (rule.paths[0].endsWith('/') ? `${rule.paths[0]}example` : rule.matchModifier === '=' ? rule.paths[0] : `${rule.paths[0]}/example`) : null;
+  const sample = !CLASSIC.has(product) ? genericSample(rule) : product === 'haproxy' ? pathSample(f.match) : (rule.matchModifier === '=' || !rule.matchModifier || rule.matchModifier === '^~') && rule.paths && rule.paths[0] ? (rule.paths[0].endsWith('/') ? `${rule.paths[0]}example` : rule.matchModifier === '=' ? rule.paths[0] : `${rule.paths[0]}/example`) : null;
   if (sample != null) {
     const out = simulatePath(product, f, sample);
     f.example = { in: sample, out: out.path, exact: out.exact, changed: out.path !== sample };
@@ -282,6 +288,7 @@ function makeFlow(product, { fe, listeners, rule, index, chain, pool, mode, memb
 
 /** Apply a flow's transform chain to a sample path. */
 function simulatePath(product, flow, path) {
+  if (!CLASSIC.has(product)) return simulateGeneric(flow, path);
   let cur = path; let exact = true; let broke = false;
   for (const s of flow.chain) {
     if (s.kind !== 'path') continue;
@@ -334,8 +341,8 @@ function analyse(product, flows, sections) {
   const ownPorts = new Set(); const ownHosts = new Set();
   for (const f of flows) for (const l of f.listeners) { if (l.port) ownPorts.add(String(l.port)); const h = String(l.address).replace(/:\d+(-\d+)?$/, ''); if (h && !LOCAL_HOSTS.has(h)) ownHosts.add(h); }
 
-  // shadowed rules (first match wins in HAProxy; NGINX handled separately below)
-  if (product === 'haproxy') {
+  // shadowed rules (first match wins in HAProxy, and in the evaluation order the other modules emit; NGINX handled separately below)
+  if (product !== 'nginx') {
     const byFe = new Map();
     for (const f of flows) (byFe.get(f.frontend) || byFe.set(f.frontend, []).get(f.frontend)).push(f);
     for (const list of byFe.values()) {
@@ -348,7 +355,7 @@ function analyse(product, flows, sections) {
           add({
             id: 'flow-shadowed-rule', severity: 'warning', section: f.frontend, line: f.line,
             title: f.match.type === 'default' ? `default_backend "${f.pool.name}" is never used` : `Rule #${f.match.index} → "${f.pool.name}" can never match`,
-            detail: `Rule #${list[i].match.index} (${list[i].match.type === 'default' ? 'default_backend' : list[i].match.text || 'unconditional'}) → "${list[i].pool.name}" already catches everything this rule matches, and use_backend rules are evaluated in order, first match wins.`,
+            detail: `Rule #${list[i].match.index} (${list[i].match.type === 'default' ? 'default_backend' : list[i].match.text || 'unconditional'}) → "${list[i].pool.name}" already catches everything this rule matches, and ${product === 'haproxy' ? 'use_backend rules are evaluated in order' : `${productName(product)} evaluates these rules in this order`}, first match wins.`,
             fix: 'Move the more specific rule above the broader one, or remove it.',
           });
           break;
@@ -368,7 +375,7 @@ function analyse(product, flows, sections) {
       }
       if (product === 'haproxy' && m.checkPort != null && !m.check) add({ id: 'flow-check-port-ignored', severity: 'info', section: pool.name, line: m.line, title: `"port ${m.checkPort}" on "${m.name}" has no effect without "check"`, detail: 'The server `port` parameter only redirects health checks, and it is ignored when `check` is not set. It does not change where traffic goes.', fix: 'Add `check`, or remove `port` and put the port in the server address.' });
       if (first != null && m.ssl && first === 80) add({ id: 'flow-tls-to-plain-port', severity: 'warning', section: pool.name, line: m.line, title: `"${m.name}" speaks TLS to :80`, detail: 'The server is configured for TLS, but port 80 normally serves plain HTTP.', fix: 'Use the TLS port (usually 443 / 8443), or remove `ssl` / use http://.' });
-      if (first != null && !m.ssl && (first === 443 || first === 8443)) add({ id: 'flow-plain-to-tls-port', severity: 'warning', section: pool.name, line: m.line, title: `"${m.name}" sends plain traffic to :${first}`, detail: `Port ${first} normally expects TLS, but ${product === 'haproxy' ? '`ssl` is not set on this server' : 'proxy_pass does not use https://'}.`, fix: product === 'haproxy' ? 'Add `ssl` (and `verify required ca-file …`).' : 'Use `proxy_pass https://…`.' });
+      if (first != null && !m.ssl && (first === 443 || first === 8443)) add({ id: 'flow-plain-to-tls-port', severity: 'warning', section: pool.name, line: m.line, title: `"${m.name}" sends plain traffic to :${first}`, detail: `Port ${first} normally expects TLS, but ${product === 'haproxy' ? '`ssl` is not set on this server' : product === 'nginx' ? 'proxy_pass does not use https://' : 'the upstream address does not use https://'}.`, fix: product === 'haproxy' ? 'Add `ssl` (and `verify required ca-file …`).' : product === 'nginx' ? 'Use `proxy_pass https://…`.' : 'Use an https:// upstream URL.' });
       if (m.addr.kind === 'inet' && first != null && ports.some((p) => p != null && ownPorts.has(String(p))) && (LOCAL_HOSTS.has(m.addr.host.replace(/^\[|\]$/g, '')) || ownHosts.has(m.addr.host)) && !m.addr.transparent) {
         add({ id: 'flow-self-loop', severity: 'error', section: pool.name, line: m.line, title: `"${m.name}" points at this load balancer's own listener (${m.addr.host}:${first})`, detail: 'Requests would be proxied back into the same listener, creating a loop until connections are exhausted.', fix: 'Point the server at the application port, not at a port this proxy listens on.' });
       }
@@ -469,7 +476,7 @@ function buildDomains(product, sections, flows) {
 }
 
 function buildFlows(product, sections) {
-  const flows = product === 'nginx' ? ngxFlows(sections) : hapFlows(sections);
+  const flows = product === 'nginx' ? ngxFlows(sections) : product === 'haproxy' ? hapFlows(sections) : genericFlows(product, sections);
   const findings = analyse(product, flows, sections);
   const dom = buildDomains(product, sections, flows); findings.push(...dom.findings);
   const strip = (s) => ({ applies: s.applies, stage: s.stage, scope: s.scope, action: s.action, args: s.args, cond: s.cond || '', condText: s.condText || '', line: s.line, text: s.text, kind: s.kind, note: s.note });
@@ -626,9 +633,132 @@ function traceNginx(sections, rq) {
   return { ok: true, frontend: best.name, rule: flow.match.index, backend: flow.pool.name, path: { in: rq.path, out: path, exact }, hostHeader: host ? host.args[1] : null, members, steps, tls: tlsKind(Boolean(lb.ssl), flow.members.some((m) => m.ssl), flow.mode), listener: { address: lb.address, port, tls: Boolean(lb.ssl) } };
 }
 
+
+// ------------------------------------------------------------------------------------------------ Apache, Caddy, Traefik
+// These modules emit routes already in their product's evaluation order, with structured matchers and an ordered list of
+// transforms (src/products/CONTRACT.md), so one engine serves all of them.
+const CLASSIC = new Set(['haproxy', 'nginx']);
+const productMod = (t) => { try { return require('./products').get(t); } catch { return null; } };
+const productName = (t) => { try { return require('./products').nameOf(t); } catch { return t; } };
+const GEN_PATH = new Set(['strip-prefix', 'strip-prefix-regex', 'add-prefix', 'replace-path', 'set-path', 'replace-path-regex', 'replace-prefix', 'rewrite']);
+const GEN_TERMINAL = new Set(['redirect', 'return', 'deny', 'respond', 'static']);
+
+function genericMember(s, defaultPort) {
+  const raw = String(s.address || '');
+  const scheme = (s.scheme || (raw.match(/^([a-z][a-z0-9+.-]*):\/\//i) || [])[1] || 'http').toLowerCase();
+  const hostPort = raw.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').replace(/\/.*$/, '');
+  const addr = parseServerAddress(hostPort);
+  const tls = /^(https|h2|grpcs|wss|tls)$/.test(scheme) || Boolean(s.ssl);
+  return {
+    name: s.name || raw, address: raw, line: s.line, count: 1,
+    addr: addr.kind === 'inet' && addr.mode === 'follows' ? { ...addr, mode: 'explicit', port: defaultPort(tls ? 'https' : scheme), implicitPort: true } : addr,
+    ssl: tls, verify: null, sni: null, sendProxy: null, check: Boolean(s.check), checkPort: null, checkAddr: null, checkSsl: false,
+    backup: Boolean(s.backup), disabled: Boolean(s.disabled), weight: s.weight ?? null,
+  };
+}
+const genericStep = (t) => ({
+  scope: 'route', stage: 'route', action: t.action, args: Array.isArray(t.args) ? t.args.map(String) : [], line: t.line, text: t.text || `${t.action} ${(t.args || []).join(' ')}`.trim(),
+  kind: GEN_PATH.has(t.action) ? 'path' : t.action === 'set-header' ? 'header' : GEN_TERMINAL.has(t.action) ? 'terminal' : 'other', applies: true,
+});
+/** A path that the route's own path matcher accepts, to show what reaches the pool. */
+function genericSample(rule) {
+  const m = (rule.matchers || []).find((x) => x.field === 'Path' && !x.negated);
+  if (!m || !m.values || !m.values.length) return rule.type === 'default' || !(rule.matchers || []).length ? '/example' : null;
+  const v = String(m.values[0]);
+  if (m.op === 'is') return v;
+  if (m.op === 'begins with') return v.endsWith('/') ? `${v}example` : `${v}/example`;
+  if (m.op === 'glob') return v.replace(/\*+$/, '').replace(/\*/g, 'x') + (v.endsWith('*') ? (v.endsWith('/*') ? 'example' : '/example') : '');
+  const lit = v.match(/^\^?(\/[A-Za-z0-9_\-/.]*)/);
+  return lit ? `${lit[1].replace(/\/?$/, '/')}example` : null;
+}
+/** Go / Traefik `${1}` and Apache / NGINX `$1` replacement syntax -> JavaScript. */
+const jsReplacement = (r) => String(r || '').replace(/\$\{(\d+)\}/g, '$$$1').replace(/\$\{([A-Za-z_]\w*)\}/g, '$$<$1>');
+function applyGeneric(step, cur) {
+  const a = step.args;
+  switch (step.action) {
+    case 'strip-prefix': { const p = a.find((x) => x && cur.startsWith(x)); if (!p) return { path: cur, exact: true }; const n = cur.slice(p.length); return { path: n.startsWith('/') ? n : `/${n}`, exact: true }; }
+    case 'strip-prefix-regex': { for (const x of a) { try { const m = cur.match(new RegExp(`^${x.replace(/^\^/, '')}`)); if (m) { const n = cur.slice(m[0].length); return { path: n.startsWith('/') ? n : `/${n}`, exact: true }; } } catch { return { path: cur, exact: false }; } } return { path: cur, exact: true }; }
+    case 'add-prefix': return { path: `${(a[0] || '').replace(/\/$/, '')}${cur}`, exact: true };
+    case 'replace-path': case 'set-path': return { path: a[0] || cur, exact: !/[{$%]/.test(a[0] || '') };
+    case 'replace-prefix': { const [from, to] = a; if (from != null && cur.startsWith(from)) return { path: `${to || ''}${cur.slice(from.length)}` || '/', exact: true }; return { path: cur, exact: true }; }
+    case 'replace-path-regex': case 'rewrite': {
+      let re; try { re = new RegExp(a[0] || ''); } catch { return { path: cur, exact: false }; }
+      if (!re.test(cur)) return { path: cur, exact: true };
+      const rep = jsReplacement(a[1] || '');
+      return { path: cur.replace(re, rep), exact: !/\{[a-z]/i.test(a[1] || '') };
+    }
+    default: return { path: cur, exact: true };
+  }
+}
+function simulateGeneric(flow, path) {
+  let cur = path; let exact = true;
+  for (const s of flow.chain) {
+    if (s.kind === 'terminal') return { path: cur, exact: false, redirect: s.action === 'redirect' ? s.args[s.args.length - 1] || s.args[0] : undefined };
+    if (s.kind !== 'path') continue;
+    const r = applyGeneric(s, cur); cur = r.path; exact = exact && r.exact;
+  }
+  return { path: cur, exact };
+}
+function genericFlows(product, sections) {
+  const mod = productMod(product);
+  const defaultPort = (mod && mod.flow && mod.flow.defaultPort) || ((sc) => (sc === 'https' ? 443 : 80));
+  const byName = new Map(sections.filter((s) => s.type === 'backend').map((s) => [s.name, s]));
+  const flows = [];
+  for (const fe of sections.filter((s) => s.type === 'frontend')) {
+    const listeners = listenersOf(fe);
+    if (!listeners.length) continue;
+    (fe.routes || []).filter((r) => !r.commented).forEach((r, i) => {
+      const pool = r.terminal ? null : byName.get(r.target) || null;
+      const hosts = r.hosts && r.hosts.length ? r.hosts : (r.matchers || []).filter((m) => (m.field === 'Host' || m.field === 'SNI') && !m.negated && (m.op === 'is' || m.op === 'glob')).flatMap((m) => m.values);
+      const rule = { ...r, hosts: hosts.length ? hosts : (fe.serverNames || []), rawCondition: r.rawCondition || r.condition || '' };
+      const f = makeFlow(product, {
+        fe, listeners, rule, index: i + 1, chain: (r.transforms || []).map(genericStep), pool, mode: fe.mode || 'http',
+        members: pool ? (pool.servers || []).filter((s) => !s.commented).map((s) => genericMember(s, defaultPort)) : [],
+      });
+      if (r.terminal) {
+        const t = (r.transforms || []).find((x) => GEN_TERMINAL.has(x.action));
+        f.pool = { name: r.target || (t ? t.text : 'answered by the proxy'), terminal: true, undefined: false };
+      }
+      f.passUrl = r.passUrl || null; f.priority = r.priority ?? null;
+      flows.push(f);
+    });
+  }
+  return flows;
+}
+/** Which frontend answers a request: listener port / TLS first, then the best host-name match, then a catch-all. */
+function traceGeneric(product, sections, rq) {
+  const name = productName(product);
+  const flows = genericFlows(product, sections);
+  const steps = [];
+  const fes = sections.filter((s) => s.type === 'frontend');
+  const onPort = fes.filter((sec) => listenersOf(sec).some((l) => (rq.port == null || String(l.port) === String(rq.port)) && (rq.tls == null || Boolean(l.tls) === rq.tls)));
+  if (!onPort.length) return { ok: false, response: { status: null, text: `Nothing in this ${name} configuration listens on ${rq.tls ? 'TLS ' : ''}port ${rq.port == null ? '(any)' : rq.port}` }, steps: [{ type: 'listener', text: `No listener matches ${rq.tls ? 'TLS ' : ''}port ${rq.port == null ? '(any)' : rq.port}` }] };
+  let best = null; let rank = 0;
+  for (const sec of onPort) for (const n of sec.serverNames || []) { const r = SERVER_NAME_RANK(n, rq.host) || (lc(n).startsWith('*.') && globRe(lc(n)).test(rq.host) ? 3 : 0); if (r > rank) { rank = r; best = sec; } }
+  const how = best ? `host name ${rq.host || '(none)'} matches ${best.name}` : '';
+  if (!best) best = onPort.find((sec) => !(sec.serverNames || []).length) || onPort[0];
+  const lb = listenersOf(best).find((l) => rq.port == null || String(l.port) === String(rq.port)) || listenersOf(best)[0];
+  const port = lb ? lb.port : rq.port;
+  steps.push({ type: 'listener', text: `${best.name} on ${lb ? lb.address : '?'}${lb && lb.tls ? ' (TLS)' : ''}${how ? `: ${how}` : (best.serverNames || []).length ? ' (first listener on this port: no host name matched)' : ''}` });
+  const req = { ...rq, port: rq.port == null ? Number(port) : rq.port };
+  const mine = flows.filter((f) => f.frontend === best.name);
+  for (const f of mine) {
+    const ok = f.match.type === 'default' ? true : and3((f.match.matchers || []).map((m) => { const x = evalMatcher(m, req); return x == null ? null : m.negated ? !x : x; }));
+    if (ok === false) { steps.push({ type: 'skip', text: `#${f.match.index} ${f.match.text || 'rule'}: no match` }); continue; }
+    steps.push({ type: 'match', text: `#${f.match.index} ${f.match.text || 'matches every request'}${ok === null ? ' (depends on headers or other details this test does not send)' : ''}` });
+    const sim = simulateGeneric(f, rq.path);
+    for (const s of f.chain) steps.push({ type: s.kind === 'path' ? 'rewrite' : s.kind === 'terminal' ? 'response' : 'step', text: s.text });
+    if (f.pool.terminal || sim.redirect) return { ok: true, frontend: best.name, rule: f.match.index, backend: null, path: { in: rq.path, out: sim.path, exact: sim.exact }, response: { status: null, text: sim.redirect ? `Redirect to ${sim.redirect}` : `Answered by ${name}: ${f.pool.name}` }, steps, listener: lb ? { address: lb.address, port, tls: lb.tls } : null };
+    const members = memberView(f, port);
+    steps.push({ type: 'members', text: `→ ${f.pool.name}${members.length ? `: ${members.map((m) => `${m.name}${m.socket ? '' : ` :${m.port == null ? '?' : m.port}`}`).join(', ')}` : ' (no members)'}${f.pool.balance ? ` (${f.pool.balance})` : ''}` });
+    return { ok: true, frontend: best.name, rule: f.match.index, backend: f.pool.name, path: { in: rq.path, out: sim.path, exact: sim.exact }, members, steps, tls: tlsKind(Boolean(lb && lb.tls), f.members.some((m) => m.ssl), f.mode), listener: lb ? { address: lb.address, port, tls: Boolean(lb.tls) } : null };
+  }
+  return { ok: false, frontend: best.name, response: { status: 404, text: `No route matches in ${best.name}: ${name} answers 404` }, steps };
+}
+
 function trace(product, sections, request) {
   const rq = normaliseRequest(request || {});
-  return product === 'nginx' ? traceNginx(sections, rq) : traceHaproxy(sections, rq);
+  return product === 'nginx' ? traceNginx(sections, rq) : product === 'haproxy' ? traceHaproxy(sections, rq) : traceGeneric(product, sections, rq);
 }
 
 module.exports = { buildFlows, trace, parseServerAddress, resolvePort, applyHapPath, applyNgxRewrite, evalCondition };

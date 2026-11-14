@@ -44,7 +44,7 @@ class LogStore {
     const s = result.source || {};
     if (!replace) {
       if (ids.length >= MAX_PARTS) { const e = new Error(`At most ${MAX_PARTS} files can be combined. Delete some first, or upload a bigger log instead.`); e.code = 'TOO_MANY'; e.status = 409; throw e; }
-      for (const p of ids) { const prev = this.readPart(id, p); if (prev.product && result.product && prev.product !== result.product) { const e = new Error(`This is ${result.product === 'nginx' ? 'an NGINX' : 'an HAProxy'} log, but the files already uploaded are ${prev.product === 'nginx' ? 'NGINX' : 'HAProxy'} logs. Use one kind per instance, or delete the existing files first.`); e.code = 'TOO_MANY'; e.status = 409; throw e; } break; }
+      for (const p of ids) { const prev = this.readPart(id, p); if (prev.product && result.product && prev.product !== result.product) { const nm = (p) => ({ nginx: 'NGINX', haproxy: 'HAProxy', apache: 'Apache', caddy: 'Caddy', traefik: 'Traefik' }[p] || p); const e = new Error(`This is ${/^[AEIOU]|^HA|^NG/.test(nm(result.product)) ? 'an' : 'a'} ${nm(result.product)} log, but the files already uploaded are ${nm(prev.product)} logs. Use one kind per instance, or delete the existing files first.`); e.code = 'TOO_MANY'; e.status = 409; throw e; } break; }
       for (const p of ids) { const o = this.readPart(id, p).source || {}; if (o.filename === s.filename && o.bytes === s.bytes && o.lines === s.lines) { const e = new Error(`“${s.filename}” is already included (same name, size and line count).`); e.code = 'DUPLICATE'; e.status = 409; throw e; } }
     }
     const pid = `p${String((ids.length ? Number(ids[ids.length - 1].slice(1)) + 1 : 0)).padStart(3, '0')}`;

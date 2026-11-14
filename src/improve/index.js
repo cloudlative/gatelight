@@ -42,8 +42,11 @@ function improveConfig(o) {
   const size = files.reduce((a, f) => a + Buffer.byteLength(f.content), 0);
   if (!size || !files.some((f) => f.content.trim())) throw Object.assign(new Error('Paste or upload a configuration first.'), { status: 400 });
   if (size > MAX_BYTES) throw Object.assign(new Error(`The configuration is ${(size / 1048576).toFixed(1)} MB; the limit is ${MAX_BYTES / 1048576} MB.`), { status: 413 });
-  const product = o.product || detectProduct(files.map((f) => f.content).join('\n'));
-  if (product !== 'haproxy' && product !== 'nginx') throw Object.assign(new Error('Could not tell whether this is a HAProxy or an NGINX configuration. Choose the product.'), { status: 422 });
+  const joined = files.map((f) => f.content).join('\n');
+  const products = require('../products');
+  const product = o.product || (() => { const t = products.detect(joined, 0.5); return t && t !== 'haproxy' && t !== 'nginx' ? t : detectProduct(joined); })();
+  if (product && product !== 'haproxy' && product !== 'nginx') return improveGeneric(product, files, o);
+  if (product !== 'haproxy' && product !== 'nginx') throw Object.assign(new Error('Could not tell which product this configuration is for. Choose the product.'), { status: 422 });
   const version = o.version ? String(o.version).slice(0, 64) : null; const toggles = o.toggles && typeof o.toggles === 'object' ? o.toggles : {};
   const decide = (c) => (Object.prototype.hasOwnProperty.call(toggles, c.key) ? Boolean(toggles[c.key]) : c.on);
 
@@ -77,6 +80,37 @@ function improveConfig(o) {
     product, target: a.target, versionKnown: Boolean(version),
     score: { before, after, gradeBefore: grade(before), gradeAfter: grade(after) },
     summary: { total: changes.length, auto: changes.filter((c) => c.auto).length, applied: changes.filter((c) => c.applied).length, advice: changes.filter((c) => !c.auto).length, optional: changes.filter((c) => c.auto && !c.on).length, byCategory: byCat, stable: stillAuto === 0 },
+    changes, files: fileOut, notes,
+  };
+}
+
+/** Apache, Caddy, Traefik: the product module supplies the rules (src/products/<type> improve()); the bookkeeping is shared. */
+function improveGeneric(product, files, o) {
+  const mod = require('../products').get(product);
+  if (!mod || typeof mod.improve !== 'function') throw Object.assign(new Error(`Config Doctor is not available for ${product} on this server.`), { status: 422 });
+  const version = o.version ? String(o.version).slice(0, 64) : null; const toggles = o.toggles && typeof o.toggles === 'object' ? o.toggles : {};
+  const decide = (c) => (Object.prototype.hasOwnProperty.call(toggles, c.key) ? Boolean(toggles[c.key]) : c.on);
+  const a = mod.improve({ files, version });
+  a.changes.forEach((c, i) => { if (!c.key) c.key = `${c.rule}:${c.section || ''}:${c.line || i}`; c.ops = c.ops || []; });
+  const applied = (c) => c.auto && decide(c);
+  const changes = a.changes.map((c) => ({ key: c.key, rule: c.rule, category: CATEGORIES.includes(c.category) ? c.category : 'hygiene', severity: c.severity || 'low', title: c.title, why: c.why || '', section: c.section || '', line: c.line || null, file: c.file || null, auto: Boolean(c.auto), on: Boolean(c.on), applied: applied(c), docs: c.docs || null,
+    diff: c.ops.map((op) => (op.kind === 'add' ? { k: 'add', after: op.text } : op.kind === 'mod' ? { k: 'mod', before: op.before, after: op.text } : { k: 'del', before: op.before })) }));
+  const improved = a.render(decide);
+  const again = mod.improve({ files: improved, version });
+  const before = score(open(a.changes)); const after = score(open(again.changes));
+  const fileOut = improved.map((f) => {
+    const orig = files.find((x) => x.name === f.name) || { content: '' };
+    const d = diffLines(orig.content.split('\n'), f.content.split('\n'));
+    return { name: f.name, original: orig.content, improved: f.content, changed: d.added + d.removed > 0, formatting: false, diff: d };
+  });
+  const byCat = Object.fromEntries(CATEGORIES.map((c) => [c, { total: 0, applied: 0 }]));
+  changes.forEach((c) => { byCat[c.category].total++; if (c.applied) byCat[c.category].applied++; });
+  const notes = [...(a.notes || [])];
+  if (!version) notes.push(`No version was given, so the newest supported release (${a.target}) is assumed. Pick your version to get output that is valid on it.`);
+  return {
+    product, target: a.target, versionKnown: Boolean(version),
+    score: { before, after, gradeBefore: grade(before), gradeAfter: grade(after) },
+    summary: { total: changes.length, auto: changes.filter((c) => c.auto).length, applied: changes.filter((c) => c.applied).length, advice: changes.filter((c) => !c.auto).length, optional: changes.filter((c) => c.auto && !c.on).length, byCategory: byCat, stable: again.changes.filter((c) => c.auto && c.on).length === 0 },
     changes, files: fileOut, notes,
   };
 }

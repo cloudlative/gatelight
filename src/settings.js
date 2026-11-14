@@ -10,7 +10,13 @@ const DEMO_CONFIGS = {
   haproxy: path.join(ROOT, 'examples', 'haproxy', 'haproxy.cfg'),
   nginx: path.join(ROOT, 'examples', 'nginx', 'nginx.conf'),
 };
-const TYPES = ['haproxy', 'nginx'];
+const TYPES = ['haproxy', 'nginx', 'apache', 'caddy', 'traefik'];
+const LABEL = { haproxy: 'HAProxy', nginx: 'NGINX', apache: 'Apache', caddy: 'Caddy', traefik: 'Traefik' };
+/** The bundled example of a newer product, if its module is installed (examples/<type>/). */
+function exampleOf(type) {
+  if (DEMO_CONFIGS[type]) return DEMO_CONFIGS[type];
+  try { const m = require('./products').get(type); return m && m.example && fs.existsSync(m.example) ? m.example : null; } catch { return null; }
+}
 
 const bool = (v, d = false) => (v === undefined || v === null || v === '' ? d : /^(1|true|yes|on)$/i.test(String(v)));
 const int = (v, d, min = 0) => {
@@ -57,6 +63,18 @@ function legacyEnvInstances(env) {
       probe: bool(env.NGINX_PROBE, true), includeRoot: env.NGINX_INCLUDE_ROOT,
     });
   }
+  // Apache (mod_status + balancer-manager), Caddy (admin API), Traefik (API): one instance each, from env.
+  if (env.APACHE_STATUS_URL || env.APACHE_BALANCER_URL || env.APACHE_CONFIG_PATH || env.APACHE_CONFIG_URL) {
+    out.push({ type: 'apache', name: env.APACHE_NAME || 'apache', statsUrl: env.APACHE_STATUS_URL, balancerUrl: env.APACHE_BALANCER_URL, username: env.APACHE_STATUS_USER, password: env.APACHE_STATUS_PASS,
+      configPath: env.APACHE_CONFIG_PATH, configUrls: env.APACHE_CONFIG_URL ? [env.APACHE_CONFIG_URL] : undefined, insecureTls: bool(env.APACHE_INSECURE_TLS) });
+  }
+  if (env.CADDY_ADMIN_URL || env.CADDY_CONFIG_PATH || env.CADDY_CONFIG_URL) {
+    out.push({ type: 'caddy', name: env.CADDY_NAME || 'caddy', statsUrl: env.CADDY_ADMIN_URL, configPath: env.CADDY_CONFIG_PATH, configUrls: env.CADDY_CONFIG_URL ? [env.CADDY_CONFIG_URL] : undefined, insecureTls: bool(env.CADDY_INSECURE_TLS) });
+  }
+  if (env.TRAEFIK_API_URL || env.TRAEFIK_CONFIG_PATH || env.TRAEFIK_CONFIG_URL) {
+    out.push({ type: 'traefik', name: env.TRAEFIK_NAME || 'traefik', statsUrl: env.TRAEFIK_API_URL, username: env.TRAEFIK_API_USER, password: env.TRAEFIK_API_PASS,
+      configPath: env.TRAEFIK_CONFIG_PATH, configUrls: env.TRAEFIK_CONFIG_URL ? [env.TRAEFIK_CONFIG_URL] : undefined, insecureTls: bool(env.TRAEFIK_INSECURE_TLS) });
+  }
   return out;
 }
 
@@ -72,6 +90,8 @@ function normalizeInstance(r, i, env, defaults, seen) {
   return {
     id, name, type, enabled: r.enabled !== false,
     statsUrl, plusApiUrl,
+    balancerUrl: interpolate(r.balancerUrl, env) || null, // Apache balancer-manager page
+    metricsUrl: interpolate(r.metricsUrl, env) || null,   // Prometheus endpoint (Caddy / Traefik), when not under statsUrl
     socket: interpolate(r.socket, env) || null,
     username: interpolate(r.username, env) || null,
     password: interpolate(r.password, env) || null,
@@ -79,7 +99,7 @@ function normalizeInstance(r, i, env, defaults, seen) {
     configPath: interpolate(r.configPath, env) || null,
     configUrls: [...(Array.isArray(r.configUrls) ? r.configUrls : []), ...(r.configUrl ? [r.configUrl] : [])].map((u) => interpolate(String(u), env)).filter((u) => /^https?:\/\//i.test(u)).slice(0, 50),
     configRefreshMs: int(r.configRefreshSec ? r.configRefreshSec * 1000 : null, 300000, 10000),
-    configFiles: Array.isArray(r.configFiles) && r.configFiles.length ? r.configFiles : (typeof r.configText === 'string' && r.configText ? [{ name: type === 'nginx' ? 'nginx.conf' : 'haproxy.cfg', content: r.configText }] : null), // uploaded in the UI
+    configFiles: Array.isArray(r.configFiles) && r.configFiles.length ? r.configFiles : (typeof r.configText === 'string' && r.configText ? [{ name: { nginx: 'nginx.conf', apache: 'httpd.conf', caddy: 'Caddyfile', traefik: 'traefik.yml' }[type] || 'haproxy.cfg', content: r.configText }] : null), // uploaded in the UI
     managed: Boolean(r.managed), owner: r.owner || null,
     includeRoot: interpolate(r.includeRoot, env) || null,
     // NGINX only: actively TCP-probe upstream servers. Defaults on for explicitly configured NGINX instances.
@@ -105,6 +125,9 @@ function loadSettings(env = process.env) {
   const features = {
     haproxy: bool(env.ENABLE_HAPROXY, file.features.haproxy !== false),
     nginx: bool(env.ENABLE_NGINX, file.features.nginx !== false),
+    apache: bool(env.ENABLE_APACHE, file.features.apache !== false),
+    caddy: bool(env.ENABLE_CADDY, file.features.caddy !== false),
+    traefik: bool(env.ENABLE_TRAEFIK, file.features.traefik !== false),
   };
 
   const seen = new Set();
@@ -130,7 +153,7 @@ function loadSettings(env = process.env) {
   const demo = bool(env.DEMO_MODE);
   const autoOf = (type) => ({
     id: demo ? `demo-${type}` : `${type}-config`,
-    name: demo ? `Demo ${type === 'nginx' ? 'NGINX' : 'HAProxy'} (synthetic traffic)` : `${type === 'nginx' ? 'NGINX' : 'HAProxy'} (config only)`,
+    name: demo ? `Demo ${LABEL[type]} (synthetic traffic)` : `${LABEL[type]} (config only)`,
     type, enabled: true, statsUrl: null, plusApiUrl: null, socket: null, username: null, password: null, insecureTls: false,
     probe: false, probeTimeoutMs: 1500, includeRoot: null, pollIntervalMs: 2000, timeoutMs: 5000, tags: demo ? ['demo'] : [], demo,
   });
@@ -138,7 +161,8 @@ function loadSettings(env = process.env) {
     if (!features[type]) continue;
     if (demo) {
       // Demo always uses the bundled, sanitised examples — never a real config.
-      instances.push({ ...autoOf(type), configPath: DEMO_CONFIGS[type] });
+      const ex = exampleOf(type);
+      if (ex) instances.push({ ...autoOf(type), configPath: ex, includeRoot: require('path').dirname(ex) });
     }
   }
 
@@ -166,4 +190,4 @@ function loadSettings(env = process.env) {
   };
 }
 
-module.exports = { loadSettings, normalizeInstance, slug, TYPES };
+module.exports = { loadSettings, normalizeInstance, slug, TYPES, LABEL };

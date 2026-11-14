@@ -1537,3 +1537,39 @@ div.vis-tooltip, div.vis-network div.vis-tooltip { white-space: pre-wrap !import
 /* Threshold alerts on the Overview */
 .st.st-alert { background: rgba(251,191,36,.15); color: var(--amber); }
 .st.st-pending { background: rgba(100,116,139,.18); color: var(--muted); }
+
+/* Config Builder */
+.bd-top { display: grid; gap: 10px; margin-bottom: 14px; }
+.bd-prods { display: flex; flex-wrap: wrap; gap: 8px; }
+.bd-prods .chip { padding: 7px 15px; font-size: 13px; }
+.bd-ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bd-ctl select { margin-left: 6px; }
+.bd-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 16px; align-items: start; }
+.bd-out { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+.bd-form { display: grid; gap: 12px; min-width: 0; }
+.bd-h { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; } .bd-h h3 { margin: 0; font-size: 14px; }
+.bd-card { position: relative; border: 1px solid var(--line); border-radius: var(--radius, 10px); background: var(--bg-2); padding: 12px 14px 14px; margin: 0; display: grid; gap: 10px; min-width: 0; }
+.bd-card legend { padding: 0 6px; font-size: 12px; color: var(--muted); }
+.bd-x { position: absolute; top: 6px; right: 8px; }
+.bd-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.bd-row .fld, .bd-card > .fld { display: grid; gap: 4px; font-size: 12px; min-width: 0; }
+.bd-card input:not([type=checkbox]), .bd-card select, .bd-card textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.bd-card textarea { font: 12.5px/1.5 var(--mono); }
+.bd-checks { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: end; }
+.bd-checks .fld { display: grid; gap: 4px; font-size: 12px; }
+.bd-sub { font-size: 12.5px; font-weight: 600; margin-top: 2px; }
+.bd-routes { width: 100%; font-size: 12.5px; } .bd-routes td { padding: 3px 4px; } .bd-routes td.c { text-align: center; }
+.bd-routes input:not([type=checkbox]), .bd-routes select { width: 100%; }
+.bd-more summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.bd-more[open] { display: grid; gap: 10px; }
+.bd-res-h { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; } .bd-res-h h2 { margin: 0; }
+.bd-chk { display: inline-block; font-size: 11.5px; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-left: 4px; }
+.bd-chk.ok { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); }
+.bd-chk.warn { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 50%, transparent); }
+.bd-chk.bad { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.bd-note { margin: 10px 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; background: var(--bg); }
+.bd-note.warn { border-color: color-mix(in srgb, var(--amber) 45%, transparent); }
+.bd-note ul { margin: 6px 0 0; padding-left: 18px; } .bd-note summary { cursor: pointer; }
+.bd-code { max-height: none; }
+.bd-err { border-color: color-mix(in srgb, var(--red) 50%, transparent); } .bd-err ul { margin: 6px 0 0; padding-left: 18px; }
+@media (max-width: 1100px) { .bd-grid { grid-template-columns: minmax(0, 1fr); } .bd-out { position: static; max-height: none; } }

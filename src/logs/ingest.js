@@ -19,14 +19,33 @@ const NOT_HAPROXY = 'This does not look like an HAProxy log. Expected lines such
 const NOT_ANY = 'This does not look like an HAProxy or an NGINX access log. HAProxy: option httplog or tcplog lines. NGINX: the default combined format (optionally followed by $request_time and $upstream_* fields), or one JSON object per line.';
 const NOT_NGINX = 'This does not look like an NGINX access log. Expected lines such as \'93.180.71.3 - - [17/May/2015:08:05:32 +0000] "GET /downloads/product_1 HTTP/1.1" 304 0 "-" "Debian APT-HTTP/1.3"\' (the default combined format, optionally followed by $request_time and $upstream_* fields), or one JSON object per line.';
 
-async function ingestStream(readable, { maxBytes, filename = 'upload', onProgress, product = 'haproxy' } = {}) {
-  // product 'auto': look at the first lines and pick the parser that understands them (HAProxy or NGINX)
-  let agg = null; let NOT_LOG = product === 'nginx' ? NOT_NGINX : product === 'auto' ? NOT_ANY : NOT_HAPROXY; const held = [];
-  const start = (prod) => { agg = (prod === 'nginx' ? nginx : haproxy).createAggregator(); if (product !== 'auto') NOT_LOG = prod === 'nginx' ? NOT_NGINX : NOT_HAPROXY; };
+/** Log parsers of the newer products (Apache, Caddy, Traefik), when their modules are installed. */
+function extraParsers() {
+  const out = {};
+  try {
+    const products = require('../products');
+    for (const t of ['apache', 'caddy', 'traefik']) { const m = products.get(t); if (m && m.logs && m.logs.createAggregator && m.logs.sniff) out[t] = m.logs; }
+  } catch { /* registry unavailable */ }
+  return out;
+}
+const NOT_OTHER = (name) => `This does not look like a ${name} access log.`;
+
+async function ingestStream(readable, { maxBytes, filename = 'upload', onProgress, product = 'haproxy', hint = null } = {}) {
+  // product 'auto': look at the first lines and pick the parser that understands them best (HAProxy, NGINX, Apache, Caddy, Traefik).
+  // `hint` (the instance's product) wins a tie, e.g. Apache and NGINX both write the combined format.
+  const parsers = { haproxy, nginx, ...extraParsers() };
+  let agg = null; let NOT_LOG = product === 'nginx' ? NOT_NGINX : product === 'auto' ? NOT_ANY : product === 'haproxy' ? NOT_HAPROXY : NOT_OTHER(product); const held = [];
+  const start = (prod) => { agg = (parsers[prod] || haproxy).createAggregator(); if (product !== 'auto') NOT_LOG = prod === 'nginx' ? NOT_NGINX : prod === 'haproxy' ? NOT_HAPROXY : NOT_OTHER(prod); };
   const pick = () => {
     const lines = held.filter((l) => l && l.length >= 12).slice(0, SNIFF_LINES);
-    const n = nginx.sniff(lines).ratio; const h = haproxy.sniff ? haproxy.sniff(lines).ratio : (() => { const a = haproxy.createAggregator(); let ok = 0; for (const l of lines) if (a.push(l)) ok++; return lines.length ? ok / lines.length : 0; })();
-    start(n > h ? 'nginx' : 'haproxy');
+    let best = 'haproxy'; let top = -1;
+    for (const [t, p] of Object.entries(parsers)) {
+      let r = 0;
+      try { r = p.sniff ? p.sniff(lines).ratio : 0; } catch { r = 0; }
+      if (t === hint) r += 0.001; // ties go to the instance's own product
+      if (r > top) { top = r; best = t; }
+    }
+    start(best);
     for (const l of held.splice(0)) agg.push(l);
   };
   if (product !== 'auto') start(product);

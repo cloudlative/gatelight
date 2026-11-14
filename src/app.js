@@ -27,6 +27,8 @@ const { sessionMiddleware } = require('./session');
 const { InstanceStore, validateInput, cleanFiles } = require('./store');
 const { normalizeInstance, slug } = require('./settings');
 const { DRIVERS } = require('./drivers');
+const products = require('./products');
+const { buildConfig } = require('./build');
 const log = require('./logger');
 
 const PUBLIC = path.join(__dirname, '..', 'public');
@@ -84,6 +86,7 @@ function createApp(settings) {
     logMaxBytes: settings.logs.maxBytes,
     hostsRestricted: settings.ui.allowedHosts.length > 0,
     types: [...new Set(settings.instances.map((i) => i.type))],
+    products: products.describe().filter((p) => settings.features[p.type] !== false),
   }));
 
   api.get('/instances', (req, res) => {
@@ -114,7 +117,7 @@ function createApp(settings) {
   }, 3600000);
   sweep.unref();
   const validateCtx = { features: settings.features, allowedHosts: ui.allowedHosts };
-  const storedKeys = ['owner', 'type', 'name', 'statsUrl', 'plusApiUrl', 'socket', 'username', 'password', 'insecureTls', 'configFiles', 'configUrls', 'logOnly', 'tags'];
+  const storedKeys = ['owner', 'type', 'name', 'statsUrl', 'plusApiUrl', 'balancerUrl', 'metricsUrl', 'socket', 'username', 'password', 'insecureTls', 'configFiles', 'configUrls', 'logOnly', 'tags'];
   const toDef = (inst) => ({ id: inst.id, ...Object.fromEntries(storedKeys.filter((k) => inst[k] != null && inst[k] !== false && inst[k] !== '').map((k) => [k, inst[k]])), ...(inst.type === 'nginx' ? { probe: Boolean(inst.probe) } : {}) });
   const persist = () => store.save([...registry.pollers.values()].filter((p) => p.instance.managed).map((p) => toDef(p.instance)));
   const manage = [
@@ -126,7 +129,7 @@ function createApp(settings) {
   const nameTaken = (name, req, exceptId) => [...registry.pollers.values()].some((p) => p.instance.id !== exceptId && canSee(p.instance, req) && p.instance.name.trim().toLowerCase() === name.trim().toLowerCase());
   const build = (def, id) => normalizeInstance({ ...def, id, managed: true }, 0, null, settings.defaults, new Set());
   const safeDef = (inst) => ({
-    id: inst.id, type: inst.type, name: inst.name, statsUrl: inst.statsUrl, plusApiUrl: inst.plusApiUrl, socket: inst.socket,
+    id: inst.id, type: inst.type, name: inst.name, statsUrl: inst.statsUrl, plusApiUrl: inst.plusApiUrl, balancerUrl: inst.balancerUrl, metricsUrl: inst.metricsUrl, socket: inst.socket,
     username: inst.username, hasPassword: Boolean(inst.password), insecureTls: inst.insecureTls,
     configFiles: (inst.configFiles || []).map((f) => f.name), configUrls: inst.configUrls || [], probe: inst.probe, configOnly: !DRIVERS[inst.type].hasSource(inst),
   });
@@ -186,10 +189,10 @@ function createApp(settings) {
     try {
       const b = req.body || {};
       let files = cleanFiles(b.configFiles);
-      if (!files.length && typeof b.configText === 'string' && b.configText.trim()) files = cleanFiles([{ name: p.instance.type === 'nginx' ? 'nginx.conf' : 'haproxy.cfg', content: b.configText }]);
+      if (!files.length && typeof b.configText === 'string' && b.configText.trim()) files = cleanFiles([{ name: products.META[p.instance.type].defaultFile, content: b.configText }]);
       if (!files.length) return res.status(400).json({ error: 'Provide the new config as files or pasted text' });
       const guess = detectType(files.map((f) => f.content).join('\n'));
-      if (['haproxy', 'nginx'].includes(guess) && guess !== p.instance.type) return res.status(422).json({ error: `This looks like an ${guess === 'nginx' ? 'NGINX' : 'HAProxy'} config, but "${p.instance.name}" is ${p.instance.type === 'nginx' ? 'NGINX' : 'HAProxy'}. Upload it as a new instance instead.` });
+      if (guess && guess !== p.instance.type && (products.detect(files.map((f) => f.content).join('\n'), 0.6) === guess || ['haproxy', 'nginx'].includes(p.instance.type))) return res.status(422).json({ error: `This looks like a ${products.nameOf(guess)} config, but "${p.instance.name}" is ${products.nameOf(p.instance.type)}. Upload it as a new instance instead.` });
       const next = DRIVERS[p.instance.type].loadConfig({ ...p.instance, configFiles: files }, null);
       if (next.error) return res.status(422).json({ error: next.error });
       const keys = (secs) => new Set((secs || []).flatMap((x) => [`${x.type} ${x.name}`, ...(x.servers || []).map((v) => `server ${x.name}/${v.name}`)]));
@@ -266,12 +269,17 @@ function createApp(settings) {
     const sample = cfgFiles.length ? cfgFiles.map((f) => f.content).join('\n') : text;
     let type = String(body.type || 'auto');
     if (type === 'auto') type = detectType(sample);
-    if (!['haproxy', 'nginx'].includes(type)) return res.status(400).json({ error: `Unknown type "${type}"` });
+    if (!products.ORDER.includes(type) || !products.get(type)) return res.status(400).json({ error: `Unknown type "${type}"` });
     if (!settings.features[type]) return res.status(400).json({ error: `${type} support is disabled on this server (ENABLE_${type.toUpperCase()}=false)` });
 
     let sections; let findings; let outFiles; let rows = []; let notes = [];
     try {
-      if (type === 'nginx') {
+      if (type !== 'haproxy' && type !== 'nginx') {
+        const m = products.get(type);
+        const parsed = m.parseFiles(cfgFiles.length ? cfgFiles : [{ name: m.defaultFile, content: text }]);
+        sections = parsed.sections; outFiles = parsed.files.map(({ name, raw }) => ({ name, raw })); notes = parsed.notes || [];
+        findings = m.audit(sections, { notes, rows: [], files: outFiles });
+      } else if (type === 'nginx') {
         const parsed = cfgFiles.length ? parseNginxFiles(cfgFiles) : parseNginxText(text);
         sections = parsed.sections; outFiles = parsed.files.map(({ name, raw }) => ({ name, raw })); notes = parsed.notes || [];
         findings = auditNginx(sections, { notes });
@@ -306,7 +314,7 @@ function createApp(settings) {
     const cfgFiles = files.filter((f) => !/\.csv$/i.test(f.name));
     let type = String(body.type || 'auto');
     if (type === 'auto') type = detectType(cfgFiles.length ? cfgFiles.map((f) => f.content).join('\n') : text);
-    if (!['haproxy', 'nginx'].includes(type)) return res.status(400).json({ error: `Unknown type "${type}"` });
+    if (!products.ORDER.includes(type) || !products.get(type)) return res.status(400).json({ error: `Unknown type "${type}"` });
     try {
       const out = validateConfig({ product: type, version: typeof body.version === 'string' ? body.version : null, config: text, files: cfgFiles, build: typeof body.build === 'string' ? body.build : undefined });
       return res.json(out);
@@ -320,7 +328,7 @@ function createApp(settings) {
   api.post('/improve', express.json({ limit: '8mb' }), rateLimit({ max: 60 }), (req, res) => {
     const body = req.body || {};
     const files = Array.isArray(body.files) ? body.files.filter((f) => f && typeof f.content === 'string' && typeof f.name === 'string' && !/\.csv$/i.test(f.name)).slice(0, 300) : [];
-    const type = ['haproxy', 'nginx'].includes(body.type) ? body.type : undefined;
+    const type = products.ORDER.includes(body.type) && products.get(body.type) ? body.type : undefined;
     return improveReply(res, { product: type, version: typeof body.version === 'string' ? body.version : null, build: typeof body.build === 'string' ? body.build : undefined, config: typeof body.config === 'string' ? body.config : '', files, toggles: body.toggles });
   });
   api.post('/instances/:id/improve', withInstance, express.json({ limit: '1mb' }), rateLimit({ max: 30 }), (req, res) => {
@@ -350,7 +358,7 @@ function createApp(settings) {
     try {
       const name = decodeURIComponent(String(req.query.filename || req.headers['x-filename'] || 'access.log')).replace(/[^\w .()-]/g, '_').slice(0, 120);
       const t0 = Date.now();
-      const result = await ingestStream(req, { maxBytes: max, filename: name, product: 'auto' }); // HAProxy or NGINX, whatever the file is
+      const result = await ingestStream(req, { maxBytes: max, filename: name, product: 'auto', hint: req.poller.instance.type }); // whatever product the file is from
       const replace = req.query.mode === 'replace';
       const added = logs.add(req.params.id, result, { replace });
       touch(req.poller);
@@ -430,10 +438,10 @@ function createApp(settings) {
     if (!cfgFiles.length && !text.trim()) return res.status(400).json({ error: 'Provide "config" (string) or "files" ([{name, content}])' });
     let type = String(body.type || 'auto');
     if (type === 'auto') type = detectType(cfgFiles.length ? cfgFiles.map((f) => f.content).join('\n') : text);
-    if (!['haproxy', 'nginx'].includes(type)) return res.status(400).json({ error: `Unknown type "${type}"` });
+    if (!products.ORDER.includes(type) || !products.get(type)) return res.status(400).json({ error: `Unknown type "${type}"` });
     try {
       let sections;
-      if (type === 'nginx') sections = (cfgFiles.length ? parseNginxFiles(cfgFiles) : parseNginxText(text)).sections;
+      if (type !== 'haproxy' && type !== 'nginx') { const m = products.get(type); sections = m.parseFiles(cfgFiles.length ? cfgFiles : [{ name: m.defaultFile, content: text }]).sections; } else if (type === 'nginx') sections = (cfgFiles.length ? parseNginxFiles(cfgFiles) : parseNginxText(text)).sections;
       else { const f = cfgFiles.find((x) => /haproxy/i.test(x.name)) || cfgFiles[0]; sections = parseConfig(f ? f.content : text); }
       const out = buildFlows(type, sections);
       return res.json({ ...out, trace: body.request && typeof body.request === 'object' ? traceFlow(type, sections, flowRequest(body.request)) : undefined });
@@ -448,7 +456,7 @@ function createApp(settings) {
     const version = typeof req.query.version === 'string' && req.query.version.trim() ? req.query.version.trim() : detected;
     try {
       const files = cache.files.map((f) => ({ name: f.name, content: f.raw }));
-      const out = validateConfig({ product: type, version, config: type === 'haproxy' ? files[0].content : undefined, files: type === 'nginx' ? files : undefined, build: typeof req.query.build === 'string' ? req.query.build : undefined });
+      const out = validateConfig({ product: type, version, config: type === 'haproxy' ? files[0].content : undefined, files: type !== 'haproxy' ? files : undefined, build: typeof req.query.build === 'string' ? req.query.build : undefined });
       return res.json({ ...out, detectedVersion: detected, runningVersionText: info.version || null });
     } catch (e) { return res.status(422).json({ error: `Could not validate configuration: ${e.message}` }); }
   });
@@ -456,8 +464,9 @@ function createApp(settings) {
   // Bundled, sanitised examples so people can try the tool without their own config.
   api.get('/examples/:type', (req, res) => {
     const t = req.params.type;
-    if (!['haproxy', 'nginx'].includes(t)) return res.status(404).json({ error: 'Unknown example' });
+    if (!products.ORDER.includes(t) || !products.get(t)) return res.status(404).json({ error: 'Unknown example' });
     const root = path.join(__dirname, '..', 'examples', t);
+    if (!fs.existsSync(root)) return res.status(404).json({ error: 'Unknown example' });
     const out = [];
     const walk = (dir, prefix) => {
       for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -467,6 +476,22 @@ function createApp(settings) {
     };
     walk(root, '');
     return res.json({ type: t, files: out });
+  });
+
+  // Config Builder: one product-neutral spec -> a configuration for HAProxy, NGINX, Apache, Caddy or Traefik, checked by
+  // that product's validator (for the chosen version) and audit before it is shown. Read-only: nothing is deployed.
+  api.get('/build/example', (_req, res) => res.json({ spec: require('./build/spec').EXAMPLE_SPEC, products: products.describe().filter((p) => p.can.build && settings.features[p.type] !== false).map((p) => ({ type: p.type, name: p.short, versions: p.versions })) }));
+  api.post('/build', express.json({ limit: '1mb' }), rateLimit({ max: 120 }), (req, res) => {
+    const b = req.body || {};
+    const list = b.product === 'all' ? products.types().filter((t) => products.has(t, 'build') && settings.features[t] !== false) : [String(b.product || '')];
+    if (!list.length || list.some((t) => !products.ORDER.includes(t) || settings.features[t] === false)) return res.status(400).json({ error: 'Choose a product: haproxy, nginx, apache, caddy, traefik or all' });
+    try {
+      const spec = { ...(b.spec || {}), version: b.product === 'all' ? null : (typeof b.version === 'string' && b.version.trim() ? b.version.trim() : (b.spec && b.spec.version) || null) };
+      require('./build/spec').normalizeSpec(spec); // spec problems first, whatever the product
+      if (b.product !== 'all') return res.json(buildConfig(list[0], spec));
+      const results = list.map((t) => { try { return buildConfig(t, spec); } catch (e) { return { product: t, name: products.nameOf(t), error: e.message }; } });
+      return res.json({ results });
+    } catch (e) { return res.status(e.status || 422).json({ error: e.message, errors: e.errors || undefined }); }
   });
 
   api.use((_req, res) => res.status(404).json({ error: 'Not found' }));

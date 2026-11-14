@@ -47,7 +47,7 @@
               <button class="btn" id="az-paste-toggle" type="button">Paste text</button>
             </div>
             <div class="row center small muted">Try an example:
-              <button class="link" id="az-ex-haproxy" type="button">HAProxy</button>·<button class="link" id="az-ex-nginx" type="button">NGINX</button>
+              <button class="link" id="az-ex-haproxy" type="button">HAProxy</button>·<button class="link" id="az-ex-nginx" type="button">NGINX</button><span data-type-opt="apache">·<button class="link" type="button" data-az-ex="apache">Apache</button></span><span data-type-opt="caddy">·<button class="link" type="button" data-az-ex="caddy">Caddy</button></span><span data-type-opt="traefik">·<button class="link" type="button" data-az-ex="traefik">Traefik</button></span>
               <span>· Type: <select id="az-type" aria-label="Config type"><option value="auto">auto-detect</option><option value="haproxy">HAProxy</option><option value="nginx">NGINX</option></select></span>
             </div>
             <div id="az-paste" hidden>
@@ -98,6 +98,7 @@
       <button data-live data-view="events"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg><span>Health Events</span></button>
       <div class="nav-lbl">Configuration</div>
       <button data-view="forge"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg><span>Config Doctor</span><span class="badge warn" id="nav-audit" hidden></span></button>
+      <button data-view="builder"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/><path d="M4 4h6M4 8h3"/></svg><span>Config Builder</span></button>
       <button data-view="config"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg><span>Running Config</span></button>
       <div class="nav-lbl nav-push" data-live>Manage</div>
       <button data-live data-view="connect"><svg class="ni" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg><span>Add Instance</span></button>
@@ -217,6 +218,7 @@
       </section>
 
       <section class="view" id="view-forge"></section>
+      <section class="view" id="view-builder"></section>
       <section class="view" id="view-flow"></section>
       <section class="view" id="view-traffic"></section>
       <section class="view" id="view-events"></section>
@@ -250,6 +252,9 @@
         <div class="seg" role="radiogroup" aria-label="Server type">
           <label><input type="radio" name="cx-type" value="haproxy" checked><span>HAProxy</span></label>
           <label><input type="radio" name="cx-type" value="nginx"><span>NGINX</span></label>
+          <label data-type-opt="apache"><input type="radio" name="cx-type" value="apache"><span>Apache</span></label>
+          <label data-type-opt="caddy"><input type="radio" name="cx-type" value="caddy"><span>Caddy</span></label>
+          <label data-type-opt="traefik"><input type="radio" name="cx-type" value="traefik"><span>Traefik</span></label>
         </div>
         <label class="fld">Name<input id="cx-name" maxlength="60" placeholder="e.g. Production edge" autocomplete="off"></label>
         <label class="fld"><span><span id="cx-url-label">Stats URL</span> <span class="muted" id="cx-url-opt">(optional if you upload a config)</span></span><input id="cx-url" inputmode="url" spellcheck="false" placeholder="http://host:8404/stats" autocomplete="off"></label>
@@ -295,6 +300,9 @@
             <label class="fld" data-cx-for="haproxy">Runtime API <span class="muted">(host:port, instead of the stats page)</span><input id="cx-socket" placeholder="10.0.0.5:9999" spellcheck="false"></label>
             <label class="fld" data-cx-for="nginx" hidden>NGINX Plus API URL <span class="muted">(optional)</span><input id="cx-plus" placeholder="http://host:8080" spellcheck="false"></label>
             <label class="check" data-cx-for="nginx" hidden><input type="checkbox" id="cx-probe" checked> TCP-probe every upstream server for health</label>
+            <label class="fld" data-cx-for="apache" hidden>Balancer manager URL <span class="muted">(mod_proxy_balancer, read-only, for per-member health)</span><input id="cx-balancer" placeholder="http://host/balancer-manager" spellcheck="false"></label>
+            <label class="fld" data-cx-for="caddy" hidden>Metrics URL <span class="muted">(optional, when Prometheus metrics are not under the admin API)</span><input id="cx-metrics-caddy" placeholder="http://host:2019/metrics" spellcheck="false"></label>
+            <label class="fld" data-cx-for="traefik" hidden>Metrics URL <span class="muted">(optional, Prometheus entryPoint)</span><input id="cx-metrics-traefik" placeholder="http://host:8082/metrics" spellcheck="false"></label>
           </div>
         </details>
         <div id="cx-warn" class="cx-warn small" hidden></div>
@@ -399,5 +407,6 @@
   <script src="app.js"></script>
   <script src="traffic.js"></script>
   <script src="forge.js"></script>
+  <script src="builder.js"></script>
 </body>
 </html>

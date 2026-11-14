@@ -9,12 +9,22 @@ const state = {
   instances: [], current: null, snapshot: null, events: [], view: 'overview',
   series: [], timer: null, sort: { key: 'default', desc: false }, analysis: null,
   inspected: null, cfgFilter: '', eventFilter: 'all',
-  meta: { features: { haproxy: true, nginx: true }, types: [] }, cfgFile: null, focus: null, mode: 'landing',
+  meta: { features: { haproxy: true, nginx: true, apache: true, caddy: true, traefik: true }, types: [] }, cfgFile: null, focus: null, mode: 'landing',
   hiddenTypes: loadPref('gatelight.hiddenTypes', []),
 };
 function loadPref(k, d) { try { const v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch { return d; } }
 function savePref(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* storage unavailable */ } }
-const TYPE_NAME = { haproxy: 'HAProxy', nginx: 'NGINX' };
+const TYPE_NAME = { haproxy: 'HAProxy', nginx: 'NGINX', apache: 'Apache', caddy: 'Caddy', traefik: 'Traefik' };
+const ALL_TYPES = ['haproxy', 'nginx', 'apache', 'caddy', 'traefik'];
+const TYPE_ABBR = { haproxy: 'HA', nginx: 'NG', apache: 'AP', caddy: 'CA', traefik: 'TR' };
+const DEFAULT_FILE = { haproxy: 'haproxy.cfg', nginx: 'nginx.conf', apache: 'httpd.conf', caddy: 'Caddyfile', traefik: 'traefik.yml' };
+/** Products this server can handle (module installed and switched on). */
+const availableTypes = () => (state.meta && state.meta.products ? state.meta.products.map((p) => p.type) : ['haproxy', 'nginx']);
+const productInfo = (t) => (state.meta && state.meta.products || []).find((p) => p.type === t) || null;
+const labelsOf = (t) => (productInfo(t) && productInfo(t).labels) || (t === 'nginx' ? { frontend: 'Server block', backend: 'Upstream', server: 'Peer' } : { frontend: 'Frontend', backend: 'Backend', server: 'Server' });
+const proxyList = () => { const n = availableTypes().map((t) => TYPE_NAME[t]); return n.length > 1 ? `${n.slice(0, -1).join(', ')} or ${n[n.length - 1]}` : n[0]; };
+/** Hide choices for products this server does not have. */
+function syncTypeOptions() { const on = new Set(availableTypes()); $$('[data-type-opt]').forEach((el) => { el.hidden = !on.has(el.dataset.typeOpt); }); }
 const labels = () => (state.snapshot && state.snapshot.instance.labels) || { frontend: 'Frontend', backend: 'Backend', server: 'Server' };
 const lbl = (kind) => labels()[kind] || kind;
 
@@ -85,7 +95,7 @@ const resetAllFilters = () => Object.keys(FILTER_RESETS).forEach(resetFilters);
 
 // ---------- navigation ----------
 let navReady = false; let navFromHistory = false; // push history entries only after start-up, and never while replaying one
-const REVIEW_VIEWS = ['topology', 'flow', 'forge', 'config'];
+const REVIEW_VIEWS = ['topology', 'flow', 'forge', 'builder', 'config'];
 const visibleNav = () => $$('#nav button').filter((b) => !b.hidden && b.offsetParent !== null);
 const VIEW_ALIAS = { audit: 'forge', validate: 'forge' }; // old links keep working
 function switchView(view) {
@@ -93,7 +103,7 @@ function switchView(view) {
   view = VIEW_ALIAS[view] || view;
   if (view === 'graphs' && state.mode === 'live' && state.snapshot && state.snapshot.instance && state.snapshot.instance.source === 'config-only') view = 'traffic'; // no live statistics: the log is the traffic page
   if (state.mode === 'review' && !REVIEW_VIEWS.includes(view)) view = 'topology';
-  if (state.mode === 'live' && !state.snapshot && !state.current && !['overview', 'connect', 'settings', 'forge'].includes(view)) view = 'overview';
+  if (state.mode === 'live' && !state.snapshot && !state.current && !['overview', 'connect', 'settings', 'forge', 'builder'].includes(view)) view = 'overview';
   if (state.view !== view) resetFilters(state.view); // leaving a page clears its filters
   if (state.view === 'connect' && view !== 'connect') mountConnect(false);
   if (view === 'connect' && state.view !== 'connect') mountConnect(true);
@@ -126,21 +136,22 @@ function renderWelcome() {
   $('#view-overview').innerHTML = `<div class="welcome">
     <img class="welcome-mark" src="logo.svg" alt="" width="64" height="64">
     <h2>Welcome to GateLight</h2>
-    <p class="muted welcome-lead">See your HAProxy and NGINX as a map. Nothing is connected yet, so here is how to start:</p>
+    <p class="muted welcome-lead">See your ${esc(proxyList())} as a map. Nothing is connected yet, so here is how to start:</p>
     <ol class="welcome-steps">
-      <li><span class="n">1</span><div><b>Add your first instance</b><p class="muted">Connect a running HAProxy or NGINX (URL, user, password), or upload its config and keep it under a name.</p>
+      <li><span class="n">1</span><div><b>Add your first instance</b><p class="muted">Connect a running ${esc(proxyList())} (URL, user, password), or upload its config and keep it under a name.</p>
         ${can ? '<button class="btn primary" type="button" data-goto="connect">Add an Instance</button>' : '<p class="muted small">Adding from the browser is off. Define servers in <code>config/instances.json</code>, or start GateLight with <code>ALLOW_UI_INSTANCES=true</code>.</p>'}</div></li>
       <li><span class="n">2</span><div><b>Only want to check a config?</b><p class="muted">Drop a file or folder and get the map and audit. Nothing is saved.</p>
         <button class="btn" type="button" data-goto="connect">Review a config</button></div></li>
       <li><span class="n">3</span><div><b>Then explore</b><p class="muted">The overview, topology, URL map, services, audit and events appear here as soon as there is an instance to show.</p></div></li>
     </ol>
-    <p class="muted small">Just looking around? Try an example: <button class="link" type="button" data-example="haproxy">HAProxy</button> · <button class="link" type="button" data-example="nginx">NGINX</button></p>
+    <p class="muted small">Just looking around? Try an example: ${availableTypes().map((t) => `<button class="link" type="button" data-example="${t}">${TYPE_NAME[t]}</button>`).join(' · ')} · or <button class="link" type="button" data-goto="builder">build a new config</button></p>
   </div>`;
 }
 function renderView(view) {
   if (view === 'connect') return;
   if (view === 'settings') { renderSettings(); return; }
   if (view === 'forge') { renderForge(); return; } // works without an instance: paste or upload any config
+  if (view === 'builder') { renderBuilder(); return; } // works without an instance: writes a new config
   if (!state.snapshot) {
     if (view === 'overview') { if (state.current) $('#view-overview').innerHTML = '<div class="skeleton-cards"><i></i><i></i><i></i><i></i><i></i></div>'; else renderWelcome(); }
     return;
@@ -151,6 +162,7 @@ function renderView(view) {
 // ---------- data loading ----------
 async function loadInstances() {
   try { state.meta = await api('/meta'); } catch { /* keep defaults */ }
+  syncTypeOptions();
   $$('[data-logout]').forEach((b) => { b.hidden = !(state.meta && state.meta.authUser); });
   { const u = state.meta && state.meta.authUser ? String(state.meta.authUser) : ''; const nu = $('#navuser'); nu.hidden = !u; $('#nu-name').textContent = u; $('#nu-av').textContent = (u[0] || '').toUpperCase(); $('#nu-name').title = u; }
   const { instances } = await api('/instances');
@@ -159,7 +171,7 @@ async function loadInstances() {
   const sel = $('#instance-select');
   const keep = state.current;
   const opt = (i) => `<option value="${esc(i.id)}">${esc(i.name)}${i.serversDown ? ` ⚠ ${i.serversDown} down` : ''}</option>`;
-  const groups = ['haproxy', 'nginx'].map((t) => ({ t, list: visible.filter((i) => i.type === t) })).filter((g) => g.list.length);
+  const groups = ALL_TYPES.map((t) => ({ t, list: visible.filter((i) => i.type === t) })).filter((g) => g.list.length);
   sel.innerHTML = (groups.length > 1 ? groups.map((g) => `<optgroup label="${TYPE_NAME[g.t]}">${g.list.map(opt).join('')}</optgroup>`).join('') : visible.map(opt).join(''))
     + (state.analysis ? '<option value="__analysis">📄 Uploaded analysis</option>' : '');
   $('#nav [data-view="fleet"]').hidden = visible.length < 2;
@@ -472,7 +484,7 @@ function renderOverview() {
   const alerts = (s.alerts || []).filter((a) => a.status === 'firing'); const pending = (s.alerts || []).filter((a) => a.status === 'pending');
 
   const showCta = state.meta.canManage && ['config-only', 'demo'].includes(s.instance.source);
-  const cta = showCta ? `<div class="cta"><div><b>${s.instance.source === 'demo' ? 'You are looking at synthetic demo traffic' : 'You are looking at the configuration only'}</b><span class="muted">Connect your ${s.instance.source === 'demo' ? '' : 'live '}HAProxy or NGINX (URL, username, password) to see real health and traffic.</span></div><button class="btn primary" type="button" data-connect>Connect a server</button></div>` : '';
+  const cta = showCta ? `<div class="cta"><div><b>${s.instance.source === 'demo' ? 'You are looking at synthetic demo traffic' : 'You are looking at the configuration only'}</b><span class="muted">Connect your ${s.instance.source === 'demo' ? '' : 'live '}${esc(TYPE_NAME[s.instance.type] || 'proxy')} (URL, username, password) to see real health and traffic.</span></div><button class="btn primary" type="button" data-connect>Connect a server</button></div>` : '';
   // ---- level 1: one verdict for the whole instance ----
   const sv = sum.servers; const upN = sv.up + sv.degraded; const downN = hasStats ? sv.down + sum.backends.down : 0;
   const downRows = problems.filter((r) => r.state === 'down');
@@ -1550,7 +1562,7 @@ function renderFlow() {
     const rows = d.portMatrix.filter((r) => (!FLOW.fe || r.frontend === FLOW.fe) && (() => { const st = poolStatus(r.pool, r.undefined); return statusMatches(st.k, FLOW.st, { undef: r.undefined }); })());
     body = `<div class="table-wrap"><table class="grid"><thead><tr><th>Listener</th><th>${esc(lbl('frontend'))}</th><th>→ ${esc(lbl('backend'))}</th><th>Backend address(es)</th><th>Status</th><th>Layer</th><th>What happens to the connection</th><th class="num">Rules</th></tr></thead><tbody>
       ${rows.map((r) => `<tr><td>${portTxt(r.listener, r.listenerTls)}</td><td><b>${esc(r.frontend)}</b></td><td>${r.undefined ? `<span class="sev-error">${esc(r.pool)} (undefined)</span>` : esc(r.pool)} <span class="muted small">${r.members} member${r.members === 1 ? '' : 's'}</span></td><td>${outPorts(r) || '<span class="muted">–</span>'}</td><td>${(() => { const st = poolStatus(r.pool, r.undefined); return `<span class="st-chip" title="${esc(st.text)}">${stDot(st.k)} ${esc(FLOW_ST[st.k])}</span>`; })()}</td><td><span class="tag layer-${r.mode === 'tcp' ? 'l4' : 'l7'}">${r.mode === 'tcp' ? 'L4' : 'L7'}</span></td><td><span class="tag tls-${esc(r.tls)}">${esc(TLS_LABEL[r.tls] || r.tls)}</span></td><td class="num">${r.rules}</td></tr>`).join('') || `<tr><td colspan="8" class="empty">${FLOW.st ? 'Nothing matches the status filter' : 'No listeners found'}</td></tr>`}</tbody></table></div>
-      <p class="muted small flow-note">${hap ? 'HAProxy: <code>server s 10.0.0.1</code> (no port) uses the same port the client connected to; <code>10.0.0.1:+1000</code> adds 1000 to it; an explicit port always wins.' : 'NGINX: a <code>proxy_pass</code> or upstream <code>server</code> without a port uses 80 (443 for https://).'}</p>`;
+      <p class="muted small flow-note">${hap ? 'HAProxy: <code>server s 10.0.0.1</code> (no port) uses the same port the client connected to; <code>10.0.0.1:+1000</code> adds 1000 to it; an explicit port always wins.' : snapshotType() === 'nginx' ? 'NGINX: a <code>proxy_pass</code> or upstream <code>server</code> without a port uses 80 (443 for https://).' : `${esc(TYPE_NAME[snapshotType()] || '')}: an upstream address without a port uses 80 (443 for https://). Rules are listed in the order ${esc(TYPE_NAME[snapshotType()] || '')} evaluates them${snapshotType() === 'traefik' ? ' (highest priority first; by default the longest rule)' : snapshotType() === 'caddy' ? ' (directive order, then matcher specificity inside handle blocks)' : ' (first match wins)'}.`}</p>`;
   } else if (FLOW.tab === 'uri') {
     body = `<div class="table-wrap"><table class="grid"><thead><tr><th>${esc(lbl('frontend'))}</th><th>Host</th><th>Request matches</th><th>URI changes on the way</th><th>Example</th><th>→ ${esc(lbl('backend'))}</th></tr></thead><tbody>
       ${flows.map((f) => { const steps = f.chain.filter((s) => s.applies !== false && (s.kind === 'path' || (s.kind === 'header' && /^Host$/i.test(s.args[0] || '')))); const other = f.chain.filter((s) => s.applies !== false && s.kind === 'terminal').length; const ex = f.example;
@@ -1677,7 +1689,7 @@ function currentFile() {
 function renderConfig() {
   const s = state.snapshot; const files = s.config.files || [];
   const file = currentFile(); const raw = file ? file.raw : '';
-  const isNginx = s.instance.type === 'nginx';
+  const isNginx = s.instance.type === 'nginx' || s.instance.type === 'caddy';
   const filter = $('#cfg-search').value;
   const fsel = $('#cfg-file');
   fsel.hidden = files.length < 2;
@@ -1833,7 +1845,7 @@ function renderFleet() {
 // ---------- SETTINGS ----------
 function renderSettings() {
   const f = state.meta.features || {};
-  const types = ['haproxy', 'nginx'];
+  const types = ALL_TYPES.filter((t) => t === 'haproxy' || t === 'nginx' || productInfo(t));
   $('#view-settings').innerHTML = `<div class="set-wrap">
     <header class="set-head"><h2>Settings</h2><p class="muted">Which technologies GateLight loads, what this browser shows, and the instances you manage.</p></header>
     <div class="panel"><div class="panel-h"><h2>Technologies</h2></div>
@@ -1842,17 +1854,17 @@ function renderSettings() {
         const on = f[t] !== false; const mine = state.instances.filter((i) => i.type === t);
         const live = mine.filter((i) => i.ok === true).length; const cfg = mine.filter((i) => i.source === 'config-only').length;
         const bad = mine.filter((i) => i.ok === false && i.source !== 'config-only').length; const down = mine.reduce((n, i) => n + (i.serversDown || 0), 0);
-        const reads = t === 'haproxy' ? ['Stats page (CSV)', 'Runtime API', 'haproxy.cfg'] : ['stub_status', 'NGINX Plus API', 'TCP probe of upstreams', 'nginx.conf'];
+        const reads = { haproxy: ['Stats page (CSV)', 'Runtime API', 'haproxy.cfg'], nginx: ['stub_status', 'NGINX Plus API', 'TCP probe of upstreams', 'nginx.conf'], apache: ['mod_status (server-status?auto)', 'balancer-manager', 'httpd.conf + includes'], caddy: ['Admin API (/reverse_proxy/upstreams)', 'Prometheus metrics', 'Caddyfile or JSON'], traefik: ['API (/api/http/…)', 'Prometheus metrics', 'static + dynamic config, Docker labels'] }[t] || [];
         const stat = (n, label, cls) => `<div class="tech-stat ${cls || ''}"><b>${n}</b><span>${label}</span></div>`;
         return `<section class="tech ${on ? 'on' : 'off'}" aria-label="${esc(TYPE_NAME[t])}">
-          <header><span class="tech-ico t-${t}" aria-hidden="true">${t === 'haproxy' ? 'HA' : 'NG'}</span><b>${esc(TYPE_NAME[t])}</b><span class="st ${on ? 'st-up' : 'st-down'}">${on ? 'enabled' : 'disabled'}</span></header>
+          <header><span class="tech-ico t-${t}" aria-hidden="true">${TYPE_ABBR[t]}</span><b>${esc(TYPE_NAME[t])}</b><span class="st ${on ? 'st-up' : 'st-down'}">${on ? 'enabled' : 'disabled'}</span></header>
           <div class="tech-reads">${reads.map((r) => `<span class="chip">${esc(r)}</span>`).join('')}</div>
           ${on ? `<div class="tech-stats">${stat(mine.length, mine.length === 1 ? 'instance' : 'instances')}${stat(live, 'live')}${stat(cfg, 'config only')}${stat(bad, 'unreachable', bad ? 'bad' : '')}${stat(down, 'servers down', down ? 'bad' : '')}</div>${mine.length ? '' : `<p class="muted small tech-empty">None yet. <button class="link" type="button" data-connect>Add a ${esc(TYPE_NAME[t])} instance</button></p>`}`
             : `<p class="muted small tech-empty">Off on this server, so ${esc(TYPE_NAME[t])} instances are not loaded or polled. Set <code>ENABLE_${t.toUpperCase()}=true</code> and restart to turn it on.</p>`}
           <footer class="muted small"><code>ENABLE_${t.toUpperCase()}=${on ? 'true' : 'false'}</code></footer></section>`;
       }).join('')}</div>
       <details class="tech-how"><summary>How to turn a technology on or off</summary>
-        <ul class="small muted"><li>Environment: <code>ENABLE_HAPROXY</code> / <code>ENABLE_NGINX</code> set to <code>true</code> or <code>false</code>.</li><li>Or <code>"features"</code> in <code>instances.json</code>. Use <code>"enabled": false</code> on a single instance to pause just that one.</li><li>A restart applies changes. To only hide a technology for yourself, use <b>Display</b> below.</li></ul></details>
+        <ul class="small muted"><li>Environment: <code>ENABLE_HAPROXY</code>, <code>ENABLE_NGINX</code>, <code>ENABLE_APACHE</code>, <code>ENABLE_CADDY</code>, <code>ENABLE_TRAEFIK</code> set to <code>true</code> or <code>false</code>.</li><li>Or <code>"features"</code> in <code>instances.json</code>. Use <code>"enabled": false</code> on a single instance to pause just that one.</li><li>A restart applies changes. To only hide a technology for yourself, use <b>Display</b> below.</li></ul></details>
     </div>
     <div class="panel"><div class="panel-h"><h2>Display</h2></div>
       <p class="muted">Per-browser preference: hide a technology from the selector and Fleet view without changing the server.</p>
@@ -2037,9 +2049,9 @@ async function runAnalyze(payload, label) {
   azStatus(`Analyzing${label ? ` ${esc(label)}` : ''}…`);
   try {
     const res = await api('/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, type: $('#az-type').value }) });
-    const L = res.type === 'nginx' ? { frontend: 'Server block', backend: 'Upstream', server: 'Peer' } : { frontend: 'Frontend', backend: 'Backend', server: 'Server' };
+    const L = labelsOf(res.type);
     state.analysis = true;
-    state.analysisCfg = { type: res.type, files: payload.files || [{ name: res.type === 'nginx' ? 'nginx.conf' : 'haproxy.cfg', content: payload.config || '' }] };
+    state.analysisCfg = { type: res.type, files: payload.files || [{ name: DEFAULT_FILE[res.type] || 'config', content: payload.config || '' }] };
     $('#btn-save-review').hidden = !(state.meta && state.meta.canManage);
     setMode('review');
     state.analysisSnap = {
@@ -2707,16 +2719,16 @@ const cxType = () => document.querySelector('input[name="cx-type"]:checked').val
 function cxSync() {
   const t = cxType();
   $$('#cx-form [data-cx-for]').forEach((el) => { el.hidden = el.dataset.cxFor !== t; });
-  $('#cx-url-label').textContent = t === 'nginx' ? 'Status URL (stub_status)' : 'Stats URL';
-  $('#cx-url').placeholder = t === 'nginx' ? 'http://host/nginx_status' : 'http://host:8404/stats';
+  $('#cx-url-label').textContent = { nginx: 'Status URL (stub_status)', apache: 'server-status URL (mod_status)', caddy: 'Admin API URL', traefik: 'API URL' }[t] || 'Stats URL';
+  $('#cx-url').placeholder = { nginx: 'http://host/nginx_status', apache: 'http://host/server-status', caddy: 'http://127.0.0.1:2019', traefik: 'http://host:8080' }[t] || 'http://host:8404/stats';
   const hasCfg = cx.files.length > 0 || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig || cx.logFiles.length;
-  const live = $('#cx-url').value.trim() || ($('#cx-socket').value || '').trim() || ($('#cx-plus').value || '').trim();
+  const live = $('#cx-url').value.trim() || ($('#cx-socket').value || '').trim() || ($('#cx-plus').value || '').trim() || (t === 'apache' && ($('#cx-balancer').value || '').trim());
   const configOnly = Boolean(hasCfg && !live);
   $('#cx-test').hidden = configOnly;
   $('#cx-url-opt').hidden = !hasCfg;
   const logOnly = configOnly && cx.logFiles.length && !(cx.files.length || $('#cx-cfgtext').value.trim() || $('#cx-cfgurls').value.trim() || cx.hadConfig);
   $('#cx-save').textContent = cx.editing ? (cx.logFiles.length ? `Save & upload ${cx.logFiles.length > 1 ? 'logs' : 'log'}` : 'Save changes') : logOnly ? 'Save & analyse logs' : configOnly ? 'Save config' : cx.inline ? 'Connect' : 'Save & connect';
-  { const lp = $('#cx-logprod'); if (lp) lp.textContent = t === 'nginx' ? 'NGINX access' : 'HAProxy'; const lh = $('#cx-loghelp'); if (lh && lh.dataset.prod !== t) { lh.dataset.prod = t; lh.innerHTML = logHelpHtml(t); } }
+  { const lp = $('#cx-logprod'); if (lp) lp.textContent = t === 'haproxy' ? 'HAProxy' : `${TYPE_NAME[t]} access`; const lh = $('#cx-loghelp'); if (lh && lh.dataset.prod !== t) { lh.dataset.prod = t; lh.innerHTML = logHelpHtml(t); } }
   $('#cx-logmax').textContent = fmtBytes((state.meta && state.meta.logMaxBytes) || 50 * 1048576);
 }
 function cxFilesNote() {
@@ -2750,6 +2762,8 @@ function cxBody() {
   b.configUrls = $('#cx-cfgurls').value;
   if (cx.logFiles.length) b.logOnly = true;
   if (t === 'haproxy') b.socket = $('#cx-socket').value;
+  else if (t === 'apache') b.balancerUrl = $('#cx-balancer').value;
+  else if (t === 'caddy' || t === 'traefik') b.metricsUrl = $(`#cx-metrics-${t}`).value;
   else { b.plusApiUrl = $('#cx-plus').value; if ($('#cx-url').value.trim() || $('#cx-plus').value.trim() || !(cx.files.length || $('#cx-cfgtext').value.trim() || cx.hadConfig)) b.probe = $('#cx-probe').checked; }
   if (cx.editing) b.id = cx.editing;
   return b;
@@ -2777,11 +2791,11 @@ async function cxOpen(id, inline = false) {
       const d = await api(`/instances/${encodeURIComponent(id)}/definition`);
       document.querySelector(`input[name="cx-type"][value="${d.type}"]`).checked = true;
       $('#cx-name').value = d.name || ''; $('#cx-url').value = d.statsUrl || ''; $('#cx-user').value = d.username || '';
-      $('#cx-insecure').checked = Boolean(d.insecureTls); $('#cx-socket').value = d.socket || ''; $('#cx-plus').value = d.plusApiUrl || '';
+      $('#cx-insecure').checked = Boolean(d.insecureTls); $('#cx-socket').value = d.socket || ''; $('#cx-plus').value = d.plusApiUrl || ''; $('#cx-balancer').value = d.balancerUrl || ''; $('#cx-metrics-caddy').value = d.type === 'caddy' ? d.metricsUrl || '' : ''; $('#cx-metrics-traefik').value = d.type === 'traefik' ? d.metricsUrl || '' : '';
       $('#cx-probe').checked = d.probe !== false; $('#cx-cfgurls').value = (d.configUrls || []).join('\n');
       cx.hadPassword = d.hasPassword; cx.hadConfig = (d.configFiles || []).length > 0; cx.hadNames = (d.configFiles || []).slice(0, 3).join(', ') + ((d.configFiles || []).length > 3 ? '…' : '');
       $('#cx-pass').placeholder = d.hasPassword ? '•••••••• (unchanged)' : '';
-      if (d.socket || d.plusApiUrl) $('#cx-form details.adv').open = true;
+      if (d.socket || d.plusApiUrl || d.balancerUrl || d.metricsUrl) $('#cx-form details.adv').open = true;
     } catch (e) { toast(e.message, 'bad'); return; }
   } else { $('#cx-pass').placeholder = ''; $('#cx-form details.adv').open = false; }
   cxFilesNote(); cxSync(); cxMarkEditing();
@@ -3094,7 +3108,7 @@ function wire() {
   ['#cx-cfgfiles', '#cx-cfgfolder'].forEach((q) => $(q).addEventListener('change', async (e) => { const l = [...e.target.files]; e.target.value = ''; await cxPickFiles(l); }));
   $('#cx-cancel').addEventListener('click', () => cxOpen(null, true));
   $('#cx-cfgclear').addEventListener('click', () => { cx.files = []; $('#cx-cfgtext').value = ''; cxFilesNote(); cxSync(); });
-  ['#cx-url', '#cx-socket', '#cx-plus', '#cx-cfgtext', '#cx-cfgurls'].forEach((q) => $(q).addEventListener('input', () => { if (q === '#cx-cfgtext' && $(q).value) cx.files = []; cxFilesNote(); cxSync(); }));
+  ['#cx-url', '#cx-socket', '#cx-plus', '#cx-balancer', '#cx-metrics-caddy', '#cx-metrics-traefik', '#cx-cfgtext', '#cx-cfgurls'].forEach((q) => $(q).addEventListener('input', () => { if (q === '#cx-cfgtext' && $(q).value) cx.files = []; cxFilesNote(); cxSync(); }));
   grWire();
   iselWire();
   $('#view-profile').addEventListener('click', (e) => { if (e.target.closest('[data-prof-theme]')) { $('#btn-theme').click(); renderProfile(); } });
@@ -3269,6 +3283,7 @@ function wire() {
   $('#az-run').addEventListener('click', () => { const t = $('#az-text').value; if (!t.trim()) azStatus('Paste a configuration first.', 'err'); else runAnalyze({ config: t }, 'pasted text'); });
   $('#az-ex-haproxy').addEventListener('click', () => loadExample('haproxy'));
   $('#az-ex-nginx').addEventListener('click', () => loadExample('nginx'));
+  $$('[data-az-ex]').forEach((b) => b.addEventListener('click', () => loadExample(b.dataset.azEx)));
   const dz = $('#az-drop');
   dz.addEventListener('keydown', (e) => { if (e.target === dz && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); $('#az-files').click(); } });
   let dragDepth = 0;
@@ -3342,7 +3357,7 @@ async function init() {
   try { await loadInstances(); } catch { /* API unreachable: landing still works for offline review */ }
   const ids = state.instances.map((i) => i.id);
   let entered = null; try { entered = sessionStorage.getItem('gatelight.entered'); } catch { /* storage unavailable */ }
-  if (['haproxy', 'nginx'].includes(ex)) { setMode('review'); await loadExample(ex); return; }
+  if (ALL_TYPES.includes(ex)) { setMode('review'); await loadExample(ex); return; }
   const hId = hInst ? decodeURIComponent(hInst) : null;
   if (hId && ids.includes(hId)) { await enterLive(hId); if (hView && $(`#view-${hView}`)) switchView(hView); restoreDetail(hViewRaw, hKey); return; }
   if (entered && ids.includes(entered)) { await enterLive(entered); if (hView && $(`#view-${hView}`)) switchView(hView); restoreDetail(hViewRaw, hKey); return; }

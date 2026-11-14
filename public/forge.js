@@ -50,14 +50,15 @@ function renderForge() {
   const live = state.mode === 'live' && state.snapshot && state.current;
   const tab = (id, label) => `<button type="button" class="fg-src${FG.src === id ? ' on' : ''}" data-fg-src="${id}">${label}</button>`;
   const prodTyped = FG.product || (FG.data && FG.data.product) || '';
-  const verSel = prodTyped === 'haproxy' && FG.versions && FG.versions.haproxy
-    ? `<select id="fg-version" aria-label="Target HAProxy version"><option value="">Latest (${esc(FG.versions.haproxy.latest)})</option>${FG.versions.haproxy.list.map((v) => `<option value="${esc(v)}"${FG.version === v ? ' selected' : ''}>HAProxy ${esc(v)}</option>`).join('')}</select>`
+  const kv = prodTyped && prodTyped !== 'nginx' && FG.versions && FG.versions[prodTyped] && (FG.versions[prodTyped].list || []).length ? FG.versions[prodTyped] : null;
+  const verSel = kv
+    ? `<select id="fg-version" aria-label="Target ${esc(TYPE_NAME[prodTyped])} version"><option value="">Latest (${esc(kv.latest)})</option>${kv.list.map((v) => `<option value="${esc(v)}"${FG.version === v ? ' selected' : ''}>${esc(TYPE_NAME[prodTyped])} ${esc(v)}</option>`).join('')}</select>`
     : `<input id="fg-version" list="fg-nginx-v" placeholder="${prodTyped === 'haproxy' ? 'Version, e.g. 2.8' : 'Version, e.g. 1.24.0'} (empty = latest)" value="${esc(FG.version)}" aria-label="Target version" autocomplete="off"><datalist id="fg-nginx-v">${(prodTyped === 'haproxy' ? ['3.2', '3.0', '2.9', '2.8', '2.6', '2.4', '2.2', '1.8'] : FG_NGINX_V).map((v) => `<option value="${v}">`).join('')}</datalist>`;
-  el.innerHTML = `<div class="panel fg-top"><div class="fg-title"><div><h2 class="fg-h2">Config Doctor</h2><div class="muted">Assess a HAProxy or NGINX configuration and rewrite it to current best practice. Every change comes with the reason, can be switched off, and nothing touches your servers.</div>
+  el.innerHTML = `<div class="panel fg-top"><div class="fg-title"><div><h2 class="fg-h2">Config Doctor</h2><div class="muted">Assess a ${esc(proxyList())} configuration and rewrite it to current best practice. Every change comes with the reason, can be switched off, and nothing touches your servers.</div>
     <div class="page-help" role="note"><b>Config Doctor</b> is the checker and fixer. It runs on the config of the selected instance or on files you upload, reports problems by severity, and offers a rewritten copy you download and apply yourself. Want to just read the config as it runs? Open <button type="button" class="link" data-goto="config">Running Config</button>.</div></div><button class="btn fg-fs" id="fg-fs" data-fs type="button" title="Fill the whole window (Esc to exit)">${document.body.classList.contains('topo-fs') ? '✕ Exit full screen' : '⛶ Full screen'}</button></div>
     <div class="fg-srcs" role="tablist">${tab('paste', 'Paste')}${tab('upload', 'Upload files')}${live ? tab('instance', 'This instance') : ''}${tab('example', 'Examples')}</div>
     <div class="fg-input">${forgeInputHtml()}</div>
-    <div class="fg-opts"><label>Product<select id="fg-product"><option value="">Auto-detect</option><option value="haproxy"${FG.product === 'haproxy' ? ' selected' : ''}>HAProxy</option><option value="nginx"${FG.product === 'nginx' ? ' selected' : ''}>NGINX</option></select></label>
+    <div class="fg-opts"><label>Product<select id="fg-product"><option value="">Auto-detect</option>${availableTypes().map((t) => `<option value="${t}"${FG.product === t ? ' selected' : ''}>${TYPE_NAME[t]}</option>`).join('')}</select></label>
       <label>Target version${verSel}</label><span class="spacer"></span>
       ${prodTyped === 'nginx' ? `<button class="link" type="button" data-fg-build>${FG.buildOpen ? 'Hide' : 'Add'} build info</button>` : ''}
       <button class="btn primary" type="button" data-fg-run${FG.loading ? ' disabled' : ''}>${FG.loading ? 'Working…' : (FG.data ? 'Analyze again' : 'Analyze & improve')}</button></div></div>
@@ -72,7 +73,7 @@ function forgeInputHtml() {
       <div class="muted small">HAProxy: one file (or a conf.d folder, read in name order). NGINX: nginx.conf plus the files it includes. Up to 2 MB in total.</div>
       ${FG.files.length ? `<div class="tr-chips">${FG.files.map((f, i) => `<span class="tr-chip">${esc(f.name)} <span class="muted">${esc(fmtBytes(f.content.length))}</span><button type="button" data-fg-rm="${i}" aria-label="Remove ${esc(f.name)}">×</button></span>`).join('')}</div>` : ''}</div>`;
   if (FG.src === 'instance') return `<div class="fg-inst"><p>Use the configuration GateLight holds for <b>${esc((state.snapshot && state.snapshot.instance.name) || state.current)}</b>. It is the redacted copy: passwords and secrets show as placeholders, so check them before you deploy the result.</p><button class="btn" type="button" data-fg-inst>Improve this instance's config</button></div>`;
-  return `<div class="fg-inst"><p>Try it on a sample with typical mistakes.</p><button class="btn" type="button" data-fg-ex="haproxy">HAProxy example</button> <button class="btn" type="button" data-fg-ex="nginx">NGINX example</button></div>`;
+  return `<div class="fg-inst"><p>Try it on a sample with typical mistakes.</p>${availableTypes().map((t) => `<button class="btn" type="button" data-fg-ex="${t}">${TYPE_NAME[t]} example</button>`).join(' ')}</div>`;
 }
 
 // ------------------------------------------------------------------------------------------------ results
@@ -108,10 +109,10 @@ function forgeFindings(d) {
       <div class="chips"><span class="chip ${FG.sev === 'all' ? 'on' : ''}" data-fg-sev="all">Any severity</span>${sevs.map((v) => `<span class="chip ${FG.sev === v ? 'on' : ''}" data-fg-sev="${v}">${FG_SEV[v]} (${cnt((c) => c.severity === v)})</span>`).join('')}<span class="muted">|</span><span class="chip ${FG.cat === 'all' ? 'on' : ''}" data-fg-cat="all">All categories</span>${cats.map((c) => `<span class="chip ${FG.cat === c ? 'on' : ''}" data-fg-cat="${c}">${FG_CAT_ICON[c] || ''} ${esc(FG_CATS[c] || c)} (${cnt((x) => x.category === c)})</span>`).join('')}</div></div>`;
   const SEV_COL = { high: '#f87171', medium: '#fbbf24', low: '#22d3ee', info: '#94a3b8' };
   const count = (key) => { const m = new Map(); for (const f of list) m.set(f[key], (m.get(f[key]) || 0) + 1); return [...m].sort((a, b) => b[1] - a[1]); };
-  const prodName = d.product === 'haproxy' ? 'HAProxy' : 'NGINX';
+  const prodName = TYPE_NAME[d.product] || d.product;
   const bad = all.filter((c) => c.kind !== 'optional' && c.severity === 'high').length;
   const verdict = `<div class="panel val-sum"><div class="val-verdict">${bad ? `<span class="val-no">✗ ${bad} high-severity problem${bad === 1 ? '' : 's'} for ${esc(prodName)} ${esc(d.target)}</span>` : `<span class="val-ok">✓ Nothing high-severity for ${esc(prodName)} ${esc(d.target)}</span>`}</div>
-      <p class="muted small">Checked against the official ${d.product === 'haproxy' ? 'manual at docs.haproxy.org' : 'documentation at nginx.org'} for the target version, plus the structural audit and the rewrite rules. Each problem is listed once; the other checks that also reported it are shown on it.</p></div>`;
+      <p class="muted small">Checked against the official ${{ haproxy: 'manual at docs.haproxy.org', nginx: 'documentation at nginx.org', apache: 'Apache HTTP Server documentation (httpd.apache.org)', caddy: 'Caddy documentation (caddyserver.com/docs)', traefik: 'Traefik documentation (doc.traefik.io)' }[d.product] || 'documentation'} for the target version, plus the structural audit and the rewrite rules. Each problem is listed once; the other checks that also reported it are shown on it.</p></div>`;
   const chartRow = list.length ? `<div class="svc-charts-grid">${donutCard('Findings by severity', sevs.map((v) => ({ label: FG_SEV[v], color: SEV_COL[v], value: list.filter((c) => c.severity === v).length })), { big: String(list.length), sub: 'findings' }, 'How serious the findings are.')}${barChart('By category', count('category').slice(0, 8).map(([k, v]) => ({ label: FG_CATS[k] || k, value: v, color: '#818cf8' })), { sub: 'findings' })}${barChart('Most affected sections', count('section').slice(0, 8).map(([k, v]) => ({ label: k || '(global)', value: v, color: '#22d3ee' })), { sub: 'frontends, backends, upstreams' })}${barChart('Most frequent rules', count('rule').slice(0, 8).map(([k, v]) => ({ label: (list.find((x) => x.rule === k) || {}).title || k, value: v, color: '#fbbf24' })), { sub: 'rule · occurrences' })}</div>` : '';
   if (!list.length) return `${verdict}${ctl}<div class="panel"><div class="empty">${all.length ? 'Nothing matches this filter.' : '✓ No findings. This configuration already follows the recommendations.'}</div></div>`;
   // many occurrences of one rule fold into a group so a single noisy rule does not bury the rest
@@ -140,8 +141,8 @@ function forgeCard(c) {
 function forgeConfig(d, f) {
   const added = new Set(); f.diff.hunks.forEach((h) => h.rows.forEach((r) => { if (r.t === '+') added.add(r.b); }));
   const lines = f.improved.replace(/\n$/, '').split('\n');
-  const check = d.product === 'haproxy' ? 'haproxy -c -f ' : 'nginx -t -c ';
-  const reload = d.product === 'haproxy' ? 'systemctl reload haproxy' : 'nginx -s reload';
+  const check = { haproxy: 'haproxy -c -f ', nginx: 'nginx -t -c ', apache: 'apachectl -t -f ', caddy: 'caddy validate --config ', traefik: 'traefik --configFile=' }[d.product] || '';
+  const reload = { haproxy: 'systemctl reload haproxy', nginx: 'nginx -s reload', apache: 'apachectl graceful', caddy: 'caddy reload --config Caddyfile', traefik: 'restart Traefik for static changes (file-provider changes are picked up automatically)' }[d.product] || '';
   const first = d.files[0].name.split('/').pop();
   return `<div class="fg-bar"><b>${esc(f.name)}</b> <span class="muted small">${lines.length} lines · ${added.size} added or changed</span><span class="spacer"></span>
       <button class="btn" type="button" data-fg-copy>Copy</button><button class="btn primary" type="button" data-fg-dl>Download${d.files.length > 1 ? ' this file' : ''}</button>${d.files.length > 1 ? '<button class="btn" type="button" data-fg-dlall>Download all</button>' : ''}</div>

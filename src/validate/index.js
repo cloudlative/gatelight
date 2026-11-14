@@ -14,6 +14,7 @@ function versions() {
   return {
     haproxy: { list: [...haproxyKb.versions].reverse(), latest: haproxyKb.versions[haproxyKb.versions.length - 1], generated: haproxyKb.generated, source: haproxyKb.source },
     nginx: { latest: nginxKb.latest, generated: nginxKb.generated, source: nginxKb.source },
+    ...Object.fromEntries(['apache', 'caddy', 'traefik'].map((t) => { const m = require('../products').get(t); try { return m && typeof m.versions === 'function' ? [t, m.versions()] : null; } catch { return null; } }).filter(Boolean)),
   };
 }
 
@@ -34,7 +35,14 @@ function summarize(findings) {
  */
 function validateConfig(opts) {
   const product = opts.product;
-  if (product !== 'haproxy' && product !== 'nginx') throw new Error(`Unknown product "${product}"`);
+  if (product !== 'haproxy' && product !== 'nginx') {
+    const m = require('../products').get(product);
+    if (!m || typeof m.validate !== 'function') throw new Error(`Unknown product "${product}"`);
+    const files = opts.files && opts.files.length ? opts.files : [{ name: m.defaultFile || 'config', content: String(opts.config || '') }];
+    const r = m.validate({ files, version: opts.version ? String(opts.version).slice(0, 64) : null });
+    const findings = (r.findings || []).sort((a, b) => SEV[a.severity] - SEV[b.severity] || (a.line || 0) - (b.line || 0));
+    return { product, target: r.target, kb: r.kb, summary: summarize(findings), findings };
+  }
   const version = opts.version ? String(opts.version).slice(0, 64) : null;
   let r;
   if (product === 'haproxy') {
