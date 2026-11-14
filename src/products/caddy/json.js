@@ -11,7 +11,7 @@
  *   transport.tls)                                 -> routes in JSON order (JSON routes are never re-sorted)
  * Line numbers point at the first occurrence of a distinctive string in the file (JSON has no other line information).
  */
-const { convertPart, parseUpstream } = require('./model');
+const { convertPart, parseUpstream, escapeRe } = require('./model');
 
 const isJson = (text) => { const t = String(text || '').trim(); if (!t.startsWith('{')) return false; try { const o = JSON.parse(t); return Boolean(o && typeof o === 'object' && (o.apps || o.admin || o.logging || o.storage)); } catch { return false; } };
 
@@ -102,8 +102,9 @@ function parseJsonConfig(text, fileName = 'caddy.json') {
           target: null, type: matchers.length ? 'conditional' : 'default', condition: ctx.conds.join(' › ') || 'DEFAULT', rawCondition: ctx.conds.join(' › '),
           match: matchers.length ? matchers.map((m) => `${m.negated ? 'not ' : ''}${m.field.toLowerCase()} ${m.op} ${m.values.join(' or ')}`).join(' and ') : 'any request',
           short: `${grp.hosts[0] || '*'}${pathM ? (pathM.op === 'begins with' ? `${pathM.values[0]}*` : pathM.values[0]) : ''}`, matchers, hosts: fe.serverNames, paths: pathM ? pathM.values : [],
-          priority: fe.routes.length + 1, transforms: [...ctx.transforms, ...(extra.own || [])], passUrl: null, terminal: false, line, file: fileName, commented: false, dynamic: false, external: false, directive: h.handler, aclRefs: [], ...extra, needle: undefined, own: undefined,
+          priority: fe.routes.length + 1, transforms: [...ctx.transforms, ...(extra.own || [])], passUrl: null, terminal: false, line, file: fileName, commented: false, dynamic: false, external: false, directive: h.handler, aclRefs: [], ...extra,
         });
+        const last = fe.routes[fe.routes.length - 1]; delete last.needle; delete last.own;
       };
       const walk = (routes, ctx) => {
         for (const r of routes || []) {
@@ -118,20 +119,20 @@ function parseJsonConfig(text, fileName = 'caddy.json') {
                 case 'subroute': walk(h.routes, c); break;
                 case 'rewrite':
                   if (h.strip_path_prefix) c.transforms.push(tl('strip-prefix', [h.strip_path_prefix], `strip_path_prefix ${h.strip_path_prefix}`));
-                  if (h.strip_path_suffix) c.transforms.push(tl('replace-path', [h.strip_path_suffix, ''], `strip_path_suffix ${h.strip_path_suffix}`));
-                  if (h.uri) c.transforms.push(tl('set-path', [h.uri], `rewrite ${h.uri}`));
-                  for (const s of h.uri_substring || []) c.transforms.push(tl('replace-path', [s.find, s.replace], `replace ${s.find} ${s.replace}`));
+                  if (h.strip_path_suffix) c.transforms.push(tl('replace-path-regex', [`${escapeRe(h.strip_path_suffix)}$`, ''], `strip_path_suffix ${h.strip_path_suffix}`));
+                  if (h.uri) c.transforms.push(tl(/^\//.test(h.uri) ? 'set-path' : 'set-query', [h.uri], `rewrite ${h.uri}`));
+                  for (const s of h.uri_substring || []) c.transforms.push(tl('replace-path-regex', [escapeRe(s.find || ''), s.replace || ''], `replace ${s.find} ${s.replace}`));
                   for (const s of h.path_regexp || []) c.transforms.push(tl('replace-path-regex', [s.find, s.replace], `path_regexp ${s.find} ${s.replace}`));
                   break;
                 case 'headers': if (h.request && h.request.set) for (const [k, v] of Object.entries(h.request.set)) c.transforms.push(tl('set-header', [k, ...[].concat(v)], `request header ${k}`)); break;
                 case 'static_response': {
                   const loc = h.headers && (h.headers.Location || h.headers.location);
                   const status = String(h.status_code || 200);
-                  if (loc) addRoute(c, { terminal: true, kind: 'redirect', detail: `${status} ${[].concat(loc)[0]}`, own: [tl('redirect', [[].concat(loc)[0], status], `redirect ${[].concat(loc)[0]}`)] }, h);
+                  if (loc) addRoute(c, { terminal: true, kind: 'redirect', detail: `${status} ${[].concat(loc)[0]}`, own: [tl('redirect', [status, [].concat(loc)[0]], `redirect ${[].concat(loc)[0]}`)] }, h);
                   else addRoute(c, { terminal: true, kind: 'return', detail: status, own: [tl('return', [status], `static_response ${status}`)] }, h);
                   stop = true; break;
                 }
-                case 'file_server': addRoute(c, { terminal: true, kind: 'static', detail: h.root || null, browse: Boolean(h.browse), needle: '"file_server"' }, h); stop = true; break;
+                case 'file_server': addRoute(c, { terminal: true, kind: 'static', detail: h.root || null, browse: Boolean(h.browse), needle: '"file_server"', own: [tl('static', h.root ? [h.root] : [], `file_server${h.root ? ` from ${h.root}` : ''}`)] }, h); stop = true; break;
                 case 'error': addRoute(c, { terminal: true, kind: 'return', own: [tl('return', [String(h.status_code || 500)], 'error')] }, h); stop = true; break;
                 case 'reverse_proxy': {
                   const pathM = c.matchers.find((m) => m.field === 'Path' && !m.negated);
@@ -159,7 +160,7 @@ function parseJsonConfig(text, fileName = 'caddy.json') {
   const red = redirectHosts.filter((r) => !plainHosts.has(r.host));
   if (red.length) {
     const fe = blank({ type: 'frontend', name: `(auto HTTPS redirects):${httpPort}`, line: red[0].line, endLine: red[0].line, file: fileName, mode: 'http', implicit: true, binds: [{ address: `*:${httpPort}`, addresses: [`*:${httpPort}`], port: String(httpPort), ssl: false, options: { autoHttpsRedirect: true }, line: red[0].line, file: fileName, commented: false }], serverNames: [...new Set(red.map((r) => r.host))], locations: [], directives: [] });
-    fe.routes.push({ target: null, type: 'default', condition: 'Automatic HTTPS redirect', rawCondition: '', match: 'any request to a site served over HTTPS', short: 'http://*', matchers: [], hosts: fe.serverNames, paths: [], priority: 1, transforms: [{ action: 'redirect', args: ['https://{host}{uri}', '308'], line: red[0].line, file: fileName, text: 'redir https://{host}{uri} 308 (automatic)' }], passUrl: null, terminal: true, line: red[0].line, file: fileName, commented: false, dynamic: false, external: false, directive: 'auto_https', kind: 'redirect', aclRefs: [] });
+    fe.routes.push({ target: null, type: 'default', condition: 'Automatic HTTPS redirect', rawCondition: '', match: 'any request to a site served over HTTPS', short: 'http://*', matchers: [], hosts: fe.serverNames, paths: [], priority: 1, transforms: [{ action: 'redirect', args: ['308', 'https://{host}{uri}'], line: red[0].line, file: fileName, text: 'redir https://{host}{uri} 308 (automatic)' }], passUrl: null, terminal: true, line: red[0].line, file: fileName, commented: false, dynamic: false, external: false, directive: 'auto_https', kind: 'redirect', aclRefs: [] });
     sections.push(fe);
   }
   sections.push(...backends.values());

@@ -155,7 +155,7 @@ test('API: /flow analyses an uploaded config and optionally traces a request', a
     assert.equal(n.status, 200);
     assert.ok(n.json.findings.some((f) => f.id === 'flow-nginx-slash-mismatch'));
     assert.equal((await post(t.base, '/api/flow', {})).status, 400);
-    assert.equal((await post(t.base, '/api/flow', { type: 'apache', config: 'x' })).status, 400);
+    assert.equal((await post(t.base, '/api/flow', { type: 'lighttpd', config: 'x' })).status, 400);
   } finally { await t.close(); }
 });
 

@@ -52,7 +52,7 @@ function audit(sections, { notes = [], rows = [] } = {}) {
   const loaded = new Set([...(global.loadedModules || []), ...(global.staticModules || [])]);
   const layout = global.layout || 'unknown'; const L = LAYOUT[layout] || LAYOUT.unknown;
   const enableFix = (id) => { const m = id.replace(/_module$/, ''); return layout === 'debian' ? `Run \`a2enmod ${m}\` and \`${L.reload}\`.` : layout === 'rhel' ? `Add \`LoadModule ${id} modules/mod_${m}.so\` to /etc/httpd/conf.modules.d/ (00-proxy.conf / 00-base.conf), then \`${L.reload}\`.` : `Add \`LoadModule ${id} modules/mod_${m}.so\`.`; };
-  const hasLoad = loaded.size > 0;
+  const hasLoad = (global.loadedModules || []).length > 0; // only when the configuration loads modules itself
   const gd = (name) => global.directives.filter((d) => d.lkeyword === name && !d.within.some((w) => /^<(Location|Directory|Files|Proxy)/i.test(w)));
   const lastG = (name) => gd(name).pop();
   const all = [global, ...frontends];

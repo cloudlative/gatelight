@@ -196,7 +196,7 @@ test('API: /validate and /validate/versions, with auto type detection', async ()
     assert.equal(n.json.product, 'nginx'); assert.equal(n.json.target.version, '1.24.0');
     assert.ok(n.json.findings.some((f) => f.id === 'compat-unknown-directive'));
     assert.equal((await post(t.base, '/api/validate', {})).status, 400);
-    assert.equal((await post(t.base, '/api/validate', { type: 'apache', config: 'x' })).status, 400);
+    assert.equal((await post(t.base, '/api/validate', { type: 'lighttpd', config: 'x' })).status, 400);
   } finally { await t.close(); }
 });
 

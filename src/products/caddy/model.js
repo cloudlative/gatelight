@@ -108,8 +108,9 @@ const pathOp = (p) => {
   if (star < 0) return { op: 'is', value: p };
   if (star === p.length - 1 && p.indexOf('*') === p.lastIndexOf('*')) return { op: 'begins with', value: p.slice(0, -1) };
   if (star === 0 && p.lastIndexOf('*') === 0) return { op: 'ends with', value: p.slice(1) };
-  return { op: 'matches', value: p };
+  return { op: 'glob', value: p };
 };
+const escapeRe = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const OP_TEXT = { is: 'is', 'begins with': 'begins with', 'ends with': 'ends with', matches: 'matches', contains: 'contains' };
 
 /** Named matcher definitions in a block list: @name ... */
@@ -137,12 +138,14 @@ function convertPart(part, negated = false) {
   const one = (field, op, values, extra = {}) => ({ field, op, values, negated, ...extra });
   switch (part.type) {
     case 'path': {
-      const groups = new Map();
-      for (const p of a) { const o = pathOp(p); const l = groups.get(o.op) || []; l.push(o.value); groups.set(o.op, l); }
-      return [...groups.entries()].map(([op, values]) => one('Path', op, values, groups.size > 1 ? { anyOf: true } : {}));
+      // Caddy path matching is case-insensitive; values are OR'ed. Mixed kinds of patterns become one glob matcher
+      // (Caddy's own semantics: * is a wildcard anywhere), so the OR is kept.
+      const ops = a.map(pathOp);
+      if (ops.length && ops.every((o) => o.op === ops[0].op)) return [one('Path', ops[0].op, ops.map((o) => o.value), { caseInsensitive: true })];
+      return [one('Path', 'glob', a, { caseInsensitive: true })];
     }
     case 'path_regexp': return [one('Path', 'matches', [a.length > 1 ? a[1] : a[0]])];
-    case 'host': return [one('Host', a.some((h) => h.includes('*')) ? 'matches' : 'is', a)];
+    case 'host': return [one('Host', a.some((h) => h.includes('*')) ? 'glob' : 'is', a)];
     case 'method': return [one('Method', 'is', a.map((x) => x.toUpperCase()))];
     case 'header': {
       const name = (a[0] || '').replace(/^!/, ''); const vals = a.slice(1);
@@ -407,7 +410,7 @@ function buildModel(loaded, opts = {}) {
         passUrl: null, terminal: false, line: d.nd.line, file: d.nd.file, commented: false, dynamic: false, external: false, directive: d.dir, aclRefs: [],
         ...extra,
       };
-      if (route.ownTransforms) { route.transforms.push(...route.ownTransforms); delete route.ownTransforms; }
+      if (route.ownTransforms) { route.transforms.push(...route.ownTransforms.map(({ when, ...t }) => t)); delete route.ownTransforms; }
       fe.routes.push(route);
       fe.locations.push({ path: paths[0] || (pathM ? pathM.values[0] : '/'), modifier: pathM ? pathM.op : '', line: d.nd.line, file: d.nd.file, kind: extra.kind || 'other', target: route.target, detail: extra.detail || null });
       return route;
@@ -443,18 +446,22 @@ function buildModel(loaded, opts = {}) {
             if (r) walk(r.block || [], { matchers: [...ctx.matchers, ...own.list], conds: [...ctx.conds, `invoke ${a[0]}`], transforms: [...transforms] }, false);
             break;
           }
-          case 'rewrite': if (a[0]) transforms.push(tf(/[?]/.test(a[0]) && !/^\//.test(a[0]) ? 'replace-path' : 'set-path', [a[0]], nd, `rewrite to ${a[0]}`, own.list)); break;
+          case 'rewrite': if (a[0]) transforms.push(tf(/^\//.test(a[0]) ? 'set-path' : 'set-query', [a[0]], nd, `rewrite to ${a[0]}`, own.list)); break;
           case 'uri': {
             const op = a[0]; const rest = a.slice(1);
-            const map = { strip_prefix: 'strip-prefix', strip_suffix: 'replace-path', replace: 'replace-path', path_regexp: 'replace-path-regex', query: 'set-query' };
-            if (map[op]) transforms.push(tf(map[op], rest, nd, `uri ${op} ${rest.join(' ')}`, own.list));
+            const text = `uri ${op} ${rest.join(' ')}`;
+            if (op === 'strip_prefix') transforms.push(tf('strip-prefix', [rest[0]], nd, text, own.list));
+            else if (op === 'strip_suffix') transforms.push(tf('replace-path-regex', [`${escapeRe(rest[0] || '')}$`, ''], nd, text, own.list));
+            else if (op === 'replace') transforms.push(tf('replace-path-regex', [escapeRe(rest[0] || ''), rest[1] || ''], nd, text, own.list));
+            else if (op === 'path_regexp') transforms.push(tf('replace-path-regex', [rest[0] || '', rest[1] || ''], nd, text, own.list));
+            else if (op === 'query') transforms.push(tf('set-query', rest, nd, text, own.list));
             break;
           }
           case 'request_header': if (a[0]) transforms.push(tf(a[0].startsWith('-') ? 'del-header' : 'set-header', a, nd, `request_header ${a.join(' ')}`, own.list)); break;
           case 'method': if (a[0]) transforms.push(tf('set-method', a, nd, `method ${a[0]}`, own.list)); break;
           case 'redir': {
             const to = a[0] || '/'; const code = a[1] || '302';
-            addRoute(cur, d, { terminal: true, kind: 'redirect', detail: `${code} ${to}`, ownTransforms: [tf('redirect', [to, code], nd, `redir ${to} ${code}`)] });
+            addRoute(cur, d, { terminal: true, kind: 'redirect', detail: `${code} ${to}`, ownTransforms: [tf('redirect', [code, to], nd, `redir ${to} ${code}`)] });
             break;
           }
           case 'respond': {
@@ -466,10 +473,11 @@ function buildModel(loaded, opts = {}) {
           case 'error': addRoute(cur, d, { terminal: true, kind: 'return', detail: `error ${a.join(' ')}`, ownTransforms: [tf('return', [a.find((x) => /^\d{3}$/.test(x)) || '500'], nd, `error ${a.join(' ')}`)] }); break;
           case 'file_server': {
             const root = (flatDirectives(site.body).find((x) => x.keyword === 'root') || {}).args;
-            addRoute(cur, d, { terminal: true, kind: 'static', detail: root ? root[root.length - 1] : null, browse: a.includes('browse') || (nd.block || []).some((c) => c.name === 'browse') });
+            const dir = root ? root[root.length - 1] : null;
+            addRoute(cur, d, { terminal: true, kind: 'static', detail: dir, browse: a.includes('browse') || (nd.block || []).some((c) => c.name === 'browse'), ownTransforms: [tf('static', dir ? [dir] : [], nd, `file_server${dir ? ` from ${dir}` : ''}`)] });
             break;
           }
-          case 'metrics': addRoute(cur, d, { terminal: true, kind: 'metrics', detail: 'Prometheus metrics' }); break;
+          case 'metrics': addRoute(cur, d, { terminal: true, kind: 'metrics', detail: 'Prometheus metrics', ownTransforms: [tf('respond', ['200'], nd, 'metrics (Prometheus exposition)')] }); break;
           case 'acme_server': addRoute(cur, d, { terminal: true, kind: 'other', detail: 'ACME server' }); break;
           case 'reverse_proxy': case 'php_fastcgi': {
             const rp = parseReverseProxy(nd, Boolean(d.matcherToken));
@@ -484,7 +492,7 @@ function buildModel(loaded, opts = {}) {
               if (/^\+?host$/i.test(hn || '') && hv.length) extra.push(tf('set-header', ['Host', ...hv], { line: h.line, file: h.file }, `header_up Host ${hv.join(' ')}`));
               else if (hn && hn.startsWith('-')) extra.push(tf('del-header', [hn.slice(1)], { line: h.line, file: h.file }, `header_up ${hn}`));
             }
-            if (rp.rewrite) extra.push(tf(/^\//.test(rp.rewrite.to) ? 'set-path' : 'replace-path', [rp.rewrite.to], { line: rp.rewrite.line, file: nd.file }, `reverse_proxy rewrite ${rp.rewrite.to}`));
+            if (rp.rewrite) extra.push(tf(/^\//.test(rp.rewrite.to) ? 'set-path' : 'set-query', [rp.rewrite.to], { line: rp.rewrite.line, file: nd.file }, `reverse_proxy rewrite ${rp.rewrite.to}`));
             if (rp.method) extra.push(tf('set-method', [rp.method], nd, `reverse_proxy method ${rp.method}`));
             const r = addRoute(cur, d, { target: be.name, kind: d.dir === 'php_fastcgi' ? 'fastcgi' : 'proxy', detail: rp.upstreams.map((u) => u.raw).join(' '), ownTransforms: extra, dynamic: Boolean(be.dynamic) && !be.servers.length });
             be.routes = be.routes || [];
@@ -518,7 +526,7 @@ function buildModel(loaded, opts = {}) {
       binds: [{ address: `*:${g.httpPort}`, addresses: [`*:${g.httpPort}`], port: String(g.httpPort), ssl: false, options: { autoHttpsRedirect: true }, line: first.line, file: first.file, commented: false }],
       serverNames: hostsR, locations: [], directives: [],
     });
-    fe.routes.push({ target: null, type: 'default', condition: 'Automatic HTTPS redirect', rawCondition: '', match: 'any request to a site served over HTTPS', short: `http://*`, matchers: [], hosts: hostsR, paths: [], priority: 1, transforms: [{ action: 'redirect', args: [`https://{host}${g.httpsPort !== 443 ? `:${g.httpsPort}` : ''}{uri}`, '308'], line: first.line, file: first.file, text: 'redir https://{host}{uri} 308 (automatic)' }], passUrl: null, terminal: true, line: first.line, file: first.file, commented: false, dynamic: false, external: false, directive: 'auto_https', kind: 'redirect', aclRefs: [] });
+    fe.routes.push({ target: null, type: 'default', condition: 'Automatic HTTPS redirect', rawCondition: '', match: 'any request to a site served over HTTPS', short: `http://*`, matchers: [], hosts: hostsR, paths: [], priority: 1, transforms: [{ action: 'redirect', args: ['308', `https://{host}${g.httpsPort !== 443 ? `:${g.httpsPort}` : ''}{uri}`], line: first.line, file: first.file, text: 'redir https://{host}{uri} 308 (automatic)' }], passUrl: null, terminal: true, line: first.line, file: first.file, commented: false, dynamic: false, external: false, directive: 'auto_https', kind: 'redirect', aclRefs: [] });
     siteInfo.forEach((s) => { if (s.addrs.some((a) => hostsR.includes(a.hostname))) s.fe.httpRedirect = true; });
     sections.push(fe);
   }
@@ -526,4 +534,4 @@ function buildModel(loaded, opts = {}) {
   return { sections, global: g, sites: siteInfo, stray, proxies, order, matcherDefs };
 }
 
-module.exports = { buildModel, parseAddress, parseUpstream, parseReverseProxy, globalOptions, applyOrder, sortDirectives, structure, convertPart, pathOp, matcherDefs, isPublicName, flatDirectives, HANDLER_TERMINAL };
+module.exports = { escapeRe, buildModel, parseAddress, parseUpstream, parseReverseProxy, globalOptions, applyOrder, sortDirectives, structure, convertPart, pathOp, matcherDefs, isPublicName, flatDirectives, HANDLER_TERMINAL };

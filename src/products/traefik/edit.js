@@ -211,8 +211,8 @@ function tomlAppend(text, segs, item) {
 
 // ------------------------------------------------------------------------------------------------ dispatch
 const set = (name, text, segs, value) => (isToml(name) ? tomlSet(text, segs, value) : yamlSet(text, segs, value));
-const rename = (name, text, segs, newKey) => (isToml(name) ? tomlRename(text, segs, newKey) : yamlRename(text, segs, newKey));
+const renameKey = (name, text, segs, newKey) => (isToml(name) ? tomlRename(text, segs, newKey) : yamlRename(text, segs, newKey));
 const del = (name, text, segs) => (isToml(name) ? tomlDelete(text, segs) : yamlDelete(text, segs));
 const append = (name, text, segs, item) => (isToml(name) ? tomlAppend(text, segs, item) : yamlAppend(text, segs, item));
 
-module.exports = { set, rename, del, append, yamlSet, yamlRename, yamlDelete, yamlAppend, yamlSetItem, tomlSet, tomlRename, tomlDelete, EditError, yamlValue, tomlValue, isToml };
+module.exports = { set, renameKey, del, append, yamlSet, yamlRename, yamlDelete, yamlAppend, yamlSetItem, tomlSet, tomlRename, tomlDelete, EditError, yamlValue, tomlValue, isToml };

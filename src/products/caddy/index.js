@@ -100,6 +100,7 @@ module.exports = {
     defaultPort: (scheme) => (String(scheme || '').toLowerCase().replace(/:$/, '') === 'https' || String(scheme || '').toLowerCase() === 'wss' ? 443 : 80),
   },
   live: require('./live'),
+  liveSources: ['admin-api', 'metrics'],
   logs: require('./logs'),
   build,
 };

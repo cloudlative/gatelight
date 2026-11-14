@@ -41,6 +41,14 @@ test('lexer: quotes, backticks, heredoc, comments, escaped newline, env defaults
   assert.ok(parseTree(lex('a {\n b\n').tokens).errors.some((x) => /Unclosed/.test(x.msg)));
 });
 
+test('snippet arguments: {args[n]}, {args[:]}, {args.n}, {block}', () => {
+  const r = caddy.parseFiles([{ name: 'Caddyfile', content: '(p) {\n\treverse_proxy {args[:]} {\n\t\theader_up X-Site {args.0}\n\t}\n\t{block}\n}\na.example.com {\n\timport p 10.0.0.1:80 10.0.0.2:80 {\n\t\tencode gzip\n\t}\n}\n' }]);
+  const site = fe(r, 'a.example.com');
+  assert.deepEqual(r.sections.find((s) => s.type === 'backend').servers.map((s) => s.address), ['10.0.0.1:80', '10.0.0.2:80']);
+  assert.ok(site.directives.some((d) => d.keyword === 'header_up' && d.args[1] === '10.0.0.1:80'));
+  assert.ok(site.directives.some((d) => d.keyword === 'encode'));
+});
+
 test('site addresses and Automatic HTTPS ports', () => {
   assert.deepEqual((({ host, port, tls }) => ({ host, port, tls }))(parseAddress('example.com')), { host: 'example.com', port: '443', tls: true });
   assert.deepEqual((({ port, tls }) => ({ port, tls }))(parseAddress('http://example.com')), { port: '80', tls: false });
@@ -82,9 +90,11 @@ test('example: routes in Caddy evaluation order with matchers and transforms', (
   const shop = fe(r, 'shop.example.com, www.shop.example.com');
   assert.deepEqual(shop.routes.map((x) => x.directive), ['redir', 'file_server', 'reverse_proxy', 'reverse_proxy', 'respond'], 'redir < handle (sorted by path) < respond');
   const [redir, stat, api, app] = shop.routes;
-  assert.ok(redir.terminal && redir.transforms[0].action === 'redirect' && redir.transforms[0].args[0] === '/checkout');
-  assert.deepEqual(redir.matchers[0], { field: 'Path', op: 'is', values: ['/old-checkout', '/cart.php'], negated: false });
+  assert.ok(redir.terminal && redir.transforms[0].action === 'redirect');
+  assert.deepEqual(redir.transforms[0].args, ['301', '/checkout']);
+  assert.deepEqual(redir.matchers[0], { field: 'Path', op: 'is', values: ['/old-checkout', '/cart.php'], negated: false, caseInsensitive: true });
   assert.equal(stat.transforms[0].action, 'strip-prefix'); assert.deepEqual(stat.transforms[0].args, ['/static']);
+  assert.deepEqual(stat.transforms[1], { action: 'static', args: ['/srv/shop/static'], line: stat.line, file: 'Caddyfile', text: 'file_server from /srv/shop/static' });
   assert.equal(stat.matchers[0].op, 'begins with');
   assert.equal(api.target, 'shop.example.com/api');
   assert.deepEqual(api.transforms.map((t) => t.action), ['strip-prefix', 'set-header']);
@@ -165,7 +175,7 @@ test('audit: planted weak spots found, every finding has a location and a docs l
   assert.ok(f.every((x) => x.file && x.line && /^https:\/\/caddyserver\.com\/docs\//.test(x.docs)));
   const bad = caddy.parseFiles([{ name: 'Caddyfile', content: 'a.example.com {\n\trespond @nope 403\n\t@ip client_ip 10.0.0.0/8\n\tabort @ip\n\treverse_proxy 10.0.0.1:80\n}\na.example.com {\n\treverse_proxy 10.0.0.2:80\n}\nimport missing_snippet\n' }]);
   const g = caddy.audit(bad.sections, { notes: bad.notes });
-  for (const id of ['caddy-undefined-matcher', 'caddy-duplicate-site', 'caddy-client-ip-untrusted', 'caddy-include-note']) assert.ok(ids(g).has(id), `missing ${id}`);
+  for (const id of ['caddy-undefined-matcher', 'caddy-duplicate-site', 'caddy-client-ip-untrusted', 'caddy-import-missing']) assert.ok(ids(g).has(id), `missing ${id}`);
 });
 
 test('validate: no false-positive errors on the example (latest), version-aware on old releases', () => {
@@ -277,4 +287,16 @@ test('Config Builder: ACME, websocket, basic auth and a redirect-only site; vers
   assert.ok(old.unsupported.some((u) => /weights/.test(u)));
   assert.deepEqual(errors(caddy.validate({ files: old.files, version: '2.5.0' })), []);
   assert.throws(() => caddy.build({ sites: [] }), /Add at least one site/);
+});
+
+test('generic Request Routing engine traces Caddy routes', () => {
+  const flow = require('../src/flow');
+  const r = caddy.parseFiles(exampleFiles());
+  const t = (rq) => flow.trace('caddy', r.sections, rq);
+  const api = t({ host: 'shop.example.com', path: '/api/orders', port: 443, tls: true });
+  assert.equal(api.backend, 'shop.example.com/api'); assert.equal(api.path.out, '/orders');
+  assert.match(t({ host: 'shop.example.com', path: '/cart.php', port: 443, tls: true }).response.text, /\/checkout/);
+  assert.match(t({ host: 'shop.example.com', path: '/x', port: 80, tls: false }).response.text, /https:\/\/\{host\}\{uri\}/);
+  assert.equal(t({ host: 'api.example.com', path: '/legacy/x', port: 443, tls: true }).backend, '10.0.3.31:7000');
+  assert.equal(t({ host: 'x.example.org', path: '/', port: 8080, tls: false }).backend, 'localhost:9000');
 });

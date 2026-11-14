@@ -274,8 +274,18 @@ class Loader {
   /** Is a conditional section active? Positive conditions are assumed true; negations only when we know better. */
   condActive(node) {
     const n = node.lname; const a = (node.args[0] || '').trim();
-    if (!this.condNoted) { this.condNoted = true; this.note(node.file, `Contents of <IfModule> / <IfDefine> / <IfVersion> sections are analysed as active (GateLight cannot know the modules and -D flags of the running server)`); }
-    if (n === 'ifmodule' && a.startsWith('!') && this.loaded.size) { const m = a.slice(1); return !this.loaded.has(m) && !this.loaded.has(m.replace(/\.c$/, '_module').replace(/^mod_/, '')); }
+    if (!this.condNoted) { this.condNoted = true; this.note(node.file, `<IfModule> / <IfDefine> / <IfVersion> sections are evaluated against the LoadModule lines and Define names in the files; what GateLight cannot know (compiled-in modules, -D flags, the version) is analysed as active`); }
+    if (n === 'ifmodule' && this.loaded.size) {
+      // With a known packaging layout and LoadModule lines already seen, the module list is known (plus what the
+      // distribution compiles in); otherwise positive conditions are assumed true.
+      const neg = a.startsWith('!'); const m = neg ? a.slice(1) : a;
+      const statics = STATIC_MODULES[this.layout] || [];
+      const id = /\.c$/.test(m) ? `${m.replace(/\.c$/, '').replace(/^mod_/, '')}_module` : m;
+      const known = this.loaded.has(m) || this.loaded.has(id) || statics.includes(id) || /^(core|http_core|mod_so|mod_core)(\.c)?$/.test(m);
+      if (neg) return !known;
+      if (this.layout === 'debian' || this.layout === 'rhel') return known;
+      return true;
+    }
     if (n === 'ifdefine' && a.startsWith('!')) return !this.defines.has(a.slice(1));
     return true;
   }

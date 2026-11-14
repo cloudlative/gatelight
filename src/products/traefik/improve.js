@@ -35,7 +35,7 @@ function improve({ files, version } = {}) {
   const advice = (c) => add({ ...c, auto: false, on: false, ops: [] });
   const op = (kind, file, text, before, run) => ({ kind, file, text, before, run });
   const setOp = (file, segs, value, before) => op(before === undefined ? 'add' : 'mod', file, `${segs.join('.')}: ${E.yamlValue(value)}`, before === undefined ? undefined : `${segs.join('.')}: ${before}`, (t) => E.set(file, t, segs, value));
-  const renameOp = (file, segs, to) => op('mod', file, `${[...segs.slice(0, -1), to].join('.')}`, segs.join('.'), (t) => E.rename(file, t, segs, to));
+  const renameOp = (file, segs, to) => op('mod', file, `${[...segs.slice(0, -1), to].join('.')}`, segs.join('.'), (t) => E.renameKey(file, t, segs, to));
   const delOp = (file, segs) => op('del', file, undefined, segs.join('.'), (t) => E.del(file, t, segs));
   const appendOp = (file, segs, item) => op('add', file, `${segs.join('.')} += ${item}`, undefined, (t) => E.append(file, t, segs, item));
   const fromFlags = st && st.fromFlags;
@@ -53,7 +53,11 @@ function improve({ files, version } = {}) {
       const base = [...stKey('entryPoints', n), 'http', 'redirections', 'entryPoint'];
       const c = { rule: 'tfk-https-redirect', category: 'security', severity: 'medium', title: `Redirect entryPoint "${n}" to HTTPS`, section: `entryPoints.${n}`, line, file: st.file, docs: docs('entrypoints', 'redirection'),
         why: `Plain-HTTP requests on "${n}" are served (or answered 404) instead of being sent to "${httpsEp[0]}". An entryPoint redirection applies to every router of the entryPoint at once; ACME HTTP challenges keep working (they are answered before the redirection).` };
-      if (staticEditable) add({ ...c, ops: [setOp(st.file, [...base, 'to'], httpsEp[0]), setOp(st.file, [...base, 'scheme'], 'https')] });
+      // routers that serve this entryPoint on purpose (anything but a redirect to https) would become unreachable
+      const fe = sections.find((x) => x.type === 'frontend' && x.name === n);
+      const content = fe ? fe.routes.filter((r) => r.proto === 'http' && !r.internal && !(r.transforms || []).some((t) => t.action === 'redirect' && /^https/.test(String(t.args[t.args.length - 1] || '')))) : [];
+      if (content.length) advice({ ...c, why: `${c.why} Not rewritten automatically: router${content.length > 1 ? 's' : ''} ${[...new Set(content.map((r) => r.router))].slice(0, 4).join(', ')} serve${content.length > 1 ? '' : 's'} this entryPoint on purpose and would only be reachable over HTTPS afterwards.` });
+      else if (staticEditable) add({ ...c, ops: [setOp(st.file, [...base, 'to'], httpsEp[0]), setOp(st.file, [...base, 'scheme'], 'https')] });
       else advice({ ...c, why: `${c.why} Add --entryPoints.${n}.http.redirections.entryPoint.to=${httpsEp[0]} and --entryPoints.${n}.http.redirections.entryPoint.scheme=https to the command line.` });
     }
   }

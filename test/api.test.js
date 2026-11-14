@@ -107,7 +107,7 @@ test('analyze: auto-detects type, accepts multi-file NGINX, validates input', as
     const withStats = await post(t.base, '/api/analyze', { files: [{ name: 'haproxy.cfg', content: rd('haproxy/haproxy.cfg') }, { name: 'stat.csv', content: '# pxname,svname,status,type\nwebapp,FRONTEND,OPEN,0\n' }] });
     assert.ok(withStats.json.rows.length === 1);
     assert.equal((await post(t.base, '/api/analyze', {})).status, 400);
-    assert.equal((await post(t.base, '/api/analyze', { config: 'x', type: 'apache' })).status, 400);
+    assert.equal((await post(t.base, '/api/analyze', { config: 'x', type: 'lighttpd' })).status, 400);
     const big = await fetch(`${t.base}/api/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ config: 'x'.repeat(9 * 1024 * 1024) }) });
     assert.equal(big.status, 413);
     const bad = await fetch(`${t.base}/api/analyze`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{nope' });

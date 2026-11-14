@@ -142,7 +142,7 @@ function parseTree(tokens, { topLevel = true } = {}) {
 const clone = (nodes) => nodes.map((x) => ({ ...x, toks: x.toks.map((t) => ({ ...t })), args: [...x.args], block: x.block ? clone(x.block) : null }));
 
 // ------------------------------------------------------------------------------------------------ import arguments
-const ARG_RE = /\{args(?:\[(\d*)(?::(\d*))?\]|\.(\d+))\}/g;
+const ARG_RE = /\{args(?:\[(\d*)(?::(\d*))?\]|\.(\d+|\*))\}/g;
 function substituteArgs(nodes, args, block) {
   const subTok = (t) => {
     const whole = /^\{args\[(\d*):(\d*)\]\}$/.exec(t.text);
@@ -151,6 +151,7 @@ function substituteArgs(nodes, args, block) {
       return args.slice(a, b).map((v) => ({ ...t, text: v }));
     }
     return [{ ...t, text: t.text.replace(ARG_RE, (all, idx, to, dot) => {
+      if (dot === '*') return args.join(' ');
       if (dot !== undefined) return args[Number(dot)] ?? '';
       if (to !== undefined) { const a = idx === '' ? 0 : Number(idx); const b = to === '' ? args.length : Number(to); return args.slice(a, b).join(' '); }
       return args[Number(idx)] ?? '';
