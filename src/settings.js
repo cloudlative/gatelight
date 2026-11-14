@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { InstanceStore } = require('./store');
+const { ruleDefaults } = require('./thresholds');
 
 const ROOT = path.join(__dirname, '..');
 const DEMO_CONFIGS = {
@@ -87,6 +88,8 @@ function normalizeInstance(r, i, env, defaults, seen) {
     pollIntervalMs: int(r.pollIntervalMs, defaults.pollIntervalMs, 1000),
     timeoutMs: int(r.timeoutMs, defaults.timeoutMs, 500),
     tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
+    // Per-instance threshold overrides, e.g. {"errorPct": 2, "latencyMs": 500} (see src/thresholds.js)
+    alertRules: r.alertRules && typeof r.alertRules === 'object' && !Array.isArray(r.alertRules) ? r.alertRules : null,
     demo: false,
   };
 }
@@ -156,7 +159,9 @@ function loadSettings(env = process.env) {
     eventLimit: int(env.EVENT_LIMIT, 500, 10),
     // Traffic log upload: one file, at most LOG_MAX_MB (default 50, hard ceiling 500). Parsed as a stream, only aggregates are kept.
     logs: { maxBytes: Math.min(int(env.LOG_MAX_MB, 50, 1), 500) * 1048576 },
-    alerts: { webhookUrl: env.ALERT_WEBHOOK_URL || null, minFailures: int(env.ALERT_MIN_FAILURES, 2, 1), insecureTls: bool(env.ALERT_INSECURE_TLS) },
+    alerts: { webhookUrl: env.ALERT_WEBHOOK_URL || null, minFailures: int(env.ALERT_MIN_FAILURES, 2, 1), insecureTls: bool(env.ALERT_INSECURE_TLS), rules: ruleDefaults(env) },
+    // How many configuration versions are kept per instance (Running Config → History).
+    configHistory: { keep: int(env.CONFIG_HISTORY_KEEP, 50, 2) },
     demo, features, skipped, instances, instancesFile: file.file, ui, defaults,
   };
 }

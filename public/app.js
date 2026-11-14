@@ -469,13 +469,14 @@ function renderOverview() {
     .map((r) => ({ r, pct: (r.err5xxPerSec / Math.max(r.ratePerSec, 0.001)) * 100 })).filter((x) => x.pct >= 1).sort((a, b) => b.pct - a.pct).slice(0, 5);
   const errs = s.findings.filter((x) => x.severity === 'error').slice(0, 5);
   const info = s.info || {};
+  const alerts = (s.alerts || []).filter((a) => a.status === 'firing'); const pending = (s.alerts || []).filter((a) => a.status === 'pending');
 
   const showCta = state.meta.canManage && ['config-only', 'demo'].includes(s.instance.source);
   const cta = showCta ? `<div class="cta"><div><b>${s.instance.source === 'demo' ? 'You are looking at synthetic demo traffic' : 'You are looking at the configuration only'}</b><span class="muted">Connect your ${s.instance.source === 'demo' ? '' : 'live '}HAProxy or NGINX (URL, username, password) to see real health and traffic.</span></div><button class="btn primary" type="button" data-connect>Connect a server</button></div>` : '';
   // ---- level 1: one verdict for the whole instance ----
   const sv = sum.servers; const upN = sv.up + sv.degraded; const downN = hasStats ? sv.down + sum.backends.down : 0;
   const downRows = problems.filter((r) => r.state === 'down');
-  const tone = !hasStats ? 'neutral' : downN ? 'bad' : (f.error || hot.length || sv.degraded || sum.err5xxPerSec > 0.5) ? 'warn' : 'ok';
+  const tone = !hasStats ? 'neutral' : downN ? 'bad' : (f.error || hot.length || alerts.length || sv.degraded || sum.err5xxPerSec > 0.5) ? 'warn' : 'ok';
   const since = downRows.length === 1 && downRows[0].lastchg > 0 ? ` for ${fmtDur(downRows[0].lastchg)}` : '';
   const headline = !hasStats ? 'Configuration loaded' : downN ? (downRows.length === 1 && downRows[0].kind === 'server' ? `${downRows[0].proxy} / ${downRows[0].name} is down${since}` : `${downN} item${downN === 1 ? '' : 's'} down`) : tone === 'warn' ? 'Running, with things to look at' : 'Everything is healthy';
   const facts = [
@@ -498,9 +499,10 @@ function renderOverview() {
   $('#view-overview').innerHTML = cta + `${hero}
     <div class="ov-lvl"><span>Needs attention</span></div>
     <div class="cols">
-      <div class="panel"><h2>Needs Attention <span class="tag">${problems.length + hot.length}</span></h2><div class="list">
+      <div class="panel"><h2>Needs Attention <span class="tag">${problems.length + hot.length + alerts.length}</span></h2><div class="list">
+        ${[...alerts, ...pending].slice(0, 5).map((a) => `<div class="item"${a.proxy ? ` data-inspect="${esc(a.proxy)}/${esc(a.name || a.proxy)}"` : ''} title="${esc(a.status === 'firing' ? `Alert rule "${a.label}" is firing` : `Alert rule "${a.label}": the condition holds and fires if it lasts`)}"><span class="st st-${a.status === 'firing' ? 'alert' : 'pending'}">${a.status === 'firing' ? 'Alert' : 'Pending'}</span><div class="t"><b>${esc(a.label)}</b><div class="muted small">${esc(a.message)} · since ${fmtDur((Date.now() - a.since) / 1000)}</div></div></div>`).join('')}
         ${problems.slice(0, 8).map((r) => `<div class="item" data-inspect="${esc(r.proxy)}/${esc(r.name)}">${stBadge(r.state, r.status)}<div class="t"><b>${esc(r.proxy)}${r.kind === 'server' ? ` / ${esc(r.name)}` : ''}</b>${rowEndpoints(r).addrs.length ? ` <span class="mono small muted">${esc(rowEndpoints(r).addrs.slice(0, 2).join(', '))}</span>` : ''}${r.check_status ? `<div class="muted small">${esc(r.check_status)}${r.last_chk ? ` — ${esc(r.last_chk)}` : ''}${r.lastchg != null ? ` · for ${fmtDur(r.lastchg)}` : ''}</div>` : ''}</div></div>`).join('')
-          || (hot.length ? '' : `<div class="empty">${hasStats ? '✓ Everything is healthy' : 'No runtime stats available'}</div>`)}
+          || (hot.length || alerts.length || pending.length ? '' : `<div class="empty">${hasStats ? '✓ Everything is healthy' : 'No runtime stats available'}</div>`)}
         ${hot.map(({ r, pct }) => `<div class="item" data-inspect="${esc(r.proxy)}/${esc(r.name)}"><span class="st st-degraded">5xx</span><div class="t"><b>${esc(r.proxy)}</b><div class="muted small">${pct.toFixed(1)}% of responses are 5xx (${fmtRate(r.err5xxPerSec)}/s)</div></div></div>`).join('')}
       </div></div>
       <div class="panel"><h2>Critical Config Issues <a class="muted small" data-goto="audit" style="cursor:pointer">view all →</a></h2><div class="list">
@@ -1708,6 +1710,56 @@ function renderConfig() {
   $('#cfg-code').innerHTML = html || '<span class="empty">No configuration file loaded.</span>';
   renderCfgTree(file);
   cfgFindUpdate(Boolean(filter));
+}
+
+// ---- Config History: versions GateLight has seen, and the diff between any two ----
+const CH = { versions: [], sel: null, from: null, diff: null };
+const chSource = { url: 'fetched from URL', file: 'read from file', uploaded: 'uploaded' };
+async function chOpen() {
+  if (!state.current || state.mode === 'review') return;
+  $('#cfghist').hidden = false;
+  $('#ch-versions').innerHTML = '<div class="empty">Loading…</div>'; $('#ch-diff').innerHTML = ''; $('#ch-note').textContent = '';
+  try {
+    const r = await api(`/instances/${encodeURIComponent(state.current)}/config/versions`);
+    CH.versions = r.versions; CH.sel = r.versions[0] ? r.versions[0].id : null; CH.from = null;
+    $('#ch-note').textContent = `Keeps the last ${r.keep} versions${r.persisted ? '' : ' (in memory only: history is lost on restart because HISTORY_DB is off)'}. Passwords and keys are masked.`;
+    chList(); await chLoad();
+  } catch (e) { $('#ch-versions').innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+  $('#ch-close').focus();
+}
+function chClose() { $('#cfghist').hidden = true; }
+function chList() {
+  const v = CH.versions;
+  $('#ch-versions').innerHTML = v.map((x, i) => `<button type="button" class="ch-v${x.id === CH.sel ? ' on' : ''}" data-ch-v="${x.id}" aria-pressed="${x.id === CH.sel}">
+    <b>${i === 0 ? 'Current · ' : ''}${esc(fmtDateTime(x.ts))}</b>
+    <span class="muted small">${esc(chSource[x.source] || x.source || '')} · ${x.files} file${x.files === 1 ? '' : 's'}, ${fmtInt(x.lines)} lines</span>
+    <span class="small">${x.change ? `<span class="add">+${x.change.linesAdded}</span> <span class="del">−${x.change.linesRemoved}</span>${x.change.entitiesAdded || x.change.entitiesRemoved ? ` · <span class="muted">${x.change.entitiesAdded ? `${x.change.entitiesAdded} new` : ''}${x.change.entitiesAdded && x.change.entitiesRemoved ? ', ' : ''}${x.change.entitiesRemoved ? `${x.change.entitiesRemoved} gone` : ''}</span>` : ''}` : '<span class="muted">first version seen</span>'}</span>
+  </button>`).join('') || '<div class="empty">No versions recorded yet.</div>';
+  const idx = v.findIndex((x) => x.id === CH.sel);
+  const older = v.slice(idx + 1);
+  $('#ch-from').innerHTML = older.map((x, i) => `<option value="${x.id}">${i === 0 ? 'Previous version · ' : ''}${esc(fmtDateTime(x.ts))}</option>`).join('') || '<option value="">(no older version)</option>';
+  $('#ch-from').disabled = !older.length;
+  if (CH.from && older.some((x) => x.id === CH.from)) $('#ch-from').value = String(CH.from);
+}
+async function chLoad() {
+  const box = $('#ch-diff');
+  if (CH.sel == null) { box.innerHTML = ''; return; }
+  const idx = CH.versions.findIndex((x) => x.id === CH.sel);
+  if (!CH.versions[idx + 1]) { CH.diff = null; box.innerHTML = '<div class="panel"><div class="empty">This is the oldest version GateLight has. Later changes are compared against it.</div></div>'; return; }
+  box.innerHTML = '<div class="empty">Comparing…</div>';
+  try {
+    const q = CH.from ? `?from=${encodeURIComponent(CH.from)}` : '';
+    const d = await api(`/instances/${encodeURIComponent(state.current)}/config/versions/${CH.sel}/diff${q}`);
+    CH.diff = d;
+    const ents = [...d.entitiesAdded.map((k) => `<span class="tag add">+ ${esc(k)}</span>`), ...d.entitiesRemoved.map((k) => `<span class="tag del">− ${esc(k)}</span>`)].join('');
+    const head = `<p class="muted small">${esc(fmtDateTime(d.from.ts))} → ${esc(fmtDateTime(d.to.ts))}: <b class="add">+${d.linesAdded}</b> <b class="del">−${d.linesRemoved}</b> lines in ${d.files.length} file${d.files.length === 1 ? '' : 's'}${d.unchanged ? `, ${d.unchanged} unchanged` : ''}</p>${ents ? `<div class="ch-ents">${ents}</div>` : ''}`;
+    const files = d.files.map((f) => `<div class="ch-file"><h4>${esc(f.name)} <span class="tag">${esc(f.status)}</span><span class="muted small">+${f.added} −${f.removed}</span></h4>
+      <div class="fg-udiff">${f.hunks.map((h) => `<div class="fg-hh">@@ -${h.oldStart} +${h.newStart} @@</div>${h.lines.map((r) => `<div class="fg-dr ${r.t === '+' ? 'add' : r.t === '-' ? 'del' : ''}"><i>${r.a == null ? '' : r.a}</i><i>${r.b == null ? '' : r.b}</i><b>${r.t === ' ' ? '' : r.t === '+' ? '+' : '−'}</b><code>${esc(r.text) || ' '}</code></div>`).join('')}`).join('')}</div></div>`).join('');
+    box.innerHTML = head + (files ? `<div class="ch-files">${files}</div>` : '<div class="panel"><div class="empty">No differences between these two versions.</div></div>');
+  } catch (e) { box.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+function chDiffText(d) {
+  return d.files.map((f) => [`--- a/${f.name}`, `+++ b/${f.name}`, ...f.hunks.flatMap((h) => [`@@ -${h.oldStart} +${h.newStart} @@`, ...h.lines.map((r) => `${r.t}${r.text}`)])].join('\n')).join('\n');
 }
 
 // ---- search: count, next / previous, scroll to the match ----
@@ -3009,6 +3061,12 @@ function wire() {
   $('#cu-drop').addEventListener('drop', async (e) => { e.preventDefault(); $('#cu-drop').classList.remove('over'); cuPick(await filesFromDrop(e.dataTransfer)); });
   $('#cu-drop').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#cu-files').click(); });
   document.addEventListener('click', (e) => { if (e.target.closest('[data-cfgup]')) cuOpen(); });
+  $('#cfg-history').addEventListener('click', chOpen);
+  $('#ch-close').addEventListener('click', chClose);
+  $('#cfghist').addEventListener('mousedown', (e) => { if (e.target.id === 'cfghist') chClose(); });
+  $('#ch-versions').addEventListener('click', (e) => { const b = e.target.closest('[data-ch-v]'); if (!b) return; CH.sel = Number(b.dataset.chV); CH.from = null; chList(); chLoad(); });
+  $('#ch-from').addEventListener('change', (e) => { CH.from = e.target.value ? Number(e.target.value) : null; chLoad(); });
+  $('#ch-copy').addEventListener('click', async () => { if (!CH.diff) return; try { await navigator.clipboard.writeText(chDiffText(CH.diff)); toast('Diff copied', 'ok'); } catch { toast('Copy is not available in this browser', 'err'); } });
   $('#cfg-refresh').addEventListener('click', async () => {
     const b = $('#cfg-refresh'); if (!state.current || b.disabled) return;
     b.disabled = true; const old = b.textContent; b.textContent = 'Fetching…';
@@ -3235,7 +3293,7 @@ function wire() {
     else if (e.key === 'Enter') { e.preventDefault(); paletteRun(pal.sel); }
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { if (!$('#chartview').hidden) cvClose(); else if (!$('#cfgup').hidden) cuClose(); else if (!$('#connect').hidden) cxClose(); else if (pal.open) paletteClose(); else if (!$('#help').hidden) $('#help').hidden = true; else if (state.view === 'detail') detailBack(); else if (document.body.classList.contains('topo-fs')) setTopoFs(false); return; }
+    if (e.key === 'Escape') { if (!$('#chartview').hidden) cvClose(); else if (!$('#cfghist').hidden) chClose(); else if (!$('#cfgup').hidden) cuClose(); else if (!$('#connect').hidden) cxClose(); else if (pal.open) paletteClose(); else if (!$('#help').hidden) $('#help').hidden = true; else if (state.view === 'detail') detailBack(); else if (document.body.classList.contains('topo-fs')) setTopoFs(false); return; }
     if (state.mode === 'landing') return;
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); pal.open ? paletteClose() : paletteOpen(); return; }
     if (!$('#connect').hidden) return;

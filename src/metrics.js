@@ -45,6 +45,13 @@ function renderMetrics(registry) {
   meta('gatelight_config_drift_findings', 'gauge', 'Differences between the config file and the running process.');
   for (const s of snaps) out.push(`gatelight_config_drift_findings${labels({ instance: s.instance.id })} ${s.findings.filter((f) => f.category === 'drift').length}`);
 
+  meta('gatelight_alerts_firing', 'gauge', 'Threshold alerts currently firing, by rule.');
+  for (const s of snaps) {
+    const by = {};
+    for (const a of s.alerts || []) if (a.status === 'firing') by[a.rule] = (by[a.rule] || 0) + 1;
+    for (const rule of ['errorPct', 'latencyMs', 'saturationPct', 'queue', 'downMinutes']) out.push(`gatelight_alerts_firing${labels({ instance: s.instance.id, rule })} ${by[rule] || 0}`);
+  }
+
   return `${out.join('\n')}\n`;
 }
 

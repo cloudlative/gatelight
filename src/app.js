@@ -4,6 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const { Registry } = require('./poller');
 const { HistoryStore } = require('./history');
+const { ConfigVersions } = require('./configHistory');
+const { RULES: ALERT_RULES } = require('./thresholds');
 const { Notifier } = require('./alerts');
 const { parseConfig, redactConfig } = require('./haproxyConfig');
 const { parseNginxText, parseNginxFiles } = require('./nginxConfig');
@@ -37,7 +39,8 @@ function createApp(settings) {
 
   const notifier = new Notifier(settings.alerts.webhookUrl ? settings.alerts : {});
   const history = settings.history.enabled ? HistoryStore.open(settings.history.file || path.join(settings.ui.dir, 'history.db'), settings.history, log) : null;
-  const registry = new Registry(settings, notifier, history);
+  const versions = new ConfigVersions(history ? history.db : null, { keep: (settings.configHistory || {}).keep, log });
+  const registry = new Registry(settings, notifier, history, versions);
 
   app.use(securityHeaders);
   app.get('/healthz', (_req, res) => res.json({ status: 'ok' }));
@@ -372,6 +375,34 @@ function createApp(settings) {
   });
   api.delete('/instances/:id/logs', withInstance, logGuard, rateLimit({ max: 20 }), (req, res) => {
     try { if (req.query.part) return res.json({ ok: logs.removePart(req.params.id, String(req.query.part)) }); return res.json({ ok: logs.remove(req.params.id) }); } catch (e) { return res.status(500).json({ error: e.message }); }
+  });
+
+  // Threshold alerts: the rules in force for this instance and what is firing (or about to) right now.
+  api.get('/instances/:id/alerts', withInstance, (req, res) => {
+    const p = req.poller;
+    res.json({
+      rules: Object.entries(ALERT_RULES).map(([key, r]) => ({ key, label: r.label, unit: r.unit, threshold: p.rules[key], enabled: p.rules[key] > 0 })),
+      forSeconds: p.rules.forSeconds,
+      webhook: notifier.enabled,
+      alerts: p.thresholds.firing(),
+      recent: p.events.filter((e) => e.type === 'threshold').slice(0, 50),
+    });
+  });
+
+  // Configuration history: every distinct version of the (redacted) config, and diffs between any two.
+  api.get('/instances/:id/config/versions', withInstance, rateLimit({ max: 60 }), (req, res) => {
+    res.json({ persisted: Boolean(history), keep: versions.keep, versions: versions.list(req.poller.instance.id) });
+  });
+  api.get('/instances/:id/config/versions/:vid', withInstance, rateLimit({ max: 60 }), (req, res) => {
+    const v = versions.get(req.poller.instance.id, req.params.vid);
+    if (!v) return res.status(404).json({ error: 'Unknown configuration version' });
+    return res.json({ id: v.id, ts: v.ts, source: v.source, reason: v.reason, hash: v.hash, files: v.files });
+  });
+  api.get('/instances/:id/config/versions/:vid/diff', withInstance, rateLimit({ max: 60 }), (req, res) => {
+    const from = req.query.from != null && req.query.from !== '' ? req.query.from : null;
+    const d = versions.diff(req.poller.instance.id, req.params.vid, from);
+    if (!d) return res.status(404).json({ error: 'Unknown configuration version' });
+    return res.json(d);
   });
 
   // Read-only "refresh from server": re-fetch the config (GET its URL(s), or re-read the file) and report what changed.

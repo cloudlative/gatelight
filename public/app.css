@@ -1520,3 +1520,20 @@ div.vis-tooltip, div.vis-network div.vis-tooltip { white-space: pre-wrap !import
 .tr-h h3 { font-size: 14px; letter-spacing: .01em; }
 @media (max-width: 900px) { .tr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tr-filters::before { display: none; } }
 .tr-title > .spacer { display: none; } .tr-title > div:first-child { flex: 1 1 0; }
+
+/* Config History dialog (Running Config → History) */
+.palette.chist { width: min(1180px, 96vw); max-height: 88vh; }
+#cfghist.overlay { padding-top: 5vh; }
+.ch-body { display: grid; grid-template-columns: 290px minmax(0, 1fr); min-height: 0; flex: 1; overflow: hidden; }
+.ch-list { border-right: 1px solid var(--line); overflow: auto; padding: 8px; }
+.ch-list p { padding: 6px 8px; margin: 0; }
+.ch-main { overflow: auto; padding: 12px 16px 18px; min-width: 0; }
+.ch-v { display: grid; gap: 2px; width: 100%; text-align: left; background: none; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; color: var(--text); cursor: pointer; font: inherit; }
+.ch-v:hover { background: var(--bg-3); } .ch-v.on { border-color: var(--cyan); background: color-mix(in srgb, var(--cyan) 9%, transparent); }
+.ch-v b { font-weight: 600; } .chist .add { color: var(--green); } .chist .del { color: var(--red); }
+.ch-files { display: grid; gap: 14px; } .ch-file h4 { margin: 0 0 6px; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.ch-ents { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 12px; } .ch-ents .tag.add { color: var(--green); border-color: var(--green); } .ch-ents .tag.del { color: var(--red); border-color: var(--red); }
+@media (max-width: 760px) { .ch-body { grid-template-columns: 1fr; } .ch-list { border-right: 0; border-bottom: 1px solid var(--line); max-height: 30vh; } }
+/* Threshold alerts on the Overview */
+.st.st-alert { background: rgba(251,191,36,.15); color: var(--amber); }
+.st.st-pending { background: rgba(100,116,139,.18); color: var(--muted); }

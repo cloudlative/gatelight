@@ -6,15 +6,19 @@ const { DemoSource } = require('./demo');
 const log = require('./logger');
 const { SERIES_KEY } = require('./history');
 const { fetchConfigFiles } = require('./transport');
+const { ThresholdEvaluator, resolveRules } = require('./thresholds');
 
 const SPARK_POINTS = 60;
 const rowKey = (r) => `${r.proxy}/${r.name}`;
 
 /** Polls one HAProxy instance and holds its derived state (snapshot, history, events). */
 class InstancePoller {
-  constructor(instance, settings, notifier, store = null) {
+  constructor(instance, settings, notifier, store = null, versions = null) {
     this.instance = instance;
     this.store = store;
+    this.versions = versions;          // ConfigVersions (src/configHistory.js) or null
+    this.rules = resolveRules((settings.alerts && settings.alerts.rules) || {}, instance.alertRules);
+    this.thresholds = new ThresholdEvaluator(this.rules);
     this.driver = DRIVERS[instance.type || 'haproxy'];
     this.prevInfo = null;
     this.settings = settings;
@@ -78,9 +82,19 @@ class InstancePoller {
       this.configCache = this.driver.loadConfig({ ...inst, configFiles: this.fetchedFiles }, this.configCache.sections ? this.configCache : null);
       this.configCache.path = '(from URL)';
     } else this.configCache = this.driver.loadConfig(inst, this.configCache.sections ? this.configCache : null);
-    if (before != null && this.configCache.sig != null && before !== this.configCache.sig) {
+    const changed = before != null && this.configCache.sig != null && before !== this.configCache.sig;
+    this._recordVersion(changed ? 'changed' : 'loaded');
+    if (changed) {
       this._event({ level: 'info', type: 'config_changed', message: this.configSource() === 'url' ? `Configuration changed on the server and was fetched again (${this.configCache.files.length} file${this.configCache.files.length === 1 ? '' : 's'})` : `Configuration changed on disk and was reloaded (${this.configCache.files.length} file${this.configCache.files.length === 1 ? '' : 's'})` });
     }
+  }
+
+  /** Save the configuration as a new version when its content differs from the newest saved one (cheap when nothing changed). */
+  _recordVersion(reason) {
+    if (!this.versions || this.configCache.error || !(this.configCache.files || []).length) return;
+    if (this._versionSig !== undefined && this._versionSig === this.configCache.sig) return;
+    this._versionSig = this.configCache.sig;
+    this.versions.record(this.instance.id, { files: this.configCache.files, sections: this.configCache.sections, source: this.configSource(), reason });
   }
 
   /** Read-only: pull the config from the server's URL(s). Keeps the previous config when the fetch fails. */
@@ -172,6 +186,10 @@ class InstancePoller {
     const useRows = error ? previousRows : rows;
     if (!error && hasSource) { this._ingest(rows, now); this._deriveInfo(info, now); }
 
+    // Threshold rules only judge fresh data: while the endpoint is unreachable they keep their state (the
+    // "unreachable" alert covers that case) and resume on the next good poll.
+    if (!error && hasSource) this.thresholds.evaluate(useRows, this._summarize(useRows, info), (e) => this._event(e), now);
+
     const findings = this.driver.audit(this.configCache, useRows);
     const info2 = error && this.snapshot ? this.snapshot.info : info;
 
@@ -199,6 +217,7 @@ class InstancePoller {
       },
       findings,
       findingsSummary: summarize(findings),
+      alerts: this.thresholds.firing(),
     };
     if (hasSource && !error) {
       const m = this.snapshot.summary;
@@ -343,10 +362,10 @@ class InstancePoller {
 }
 
 class Registry {
-  constructor(settings, notifier, store = null) {
-    this.settings = settings; this.notifier = notifier; this.store = store;
+  constructor(settings, notifier, store = null, versions = null) {
+    this.settings = settings; this.notifier = notifier; this.store = store; this.versions = versions;
     this.pollers = new Map();
-    for (const inst of settings.instances) this.pollers.set(inst.id, new InstancePoller(inst, settings, notifier, store));
+    for (const inst of settings.instances) this.pollers.set(inst.id, new InstancePoller(inst, settings, notifier, store, versions));
   }
 
   start() { for (const p of this.pollers.values()) p.start(); }
@@ -359,7 +378,7 @@ class Registry {
   add(instance) {
     const old = this.pollers.get(instance.id);
     if (old) old.stop();
-    const p = new InstancePoller(instance, this.settings, this.notifier, this.store);
+    const p = new InstancePoller(instance, this.settings, this.notifier, this.store, this.versions);
     this.pollers.set(instance.id, p);
     p.start();
     return p;
@@ -370,6 +389,7 @@ class Registry {
     if (!p) return false;
     p.stop();
     if (this.store) this.store.removeInstance(id);
+    if (this.versions) this.versions.remove(id);
     return this.pollers.delete(id);
   }
 
@@ -381,6 +401,7 @@ class Registry {
         type: p.instance.type, source: s ? s.instance.source : 'pending', ok: s ? s.ok : null, error: s ? s.error : null, lastSuccess: p.lastSuccess,
         serversDown: s ? s.summary.servers.down : 0, serversTotal: s ? s.summary.servers.total : 0,
         findings: s ? s.findingsSummary : null,
+        alertsFiring: s && s.alerts ? s.alerts.filter((a) => a.status === 'firing').length : 0,
       };
     });
   }

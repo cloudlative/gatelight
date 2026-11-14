@@ -230,6 +230,7 @@
           <span class="spacer"></span>
           <span class="muted small" id="cfg-path"></span>
           <button class="btn live-only" type="button" id="cfg-refresh" hidden title="Read the configuration again from the server (read-only) and show what changed">⟳ Refresh from server</button>
+          <button class="btn live-only" type="button" id="cfg-history" title="Every version of this configuration GateLight has seen, and what changed between them">🕘 History</button>
           <button class="btn" id="cfg-download">Download (redacted)</button>
           <button class="btn" id="cfg-fs" data-fs type="button" title="Fill the whole window with the configuration (Esc to exit)">⛶ Full screen</button>
           <button class="btn primary" type="button" data-cfgup>Update Config</button>
@@ -328,6 +329,19 @@
         <canvas id="cv-canvas" class="chart cv-canvas" aria-label="Traffic chart"></canvas>
         <canvas id="cv-mini" class="cv-mini" aria-label="All available history; the highlighted part is what the chart shows" title="All available history. Click or drag to move the window."></canvas>
         <div id="cv-stats" class="cv-stats"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="cfghist" class="overlay" hidden>
+    <div class="palette chist" role="dialog" aria-modal="true" aria-labelledby="ch-title">
+      <div class="cx-head"><h3 id="ch-title">Config History</h3><button type="button" class="btn icon" id="ch-close" aria-label="Close">✕</button></div>
+      <div class="ch-body">
+        <aside class="ch-list" aria-label="Versions"><div id="ch-versions" class="list"></div><p class="muted small" id="ch-note"></p></aside>
+        <section class="ch-main" aria-live="polite">
+          <div class="fg-bar"><label class="muted small">Compare with <select id="ch-from" aria-label="Compare with version"></select></label><span class="spacer"></span><button class="btn" type="button" id="ch-copy">Copy diff</button></div>
+          <div id="ch-diff"></div>
+        </section>
       </div>
     </div>
   </div>

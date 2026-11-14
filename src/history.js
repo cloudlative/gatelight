@@ -1,7 +1,7 @@
 'use strict';
 /**
  * Optional persistent history (SQLite via the built-in node:sqlite, Node 22.5+).
- * Stores only metrics and entity names: never credentials or config text.
+ * Stores metrics and entity names, never credentials. (src/configHistory.js adds a table of redacted config versions.)
  * Raw samples are kept for `rawMs`, then rolled up into 1-minute averages kept for `keepMs`.
  * If SQLite is unavailable or the file cannot be opened, open() returns null and GateLight runs in memory as before.
  */

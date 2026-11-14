@@ -147,7 +147,8 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 - **Config audit (39 rules, shown in Config Doctor)**: undefined backends/upstreams, orphaned pools, missing health checks, single points of failure, weak or plaintext credentials, exposed stats / `stub_status`, legacy TLS, path-traversal-prone `alias`, deprecated directives, **config drift** (file ≠ running process), and more. Charts show where the findings cluster.
 - **NGINX request-handling security checks** (Config Doctor): SSRF through variables in `proxy_pass`, Host header taken from the client (`$http_host`, `$arg_*`), CR/LF injection (`$uri` or a loose regex capture in a redirect, header or proxied URL), bypassable `$http_origin` / `$http_referer` regexes, `valid_referers none`, and header values written over several lines. Each finding explains the risk and suggests a fix for your NGINX version (for example a `map` allow-list and `add_header … always` from 1.7.5). Checked against the Gixy test suite: every flawed sample is flagged and none of the correct ones.
 - **History that survives restarts**: samples and events are stored in SQLite (raw for 6 hours, then 1-minute averages for 14 days).
-- **Alerting & observability**: Slack / Mattermost / Teams-compatible webhooks on down and recovery; Prometheus `/metrics`.
+- **Alerting & observability**: Slack / Mattermost / Teams-compatible webhooks on down and recovery, plus **threshold alerts** (5xx ratio, response time, sessions near the limit, queued requests, a server down too long) that must hold for a while before they fire; Prometheus `/metrics`.
+- **Config history**: every version of the configuration GateLight has seen is kept (redacted), with a side-by-side diff and the frontends, backends and servers that appeared or disappeared (Running Config → History).
 
 **Use it your way**
 - **Review a config offline**: drop a `haproxy.cfg`, an `nginx.conf` or a **whole folder** (with `conf.d/` includes). Nothing is saved; it is analysed in memory and cleared with one click.
@@ -364,9 +365,13 @@ Put these in a `.env` file next to `docker-compose.yml` (see [`.env.example`](.e
 | `ENABLE_HAPROXY` / `ENABLE_NGINX` | `true` | Server-side technology switches (override `features` in the file) |
 | `ALLOW_UI_INSTANCES` | `true` (compose) | Add and edit servers from the browser |
 | `ALERT_WEBHOOK_URL` | – | Webhook for alerts (`ALERT_MIN_FAILURES`, default 2, for unreachable instances) |
+| `ALERT_5XX_PCT` / `ALERT_LATENCY_MS` | `5` / `1000` | Threshold alerts: 5xx share of requests (judged from 1 req/s up), average server response time. `0` turns a rule off |
+| `ALERT_SATURATION_PCT` / `ALERT_QUEUE` / `ALERT_DOWN_MINUTES` | `90` / `10` / `5` | Sessions as % of a frontend's or server's limit, requests waiting in a backend or server queue, a server down longer than this |
+| `ALERT_FOR_SECONDS` | `60` | How long a condition must hold before it fires (the down rule uses its own minutes). Per instance: `"alertRules": {"errorPct": 2, "latencyMs": 500, "forSeconds": 120}` |
+| `CONFIG_HISTORY_KEEP` | `50` | Configuration versions kept per instance (in the history database, redacted) |
 | `POLL_INTERVAL` | `5000` | ms between polls (min 1000) |
 | `HISTORY_POINTS` / `EVENT_LIMIT` | `360` / `500` | In-memory history per entity / events kept |
-| `HISTORY_DB` | `DATA_DIR/history.db` | Chart history and events in SQLite (Node 22.5+) so they survive restarts and power the 6 h, 24 h and 7 d ranges. `off` = memory only. Metrics and names only, never credentials |
+| `HISTORY_DB` | `DATA_DIR/history.db` | Chart history and events in SQLite (Node 22.5+) so they survive restarts and power the 6 h, 24 h and 7 d ranges. `off` = memory only. Metrics, names and redacted config versions, never credentials |
 | `HISTORY_RAW_HOURS` / `HISTORY_KEEP_DAYS` | `6` / `14` | Full-resolution samples kept, then rolled up into 1-minute averages kept |
 | `GATELIGHT_PORT` / `GATELIGHT_BIND` | `3000` / `127.0.0.1` | Published port and address (compose) |
 | `DEMO_MODE` | `false` | Synthetic traffic on the bundled sample config |
@@ -391,6 +396,14 @@ Neither HAProxy nor NGINX can hand out its running config through the stats, Run
 - Press **⟳ Refresh from server** on the **Config** page to pull the current version now. You get a summary of what changed (`+12 −3 lines`, new or removed frontends, backends and servers), the map, URL map, Request Routing, audit and Validate pages rebuild from it, and a `config_changed` event is recorded. If the fetch fails, the last good copy stays and the error is shown.
 - Configs uploaded in the browser have no source to fetch from: use **Update config** to replace them, or add a Config URL.
 
+### Config history
+
+Every distinct version of an instance's configuration is saved when it is first loaded and whenever it changes (file changed on disk, fetched again from its URL, uploaded again). Press **🕘 History** on the **Running Config** page to list them, with `+N −M` lines and how many frontends, backends and servers appeared or went away, and to compare any version with any older one as a numbered diff you can copy. Only the redacted text is stored (passwords and keys are masked, as on the Config page); the last `CONFIG_HISTORY_KEEP` (50) versions are kept in the history database, or in memory with `HISTORY_DB=off`.
+
+### Threshold alerts
+
+Besides up/down changes, GateLight checks every poll against a few rules: **5xx ratio**, **average response time**, **sessions near the limit** (`scur` vs `slim`), **queued requests** and **a server down for too long**. A rule must hold for `ALERT_FOR_SECONDS` (60) before it fires, so one bad sample pages nobody. When it fires you get a `threshold` event on Health Events and through the webhook, an *Alert* line under *Needs Attention* on the Overview (rules still waiting out the delay show as *Pending*), and `gatelight_alerts_firing{rule}` in `/metrics`; when it clears, a recovery event says how long it lasted. Tune or switch off rules globally with the `ALERT_*` variables or per instance with `alertRules` in `instances.json`.
+
 ## Config audit
 
 Run it anywhere:
@@ -410,11 +423,12 @@ Categories: `correctness` (would fail or misroute), `reliability`, `security`, `
 
 ## HTTP API
 
-`GET /api/meta` · `/api/instances` · `/api/instances/:id/snapshot|events|history?key=proxy/name|history-all?range=…` · `POST /api/instances/:id/refresh` ·
+`GET /api/meta` · `/api/instances` · `/api/instances/:id/snapshot|events|alerts|history?key=proxy/name|history-all?range=…` · `POST /api/instances/:id/refresh` ·
+`GET /api/instances/:id/config/versions` · `…/config/versions/:vid` · `…/config/versions/:vid/diff?from=<vid>` ·
 `POST /api/analyze` (`{type?, config? | files:[{name,content}], stats?}`) · `GET /api/examples/:type` · `GET /metrics` · `GET /healthz`
 
 Prometheus: `gatelight_instance_up`, `gatelight_server_up`, `gatelight_server_current_sessions`, `gatelight_server_sessions_total`,
-`gatelight_server_http_responses_total{code}`, `gatelight_config_findings{severity}`, `gatelight_config_drift_findings`, all labelled with `instance` and `type`.
+`gatelight_server_http_responses_total{code}`, `gatelight_config_findings{severity}`, `gatelight_config_drift_findings`, `gatelight_alerts_firing{rule}`, all labelled with `instance` and `type`.
 
 ## Security model
 
