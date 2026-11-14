@@ -30,18 +30,19 @@ function extraParsers() {
 }
 const NOT_OTHER = (name) => `This does not look like a ${name} access log.`;
 
-async function ingestStream(readable, { maxBytes, filename = 'upload', onProgress, product = 'haproxy', hint = null } = {}) {
+async function ingestStream(readable, { maxBytes, filename = 'upload', onProgress, product = 'haproxy', hint = null, sections = null } = {}) {
   // product 'auto': look at the first lines and pick the parser that understands them best (HAProxy, NGINX, Apache, Caddy, Traefik).
   // `hint` (the instance's product) wins a tie, e.g. Apache and NGINX both write the combined format.
   const parsers = { haproxy, nginx, ...extraParsers() };
   let agg = null; let NOT_LOG = product === 'nginx' ? NOT_NGINX : product === 'auto' ? NOT_ANY : product === 'haproxy' ? NOT_HAPROXY : NOT_OTHER(product); const held = [];
-  const start = (prod) => { agg = (parsers[prod] || haproxy).createAggregator(); if (product !== 'auto') NOT_LOG = prod === 'nginx' ? NOT_NGINX : prod === 'haproxy' ? NOT_HAPROXY : NOT_OTHER(prod); };
+  // the instance's parsed config lets a parser group by its own names (Traefik: entryPoint and service of each router)
+  const start = (prod) => { agg = (parsers[prod] || haproxy).createAggregator(prod === hint && sections ? { sections } : undefined); if (product !== 'auto') NOT_LOG = prod === 'nginx' ? NOT_NGINX : prod === 'haproxy' ? NOT_HAPROXY : NOT_OTHER(prod); };
   const pick = () => {
     const lines = held.filter((l) => l && l.length >= 12).slice(0, SNIFF_LINES);
     let best = 'haproxy'; let top = -1;
     for (const [t, p] of Object.entries(parsers)) {
       let r = 0;
-      try { r = p.sniff ? p.sniff(lines).ratio : 0; } catch { r = 0; }
+      try { const sn = p.sniff ? p.sniff(lines) : { ratio: 0 }; r = sn.ratio || 0; if (sn.specific) r += 0.0005; } catch { r = 0; } // a format-specific match (e.g. Traefik CLF's router/URL tail) beats a generic one
       if (t === hint) r += 0.001; // ties go to the instance's own product
       if (r > top) { top = r; best = t; }
     }

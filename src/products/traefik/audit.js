@@ -35,7 +35,7 @@ function audit(sections, { notes = [] } = {}) {
   // ---- routers
   const used = new Set();
   for (const { fe, r } of routes) {
-    if (r.internal) continue;
+    if (r.provider === 'internal') continue; // routers Traefik generates itself
     if (r.target) used.add(r.target);
     const key = `${r.router}@${r.provider}`;
     if (!once(`${key}|refs`)) continue;
@@ -103,12 +103,12 @@ function audit(sections, { notes = [] } = {}) {
   }
 
   // ---- entryPoints: HTTP without redirection while an HTTPS one exists
-  const tlsEps = fes.filter((fe) => fe.mode === 'http' && fe.binds.some((b) => b.ssl));
+  const tlsEps = fes.filter((fe) => fe.mode === 'http' && fe.binds.some((b) => b.ssl || b.port === '443' || /^(websecure|https)$/i.test(fe.name)));
   for (const fe of fes) {
     const port = (fe.binds[0] || {}).port;
     if (fe.mode !== 'http' || fe.binds.some((b) => b.ssl) || fe.entryPoint.redirect || !(port === '80' || /^(web|http)$/i.test(fe.name)) || !tlsEps.length) continue;
     const content = fe.routes.filter((r) => r.proto === 'http' && !r.internal && !r.terminal && !(r.transforms || []).some((t) => t.action === 'redirect'));
-    if (content.length || !fe.routes.length) add({ id: 'traefik-no-https-redirect', severity: 'warning', category: 'security', section: fe.name, file: fe.file, line: fe.line, title: `entryPoint "${fe.name}" (:${port || '80'}) does not redirect to HTTPS${content.length ? ` and serves ${content.length} route${content.length > 1 ? 's' : ''} in cleartext` : ''}`, detail: `An HTTPS entryPoint (${tlsEps.map((x) => x.name).join(', ')}) exists, but plain-HTTP requests are not sent there, so clients (and cookies) can stay on HTTP.`, fix: `Add http.redirections.entryPoint (to: ${tlsEps[0].name}, scheme: https) to the entryPoint.`, docs: docs('entrypoints', 'redirection') });
+    if (!fe.routes.length || !fe.routes.every((r) => (r.transforms || []).some((t) => t.action === 'redirect'))) add({ id: 'traefik-no-https-redirect', severity: 'warning', category: 'security', section: fe.name, file: fe.file, line: fe.line, title: `entryPoint "${fe.name}" (:${port || '80'}) does not redirect to HTTPS${content.length ? ` and serves ${content.length} route${content.length > 1 ? 's' : ''} in cleartext` : ''}`, detail: `An HTTPS entryPoint (${tlsEps.map((x) => x.name).join(', ')}) exists, but plain-HTTP requests are not sent there, so clients (and cookies) can stay on HTTP.`, fix: `Add http.redirections.entryPoint (to: ${tlsEps[0].name}, scheme: https) to the entryPoint.`, docs: docs('entrypoints', 'redirection') });
   }
 
   // ---- TLS routers without a certificate source

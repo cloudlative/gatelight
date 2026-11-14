@@ -509,7 +509,7 @@ function parse(text, opts) {
 
 // ------------------------------------------------------------------------------------------------ writer
 const needsQuote = (s) => s === '' || /^[\s]|[\s]$/.test(s) || /^[-?:,[\]{}#&*!|>'"%@`]/.test(s) || /: |\s#/.test(s) || /:$/.test(s)
-  || plainValue(s) !== s || /[\n\t]/.test(s);
+  || plainValue(s) !== s || /[\n\t]/.test(s) || /`|\$\{/.test(s); // rules and ${1} replacements are quoted for readability
 /** Quote a string for YAML only when needed (double quotes with escapes). */
 function scalar(v) {
   if (v === null || v === undefined) return 'null';

@@ -13,12 +13,12 @@ function versions() {
 /** Requested version -> { requested, version, minor, major, note }. Unknown / newer / older fall back with a note. */
 function resolveVersion(requested) {
   const req = requested ? String(requested).trim() : null;
-  const p = V.parse(V.detect(req) || req);
+  const p = V.parse(req);
   const latestMinor = minorOf(kb.latest);
   if (!req) return { requested: null, version: kb.latest, minor: latestMinor, major: kb.latest.split('.')[0], note: null };
   if (!p) return { requested: req, version: kb.latest, minor: latestMinor, major: kb.latest.split('.')[0], note: `Could not read "${req}" as a version; using the latest documented release (${kb.latest}).` };
   const m = `${p[0]}.${p[1]}`;
-  if (MINORS.includes(m)) return { requested: req, version: p.join('.'), minor: m, major: String(p[0]), note: null };
+  if (MINORS.includes(m)) return { requested: req, version: /^\D*\d+\.\d+\.\d+/.test(req) ? p.join('.') : kb.versions[MINORS.indexOf(m)], minor: m, major: String(p[0]), note: null };
   if (V.cmp(p, kb.latest) > 0) return { requested: req, version: p.join('.'), minor: latestMinor, major: kb.latest.split('.')[0], note: `${req} is newer than the newest documented release (${kb.latest}); options added after it may be reported as unknown.` };
   if (p[0] < 2) return { requested: req, version: kb.versions[0], minor: MINORS[0], major: '2', note: `Traefik ${req} (v1) uses a different configuration format; validating against ${kb.versions[0]}, the oldest v2 release. See the v1 to v2 migration guide.` };
   // a minor between documented ones (should not happen) -> nearest older

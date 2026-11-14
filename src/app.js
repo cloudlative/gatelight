@@ -358,7 +358,7 @@ function createApp(settings) {
     try {
       const name = decodeURIComponent(String(req.query.filename || req.headers['x-filename'] || 'access.log')).replace(/[^\w .()-]/g, '_').slice(0, 120);
       const t0 = Date.now();
-      const result = await ingestStream(req, { maxBytes: max, filename: name, product: 'auto', hint: req.poller.instance.type }); // whatever product the file is from
+      const result = await ingestStream(req, { maxBytes: max, filename: name, product: 'auto', hint: req.poller.instance.type, sections: (req.poller.configCache && req.poller.configCache.sections) || null }); // whatever product the file is from
       const replace = req.query.mode === 'replace';
       const added = logs.add(req.params.id, result, { replace });
       touch(req.poller);
