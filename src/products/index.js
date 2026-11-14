@@ -11,7 +11,7 @@ const ORDER = ['haproxy', 'nginx', 'apache', 'caddy', 'traefik'];
 const META = {
   haproxy: { name: 'HAProxy', short: 'HAProxy', defaultFile: 'haproxy.cfg' },
   nginx: { name: 'NGINX', short: 'NGINX', defaultFile: 'nginx.conf' },
-  apache: { name: 'Apache HTTP Server', short: 'Apache', defaultFile: 'httpd.conf' },
+  apache: { name: 'Apache HTTP Server (httpd / apache2)', short: 'Apache', defaultFile: 'httpd.conf' },
   caddy: { name: 'Caddy', short: 'Caddy', defaultFile: 'Caddyfile' },
   traefik: { name: 'Traefik', short: 'Traefik', defaultFile: 'traefik.yml' },
 };
