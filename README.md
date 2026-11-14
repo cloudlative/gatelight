@@ -7,10 +7,10 @@
 
 ## Light up your gateways.
 
-### See your HAProxy and NGINX the way you think about them: as a map.
+### See your HAProxy, NGINX, Apache, Caddy and Traefik the way you think about them: as a map.
 
-Relationship maps · live health · charts with history · config audit · offline config review.<br>
-One portal for both. Free, open source, and nothing to build.
+Relationship maps · live health · charts with history · config audit · Config Builder · offline config review.<br>
+One portal for all five. Free, open source, and nothing to build.
 
 [![CI](https://img.shields.io/github/actions/workflow/status/Cloudlative/gatelight/ci.yml?branch=main&label=CI&style=flat-square)](https://github.com/Cloudlative/gatelight/actions/workflows/ci.yml)
 [![Docker image](https://img.shields.io/badge/ghcr.io-cloudlative%2Fgatelight-22d3ee.svg?style=flat-square&logo=docker&logoColor=white)](https://github.com/Cloudlative/gatelight/pkgs/container/gatelight)
@@ -126,6 +126,30 @@ GateLight reads your config and your live stats and draws the whole picture: **w
 | Config problems | none | 39 audit rules with line numbers and fixes |
 | Changes | none | event timeline, webhook alerts |
 | Setup | built in | `docker compose up -d` |
+
+## Five proxies, one portal
+
+GateLight understands **HAProxy**, **NGINX**, **Apache HTTP Server** (both the Debian/Ubuntu `apache2` layout and the RHEL/Fedora/upstream `httpd` layout), **Caddy v2** and **Traefik v2/v3**. Every page works the same way for all of them, because each product parses its configuration into one shared model (`src/products/`, contract in [`src/products/CONTRACT.md`](src/products/CONTRACT.md)).
+
+| | Config read | Version knowledge base (official docs, by release) | Live data (read-only) | Traffic logs |
+|---|---|---|---|---|
+| HAProxy | `haproxy.cfg` | docs.haproxy.org, 1.7 – 3.4 | stats CSV, Runtime API (`show stat` / `show info`) | `httplog` / `tcplog` |
+| NGINX | `nginx.conf` + includes | nginx.org + CHANGES | `stub_status`, NGINX Plus API, TCP probe | combined, common, JSON |
+| Apache | `apache2.conf` (mods/conf/sites-enabled, `envvars`) or `httpd.conf` (`ServerRoot`, `conf.modules.d`, `conf.d`) | httpd docs XML at 64 tags, 2.4.0 – 2.4.71 (730 directives) | `server-status?auto`, `balancer-manager` | common, combined, vhost_combined, JSON, error log |
+| Caddy | Caddyfile (snippets, imports) or JSON | Caddy source + docs at 49 tags, 2.0.0 – 2.11.9 (directive order per version) | admin API `/reverse_proxy/upstreams`, Prometheus | JSON access log, console, CLF |
+| Traefik | static + dynamic (YAML or TOML, file provider), docker-compose labels | reference config at every minor, 2.0 – 3.7 (option paths, rule matchers, migration notes) | API `/api/http/…`, Prometheus | CLF, JSON |
+
+For each of them you get the relationship map, Request Routing (rules in the order *that* product evaluates them: HAProxy first match, NGINX location rules, Apache's rewrite → `<Location>` → ProxyPass order, Caddy's directive order and `handle` specificity, Traefik priority), the version-aware validator, the audit, Config Doctor rewrites, Traffic Stats from its access log, live health and the Config Builder. Layout-specific advice is built in: Apache fixes say `a2enmod` / `apache2ctl configtest` on Debian and `httpd -t` / `systemctl reload httpd` (plus the SELinux `httpd_can_network_connect` note) on RHEL.
+
+Knowledge bases are generated from the official documentation sources at release tags (`npm run kb:build`; each builder caches and has `--offline`).
+
+## Config Builder: describe it once, get the config for any of them
+
+**Configuration → Config Builder** writes a new configuration from a short description: sites (host names, ports, TLS from files or ACME, HTTP→HTTPS redirect, HSTS, security headers, compression, rate limit, basic auth with bcrypt hashes, upload limit, WebSocket), path routes (exact or prefix, longest first, strip prefix, rewrite), server pools (balancing, weights, backup servers, sticky sessions, health checks, HTTPS to servers with verification, timeouts) and options (access log format, status page, limits).
+
+Pick a product and a version: the output only uses what that version supports (for example NGINX `http2 on;` from 1.25.1, HAProxy native ACME from 3.2, Caddy `basic_auth` from 2.8, Traefik per-server weights from 3.0, Apache `upgrade=websocket` from 2.4.47). Every result is read back by the product's parser, validated against its documentation for that version and audited before you see it; what a product cannot do is listed plainly instead of being faked (NGINX open source has no active health checks, Apache and Caddy have no built-in request rate limiter, …). For Apache choose the layout: `apache2` (`sites-available/`, `a2enmod`), `httpd` (`conf.d/`) or a single `httpd.conf`. **Compare all** builds the same description for every product side by side. Nothing is deployed.
+
+API: `GET /api/build/example`, `POST /api/build` (`{ product: 'haproxy'|'nginx'|'apache'|'caddy'|'traefik'|'all', version?, spec }`). The spec format is documented in [`src/build/spec.js`](src/build/spec.js).
 
 ## Highlights
 
@@ -362,7 +386,10 @@ Put these in a `.env` file next to `docker-compose.yml` (see [`.env.example`](.e
 | `AUTH_USER` + `AUTH_PASS` (or `AUTH_PASS_HASH`) | `admin` + generated | **Sign-in page** for the UI (signed HttpOnly session cookie, 5 failed attempts lock an IP for 15 min). With no password set, one is generated on first start and printed in the logs. HTTP Basic still works for scripts |
 | `AUTH_SECRET` / `AUTH_SESSION_HOURS` | random, kept / `12` | Session-signing secret and session length |
 | `AUTH_TOKEN` | – | `Authorization: Bearer …` for scripts/Prometheus |
-| `ENABLE_HAPROXY` / `ENABLE_NGINX` | `true` | Server-side technology switches (override `features` in the file) |
+| `ENABLE_HAPROXY` / `ENABLE_NGINX` / `ENABLE_APACHE` / `ENABLE_CADDY` / `ENABLE_TRAEFIK` | `true` | Server-side technology switches (override `features` in the file) |
+| `APACHE_STATUS_URL` / `APACHE_BALANCER_URL` / `APACHE_CONFIG_PATH` | – | One Apache instance from env (`server-status`, `balancer-manager`, `apache2.conf` or `httpd.conf`) |
+| `CADDY_ADMIN_URL` / `CADDY_CONFIG_PATH` | – | One Caddy instance from env (admin API, Caddyfile or JSON) |
+| `TRAEFIK_API_URL` / `TRAEFIK_CONFIG_PATH` | – | One Traefik instance from env (API, static `traefik.yml`; the file provider's dynamic files are read from its folder) |
 | `ALLOW_UI_INSTANCES` | `true` (compose) | Add and edit servers from the browser |
 | `ALERT_WEBHOOK_URL` | – | Webhook for alerts (`ALERT_MIN_FAILURES`, default 2, for unreachable instances) |
 | `ALERT_5XX_PCT` / `ALERT_LATENCY_MS` | `5` / `1000` | Threshold alerts: 5xx share of requests (judged from 1 req/s up), average server response time. `0` turns a rule off |
