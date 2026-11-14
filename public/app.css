@@ -1573,3 +1573,10 @@ div.vis-tooltip, div.vis-network div.vis-tooltip { white-space: pre-wrap !import
 .bd-code { max-height: none; }
 .bd-err { border-color: color-mix(in srgb, var(--red) 50%, transparent); } .bd-err ul { margin: 6px 0 0; padding-left: 18px; }
 @media (max-width: 1100px) { .bd-grid { grid-template-columns: minmax(0, 1fr); } .bd-out { position: static; max-height: none; } }
+.bd-routes { table-layout: fixed; }
+.bd-routes th:nth-child(1) { width: 30%; } .bd-routes th:nth-child(2) { width: 17%; } .bd-routes th:nth-child(3) { width: 20%; } .bd-routes th:nth-child(4) { width: 9%; } .bd-routes th:nth-child(6) { width: 40px; }
+.bd-routes input:not([type=checkbox]), .bd-routes select { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px; outline: none; font-size: 12.5px; }
+.bd-routes input:focus, .bd-routes select:focus { border-color: var(--cyan); }
+.bd-routes input::placeholder { color: var(--lineno); }
+.bd-res-h h2 .muted { margin-left: 6px; font-weight: 400; }
+.bd-out .grid td:nth-child(3) { min-width: 210px; } .bd-out .bd-chk { white-space: nowrap; margin: 2px 2px 2px 0; }

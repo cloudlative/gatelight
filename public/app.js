@@ -75,6 +75,9 @@ function indexRows(rows) {
 const cfgSections = () => (state.snapshot ? state.snapshot.config.sections : []);
 const snapshotType = () => (state.snapshot ? state.snapshot.instance.type : 'haproxy');
 const feLike = (s) => s.type === 'frontend' || s.type === 'listen';
+/** A route the proxy answers itself (redirect, fixed response, Traefik's api@internal / ping@internal ...): no pool behind it. */
+const selfAnswered = (rt) => Boolean(rt && (rt.terminal || rt.target == null || /@internal$/.test(String(rt.target))));
+const selfLabel = (rt) => { const t = (rt.transforms || []).find((x) => ['redirect', 'return', 'respond', 'static', 'deny'].includes(x.action)); return t ? (t.text || t.action) : rt.target ? String(rt.target) : 'answered by the proxy'; };
 const beLike = (s) => s.type === 'backend' || s.type === 'listen';
 
 // ---------- filters reset when you navigate ----------
@@ -715,7 +718,7 @@ function buildGraph() {
   const uriBy = new Map(); // node id -> URIs / hosts it handles
   sections.filter(feLike).forEach((fe) => {
     fe.routes.forEach((rt, i) => {
-      if (rt.dynamic) return;
+      if (rt.dynamic || selfAnswered(rt)) return;
       let target = `be:${rt.target}`;
       if (!beNames.has(rt.target)) {
         target = `missing:${rt.target}`;
@@ -867,12 +870,12 @@ function renderUrlMap() {
     <div class="urlmap-scroll"><table class="grid urlmap-table"><thead><tr><th>${esc(lbl('frontend'))}</th><th>Host</th><th>URL / path match</th><th>Target</th><th>${snapshotType() === 'nginx' ? 'Upstream URL' : 'Servers'}</th></tr></thead><tbody>
     ${shown.map(({ fe, rt, i }) => {
     const up = rt.passUrl ? `<code>${esc(rt.passUrl)}</code>${rt.rewriteNote ? `<div class="muted small">${esc(rt.rewriteNote)}</div>` : ''}${(rt.rewrites || []).map((r) => `<div class="muted small mono">rewrite ${esc(r)}</div>`).join('')}` : `<span class="mono small">${esc(poolAddresses(rt.target))}</span>`;
-    const missing = routeTargetId(rt).startsWith('missing:');
+    const missing = !selfAnswered(rt) && routeTargetId(rt).startsWith('missing:');
     return `<tr class="${rt.commented ? 'dim' : ''}" data-urlrow="${esc(fe.name)}|${i}">
         <td><b>${esc(fe.name)}</b> ${layerTag(fe)}<div class="muted small mono">${esc(binds(fe))}</div></td>
         <td class="mono small">${esc((rt.hosts || []).join(', ')) || '<span class="muted">any</span>'}</td>
         <td>${rt.type === 'default' ? '<span class="tag">default</span> <span class="muted">everything else</span>' : `<span class="mono">${esc(rt.match || rt.condition)}</span>`}${rt.commented ? ' <span class="muted">(disabled)</span>' : ''}${snapshotType() === 'haproxy' && rt.rawCondition ? `<div class="muted small mono">${esc(rt.rawCondition)}</div>` : ''}</td>
-        <td>${missing ? `<span class="sev-error">${esc(rt.target)} (undefined)</span>` : `<b>${esc(rt.target)}</b>`}</td>
+        <td>${selfAnswered(rt) ? `<span class="muted">${esc(selfLabel(rt))}</span>` : missing ? `<span class="sev-error">${esc(rt.target)} (undefined)</span>` : `<b>${esc(rt.target)}</b>`}</td>
         <td>${up}</td></tr>`;
   }).join('') || '<tr><td colspan="5" class="empty">No routing rules</td></tr>'}</tbody></table></div>`;
 }
@@ -1045,6 +1048,7 @@ function relationsHtml(r, proxy, sec, srv) {
   } else if (r.kind === 'frontend') {
     const routes = sec ? sec.routes.filter((rt) => !rt.commented) : [];
     groups.push(group(`Routes to (${routes.length})`, routes.map((rt) => {
+      if (selfAnswered(rt)) return `<div class="item" ${loc(rt)}><span class="st st-nocheck">proxy</span><div class="t"><b>${esc(selfLabel(rt))}</b><div class="muted small mono">${esc(ruleText(rt))}</div></div></div>`;
       const missing = !cfgSections().some((x) => x.name === rt.target && x.type !== 'frontend');
       return missing ? `<div class="item" ${loc(rt)}><span class="st st-down">missing</span><div class="t"><b>${esc(rt.target)}</b><div class="muted small mono">${esc(ruleText(rt))}</div></div></div>`
         : node(poolKey(rt.target), rt.target, ruleText(rt), 'backend');
@@ -1104,7 +1108,7 @@ function buildTree() {
       const tgt = secs.find((x) => x.name === rt.target && beLike(x) && x.name !== fe.name);
       const uri = routeUri(rt);
       const rule = mk(`<span class="uri">${esc(uri)}</span>${rt.commented ? ' <span class="muted">(disabled)</span>' : ''}${rt.passUrl ? ` <span class="muted small mono">→ ${esc(rt.passUrl)}</span>` : ''}`, `${uri}${rt.commented ? ' (disabled)' : ''}`, { kind: 'rule', dim: rt.commented });
-      rule.children = tgt ? [poolNode(tgt)] : [mk(`<span class="st st-down">undefined</span> <b>${esc(rt.target)}</b>`, `${rt.target}  [undefined]`, { kind: 'missing', problem: true })];
+      rule.children = tgt ? [poolNode(tgt)] : selfAnswered(rt) ? [mk(`<span class="st st-nocheck">proxy</span> ${esc(selfLabel(rt))}`, `${selfLabel(rt)}  [answered by the proxy]`, { kind: 'rule' })] : [mk(`<span class="st st-down">undefined</span> <b>${esc(rt.target)}</b>`, `${rt.target}  [undefined]`, { kind: 'missing', problem: true })];
       kids.push(rule);
     });
     if (fe.type === 'listen') kids.push(...serverNodes(fe));
