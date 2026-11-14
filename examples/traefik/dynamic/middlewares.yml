@@ -1,0 +1,69 @@
+# Middlewares and TLS options (file provider, dynamic configuration)
+http:
+  middlewares:
+    secure-chain:
+      chain:
+        middlewares:
+          - secure-headers
+          - compress
+
+    secure-headers:
+      headers:
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        contentTypeNosniff: true
+        frameDeny: true
+        referrerPolicy: strict-origin-when-cross-origin
+        customRequestHeaders:
+          X-Forwarded-Proto: https
+
+    compress:
+      compress: {}
+
+    api-ratelimit:
+      rateLimit:
+        average: 50
+        burst: 100
+
+    strip-api:
+      stripPrefix:
+        prefixes:
+          - /api
+
+    legacy-rewrite:
+      replacePathRegex:
+        regex: "^/old-shop/(.*)"
+        replacement: "/$1"
+
+    legacy-prefix:
+      addPrefix:
+        prefix: /billing
+
+    docs-path:
+      replacePath:
+        path: /docs/index.html
+
+    to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+
+    office-only:
+      ipAllowList:
+        sourceRange:
+          - 10.0.0.0/8
+          - 192.0.2.0/24
+
+    dashboard-auth:
+      basicAuth:
+        realm: traefik
+        users:
+          - "admin:$apr1$Hx1aBc2d$EXAMPLEhashEXAMPLEhash0"
+
+tls:
+  options:
+    default:
+      minVersion: VersionTLS12
+      sniStrict: true
+    legacy-clients:
+      minVersion: VersionTLS11

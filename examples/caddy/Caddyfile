@@ -1,0 +1,139 @@
+# GateLight example Caddyfile (sanitised). Caddy v2.8+ syntax.
+# Global options block: must be the first block of the file.
+{
+	email ops@example.com
+	admin 0.0.0.0:2019
+	servers {
+		trusted_proxies static 10.0.0.0/8
+		timeouts {
+			read_body 10s
+			read_header 10s
+			idle 2m
+		}
+	}
+	log {
+		output stderr
+		format json
+	}
+}
+
+# ---- snippets -------------------------------------------------------------------------------------
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+(access_log) {
+	log {
+		output file /var/log/caddy/{args[0]}.access.log
+		format json
+	}
+}
+
+(app_pool) {
+	reverse_proxy 10.0.1.11:8080 10.0.1.12:8080 10.0.1.13:8080 {
+		lb_policy least_conn
+		lb_try_duration 5s
+		health_uri /healthz
+		health_interval 10s
+		health_timeout 2s
+		header_up X-Request-ID {http.request.uuid}
+	}
+}
+
+(unused_cors) {
+	header Access-Control-Allow-Origin *
+}
+
+# ---- sites ----------------------------------------------------------------------------------------
+shop.example.com, www.shop.example.com {
+	import security_headers
+	import access_log shop
+	encode zstd gzip
+
+	@legacy path /old-checkout /cart.php
+	redir @legacy /checkout 301
+
+	@internal {
+		path /internal/*
+		not client_ip 10.0.0.0/8
+	}
+	respond @internal "Forbidden" 403
+
+	handle_path /static/* {
+		root * /srv/shop/static
+		file_server
+	}
+
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy https://10.0.2.21:9443 https://10.0.2.22:9443 {
+			lb_policy round_robin
+			header_up Host {upstream_hostport}
+			header_up X-Forwarded-For {remote_host}
+			header_up Authorization "Bearer sk_live_0123456789abcdef"
+			transport http {
+				tls_insecure_skip_verify
+				dial_timeout 5s
+				response_header_timeout 30s
+			}
+		}
+	}
+
+	handle {
+		import app_pool
+	}
+}
+
+api.example.com {
+	import security_headers
+	import access_log api
+	@v1 {
+		path /v1/*
+		method GET POST
+	}
+	rewrite @v1 /legacy{uri}
+	reverse_proxy /legacy/* 10.0.3.31:7000
+	reverse_proxy /v2/* 10.0.3.41:7000 10.0.3.42:7000 {
+		lb_policy cookie api_sticky
+	}
+	route /ws/* {
+		request_header X-Upgraded-By caddy
+		reverse_proxy 10.0.3.50:7100
+	}
+}
+
+*.preview.example.com {
+	tls {
+		dns cloudflare k3y-Abc123-not-a-real-token
+	}
+	basicauth {
+		preview $2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG
+	}
+	reverse_proxy {labels.2}.preview.internal:3000
+}
+
+admin.example.com {
+	tls internal
+	basic_auth /files/* {
+		ops $2a$14$Zkx19XLiW6VYouLHR5NmfOFU0z2GTNmpkT/5qqR7hx4IjWJPDhjvG
+	}
+	root * /srv/files
+	file_server /files/* browse
+	reverse_proxy 10.0.4.10:8080
+}
+
+http://status.example.com {
+	respond /healthz "OK" 200
+	metrics /metrics
+}
+
+:8080 {
+	reverse_proxy localhost:9000
+}
+
+import sites/*.caddy

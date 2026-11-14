@@ -117,16 +117,32 @@ function parseModule(xml, file) {
     const sentences = text(usage).split(/(?<=\.)\s+/);
     // only sentences whose subject is the directive itself ("X is deprecated", "This directive currently has no effect")
     const dep = sentences.find((s) => DEPRECATION.test(s) && new RegExp(`^(?:${name}|This directive|The ${name} directive)\\b`).test(s));
+    // literal keyword alternatives ("On|Off|Default"): only when the one argument has no <var> placeholder
+    const rawSyntax = ((body.match(/<syntax>([\s\S]*?)<\/syntax>/) || [])[1] || '').replace(/\s+/g, ' ').trim();
+    const rest = rawSyntax.replace(/^\S+\s*/, '');
+    const vals = /^[A-Za-z0-9.*-]+(\|[A-Za-z0-9.*-]+)+$/.test(unent(rest)) && !/<var>/.test(rest) ? unent(rest).split('|').map((x) => x.toLowerCase()) : undefined;
     const ctx = [...body.matchAll(/<context>([^<]+)<\/context>/g)].map((c) => CTX[c[1].trim()] || c[1].trim());
     dirs.push({
       name, section: /type="section"/.test(m[1]) || undefined,
       syntax: tagText(body, 'syntax').slice(0, 300), def: tagText(body, 'default').slice(0, 160) || undefined,
       ctx: ctx.join(''), ov: tagText(body, 'override') || undefined,
       compat: compat ? compat.slice(0, 200) : undefined, since: sinceFromCompat(compat) || undefined,
-      dep: dep ? dep.slice(0, 240) : undefined,
+      dep: dep ? dep.slice(0, 240) : undefined, vals,
     });
   }
   return { mod, meta, dirs };
+}
+
+/** Worker / balancer parameters (ProxyPass key=value, BalancerMember, ProxySet) from the parameter tables. */
+function parseParams(xml, mod, moduleSince) {
+  const out = {};
+  for (const row of xml.matchAll(/<tr>\s*<td>\s*(?:<a [^>]*>)?([a-z][a-z0-9_]*)(?:<\/a>)?\s*<\/td>([\s\S]*?)<\/tr>/g)) {
+    const desc = text(row[2]);
+    const m = desc.match(/(?:Available|available|added|Added|introduced|supported)[^.]{0,60}?(2\.4\.\d+)(?: and later)?/) || desc.match(/\b(2\.4\.\d+) and later/);
+    const since = [m ? m[1] : null, moduleSince].filter(Boolean).sort(verCmp).pop();
+    out[row[1]] = { mod, since: since || undefined };
+  }
+  return out;
 }
 
 /** upgrading.xml: directives removed / renamed when moving from 2.2 to 2.4. */
@@ -202,6 +218,11 @@ async function main() {
   // ---- lifecycle from upgrading.xml
   const lifecycle = parseUpgrading(await load(latest, 'docs/manual/upgrading.xml') || '');
 
+  const params = {};
+  for (const f of ['mod_proxy.xml', 'mod_proxy_hcheck.xml']) {
+    const x = await load(latest, `docs/manual/mod/${f}`);
+    if (x) Object.assign(params, parseParams(x, f.replace(/\.xml$/, ''), parsed[f] && parsed[f].meta.since));
+  }
   const modules = {}; const directives = {};
   for (const f of files) {
     const p = parsed[f]; if (!p) continue;
@@ -209,18 +230,18 @@ async function main() {
     for (const d of p.dirs) {
       const ds = docSince[`${p.mod}|${d.name}`];
       const since = [d.since, p.meta.since].filter(Boolean).sort(verCmp).pop();
-      const e = { mod: p.mod, syntax: d.syntax, def: d.def, ctx: d.ctx, ov: d.ov, since, docSince: ds && (!since || verCmp(ds, since) > 0) ? ds : undefined, compat: d.compat, dep: d.dep, section: d.section, docs: `${DOCS}${p.mod}.html#${d.name.toLowerCase()}` };
+      const e = { mod: p.mod, syntax: d.syntax, def: d.def, ctx: d.ctx, ov: d.ov, since, docSince: ds && (!since || verCmp(ds, since) > 0) ? ds : undefined, compat: d.compat, dep: d.dep, vals: d.vals, section: d.section, docs: `${DOCS}${p.mod}.html#${d.name.toLowerCase()}` };
       (directives[d.name] = directives[d.name] || []).push(JSON.parse(JSON.stringify(e)));
     }
   }
   const kb = {
     product: 'apache', generated: new Date().toISOString().slice(0, 10), source: `${REPO} docs/manual (tag ${latest})`, docsBase: DOCS,
     latest, versions: released, tagsSampled: samples, contexts: { s: 'server config', v: 'virtual host', d: 'directory', h: '.htaccess', p: 'proxy section' },
-    modules, directives, removedFromDocs: goneNames, lifecycle,
+    modules, directives, params, removedFromDocs: goneNames, lifecycle,
   };
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, `${JSON.stringify(kb)}\n`);
   console.error(`wrote ${path.relative(process.cwd(), OUT)}: ${Object.keys(directives).length} directives from ${Object.keys(modules).length} modules, ${released.length} releases (latest ${latest}), ${Object.keys(docSince).length} first-documented dates, ${Object.keys(goneNames).length} directives gone from the docs, ${(fs.statSync(OUT).size / 1024).toFixed(0)} KB`);
 }
 if (require.main === module) main().catch((e) => { console.error(e); process.exit(1); });
-module.exports = { parseModule, parseUpgrading, sinceFromCompat, releasedFrom, verCmp };
+module.exports = { parseParams, parseModule, parseUpgrading, sinceFromCompat, releasedFrom, verCmp };

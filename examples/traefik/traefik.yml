@@ -1,0 +1,68 @@
+# Traefik static configuration (sanitised example for GateLight)
+# Loaded once at start-up: entryPoints, providers, observability, certificate resolvers.
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+log:
+  level: INFO
+
+accessLog:
+  filePath: /var/log/traefik/access.log
+  format: json
+  bufferingSize: 100
+  fields:
+    defaultMode: keep
+    headers:
+      defaultMode: drop
+
+api:
+  dashboard: true          # served by the "dashboard" router in dynamic/middlewares.yml (behind auth)
+
+ping: {}
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+  websecure:
+    address: ":443"
+    http:
+      tls:
+        certResolver: letsencrypt
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        idleTimeout: 180s
+  postgres:
+    address: ":5432"
+  metrics:
+    address: "127.0.0.1:8082"
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+    network: proxy
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addRoutersLabels: true
+    addServicesLabels: true
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: ops@example.com
+      storage: /data/acme.json
+      httpChallenge:
+        entryPoint: web

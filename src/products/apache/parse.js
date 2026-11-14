@@ -74,6 +74,39 @@ function lex(text) {
 
 // ------------------------------------------------------------------------------------------------ loader
 const KNOWN_ROOTS = ['/etc/httpd/', '/etc/apache2/', '/usr/local/apache2/', '/usr/local/etc/apache24/', '/usr/local/etc/apache2/', '/opt/apache2/', '/opt/httpd/', '/etc/apache/', '/private/etc/apache2/', '/opt/homebrew/etc/httpd/', '/usr/local/etc/httpd/'];
+// Debian / Ubuntu: apache2ctl sources /etc/apache2/envvars; these are its defaults when the file is not available.
+const DEBIAN_ENV = { APACHE_RUN_USER: 'www-data', APACHE_RUN_GROUP: 'www-data', APACHE_PID_FILE: '/var/run/apache2/apache2.pid', APACHE_RUN_DIR: '/var/run/apache2', APACHE_LOCK_DIR: '/var/lock/apache2', APACHE_LOG_DIR: '/var/log/apache2' };
+/** `export APACHE_LOG_DIR=/var/log/apache2$SUFFIX` lines of an envvars file. */
+function parseEnvvars(text) {
+  const env = {};
+  for (const m of String(text || '').matchAll(/^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)=("([^"]*)"|'([^']*)'|(\S*))/gm)) {
+    let v = m[3] ?? m[4] ?? m[5] ?? '';
+    v = v.replace(/\$\{?SUFFIX\}?/g, '').replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (x, k) => (env[k] !== undefined ? env[k] : x));
+    env[m[1]] = v;
+  }
+  return env;
+}
+/**
+ * Packaging layout: 'debian' (apache2.conf, mods-enabled, sites-enabled, envvars), 'rhel' (/etc/httpd, conf.modules.d,
+ * conf.d) or 'upstream' (/usr/local/apache2/conf/httpd.conf + conf/extra). Same httpd 2.4, different conventions.
+ */
+function detectLayout(mainName, names, mainText) {
+  const n = names.map((x) => x.replace(/\\/g, '/'));
+  const t = String(mainText || '');
+  if (/(^|\/)apache2\.conf$/.test(mainName) || n.some((x) => /(^|\/)(mods-enabled|mods-available|sites-enabled|sites-available|conf-enabled)\//.test(x) || /(^|\/)envvars$/.test(x)) || /\$\{APACHE_(LOG|RUN|LOCK|PID)_/.test(t) || /^\s*Include(Optional)?\s+"?(mods|sites|conf)-enabled\//m.test(t)) return 'debian';
+  if (/^\s*ServerRoot\s+"?\/etc\/httpd"?/m.test(t) || n.some((x) => /(^|\/)conf\.modules\.d\//.test(x)) || /^\s*Include(Optional)?\s+"?conf\.modules\.d\//m.test(t)) return 'rhel';
+  if (/^\s*ServerRoot\s+"?\/usr\/local\/apache2"?/m.test(t) || n.some((x) => /(^|\/)extra\/httpd-[a-z-]+\.conf$/.test(x)) || /conf\/extra\/httpd-/.test(t)) return 'upstream';
+  return 'unknown';
+}
+const LAYOUT = {
+  debian: { name: 'Debian / Ubuntu (apache2)', main: '/etc/apache2/apache2.conf', siteDir: 'sites-available', test: 'apache2ctl configtest', reload: 'systemctl reload apache2', logDir: '/var/log/apache2', enable: (mods) => `a2enmod ${mods.join(' ')}`, enableSite: (s) => `a2ensite ${s}` },
+  rhel: { name: 'RHEL / Fedora (httpd)', main: '/etc/httpd/conf/httpd.conf', siteDir: 'conf.d', test: 'httpd -t', reload: 'systemctl reload httpd', logDir: '/var/log/httpd', enable: (mods) => `add the LoadModule lines for ${mods.map((m) => `mod_${m}`).join(', ')} to /etc/httpd/conf.modules.d/ (most ship enabled in 00-base.conf / 00-proxy.conf)`, enableSite: () => 'files in conf.d are read automatically' },
+  upstream: { name: 'upstream source build (/usr/local/apache2)', main: '/usr/local/apache2/conf/httpd.conf', siteDir: 'conf/extra', test: 'apachectl configtest', reload: 'apachectl graceful', logDir: '/usr/local/apache2/logs', enable: (mods) => `uncomment / add LoadModule lines for ${mods.map((m) => `mod_${m}`).join(', ')} in conf/httpd.conf`, enableSite: (s) => `Include conf/extra/${s}.conf in httpd.conf` },
+};
+LAYOUT.unknown = { ...LAYOUT.rhel, name: 'unknown layout', test: 'apachectl configtest', reload: 'apachectl graceful', enable: (mods) => `load ${mods.map((m) => `mod_${m}`).join(', ')} (a2enmod on Debian / Ubuntu, LoadModule in conf.modules.d on RHEL)` };
+/** Modules Debian compiles into the apache2 binary (no LoadModule line needed). */
+const STATIC_MODULES = { debian: ['core', 'so_module', 'watchdog_module', 'http_module', 'log_config_module', 'logio_module', 'version_module', 'unixd_module'], rhel: ['core', 'so_module', 'http_module'], upstream: ['core', 'so_module', 'http_module'], unknown: ['core', 'so_module', 'http_module'] };
+
 const globRe = (seg) => new RegExp(`^${seg.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]')}$`);
 
 class Loader {
@@ -89,6 +122,22 @@ class Loader {
     this.serverRoot = null;
     this.loaded = new Set();  // module identifiers / file names from LoadModule
     this.condNoted = false;
+    this.env = {};             // envvars (Debian) used for ${VAR}
+    this.layout = 'unknown';
+    this.envNoted = false;
+  }
+
+  /** Read envvars next to the main file (Debian) and decide the layout before parsing. */
+  prepare() {
+    const P = this.P; const mainDir = P.dirname(this.mainPath);
+    let names = [];
+    if (this.vfs) names = [...this.vfs.keys()];
+    else { for (const d of ['mods-enabled', 'sites-enabled', 'conf.modules.d', 'extra', 'envvars', '../conf.modules.d']) { const x = P.join(mainDir, d); if (this.inside(x) && fs.existsSync(x)) names.push(`${P.normalize(x)}${d === 'envvars' ? '' : '/x'}`); } }
+    let mainText = '';
+    try { mainText = this.vfs ? this.vfs.get(this.mainPath) || '' : fs.readFileSync(this.mainPath, 'utf8'); } catch { /* reported later */ }
+    this.layout = detectLayout(P.basename(this.mainPath), names, mainText);
+    const envPath = [P.join(mainDir, 'envvars'), ...(this.vfs ? [...this.vfs.keys()].filter((k) => /\/envvars$/.test(k)) : [])].find((f) => this.isFile(f) && this.inside(f));
+    if (envPath) { try { this.env = parseEnvvars(this.vfs ? this.vfs.get(envPath) : fs.readFileSync(envPath, 'utf8')); this.envFile = this.rel(envPath); } catch { /* optional */ } }
   }
 
   rel(abs) { return this.vfs ? abs.replace(/^\//, '') : (path.relative(this.root, abs) || path.basename(abs)); }
@@ -150,6 +199,15 @@ class Loader {
     return out;
   }
 
+  resolveQuiet(pattern, fromFile) {
+    for (const cand of this.candidates(pattern, fromFile)) {
+      if (!this.inside(cand)) continue;
+      const hits = (/[*?[]/.test(cand) ? this.glob(cand) : [cand]).flatMap((h) => (this.isFile(h) ? [h] : this.isDir(h) ? this.walkDir(h) : []));
+      if (hits.length) return hits;
+    }
+    return [];
+  }
+
   resolveInclude(pattern, optional, fromFile) {
     const name = optional ? 'IncludeOptional' : 'Include';
     for (const cand of this.candidates(pattern, fromFile)) {
@@ -162,6 +220,11 @@ class Loader {
       }
       const hits = this.glob(cand).flatMap((h) => (this.isFile(h) ? [h] : this.isDir(h) ? this.walkDir(h) : []));
       if (hits.length) return hits;
+    }
+    if (this.vfs && /(sites|conf)-enabled/.test(pattern)) {
+      const alt = pattern.replace(/(sites|conf)-enabled/, '$1-available');
+      const hits = this.resolveQuiet(alt, fromFile);
+      if (hits.length) { this.note(fromFile, `${name} "${pattern}" matched nothing in the upload; the files in ${alt.replace(/\/[^/]*$/, '')} were used instead (on the server only the enabled ones are read)`); return hits; }
     }
     const outside = !this.vfs && this.candidates(pattern, fromFile).every((c) => !this.inside(c));
     if (outside) this.note(fromFile, `${name} "${pattern}" is outside the config root (${this.root}) and was skipped`);
@@ -176,6 +239,11 @@ class Loader {
       if (!this.files.has(abs)) this.files.set(abs, { name: this.rel(abs), raw, mtimeMs: 0, abs });
       return raw;
     }
+    // sites-enabled entries are usually symlinks to sites-available: follow them, but never out of the root
+    let real = abs; try { real = fs.realpathSync(abs); } catch { /* stat below reports it */ }
+    let realRoot = this.root; try { realRoot = fs.realpathSync(this.root); } catch { /* keep */ }
+    const rr = path.relative(realRoot, real);
+    if (rr.startsWith('..') || path.isAbsolute(rr)) throw new Error(`${this.rel(abs)} is a link to ${real}, outside the config root; skipped`);
     const st = fs.statSync(abs);
     if (!st.isFile() || st.size > MAX_FILE_BYTES) throw new Error(`${abs} is not a regular file or exceeds ${MAX_FILE_BYTES} bytes`);
     const raw = fs.readFileSync(abs, 'utf8');
@@ -184,7 +252,17 @@ class Loader {
   }
 
   /** ${VAR} from Define (unknown names stay as written; httpd would take them from the environment). */
-  subst(s) { return String(s).replace(/\$\{([A-Za-z0-9_.:-]+)\}/g, (m, k) => (this.defines.has(k) ? this.defines.get(k) : m)); }
+  subst(s) {
+    return String(s).replace(/\$\{([A-Za-z0-9_.:-]+)\}/g, (m, k) => {
+      if (this.defines.has(k)) return this.defines.get(k);
+      if (this.env[k] !== undefined) return this.env[k];
+      if (DEBIAN_ENV[k] !== undefined && (this.layout === 'debian' || /^APACHE_/.test(k))) {
+        if (!this.envNoted) { this.envNoted = true; this.notes.push({ file: this.rel(this.mainPath), msg: `\${APACHE_*} variables come from /etc/apache2/envvars, which is not part of the analysed files; the Debian defaults are used (APACHE_LOG_DIR=${DEBIAN_ENV.APACHE_LOG_DIR}, APACHE_RUN_USER=${DEBIAN_ENV.APACHE_RUN_USER} ...)`, kind: 'envvars' }); }
+        return DEBIAN_ENV[k];
+      }
+      return m;
+    });
+  }
 
   parseFile(abs, depth, stack) {
     if (depth > MAX_DEPTH || stack.includes(abs)) { this.note(abs, 'include loop / depth limit reached'); return []; }
@@ -246,8 +324,11 @@ class Loader {
   }
 
   load() {
+    this.prepare();
     const ast = this.parseFile(this.mainPath, 0, []);
-    return { ast, files: [...this.files.values()], notes: this.notes, defines: this.defines, loaded: this.loaded };
+    const L = LAYOUT[this.layout];
+    this.notes.push({ file: this.rel(this.mainPath), msg: `Layout: ${L.name}${this.envFile ? `; variables from ${this.envFile}` : ''}. Test with \`${L.test}\`, apply with \`${L.reload}\`.`, kind: 'layout' });
+    return { ast, files: [...this.files.values()], notes: this.notes, defines: this.defines, loaded: this.loaded, layout: this.layout, env: this.env };
   }
 }
 
@@ -380,7 +461,7 @@ function buildModel(ast, ctx = {}) {
 
   sections.push({
     type: 'global', name: 'global', line: 1, endLine: 1, file: ast[0] ? ast[0].file : '', mode: null, balance: null, timeouts: {}, binds: [], acls: [], routes: [], servers: [], users: [], effective: {},
-    directives: dlist(mainDirs), listens, loadedModules: [...loaded], defines: ctx.defines ? Object.fromEntries(ctx.defines) : {},
+    directives: dlist(mainDirs), listens, loadedModules: [...loaded], staticModules: STATIC_MODULES[ctx.layout || 'unknown'], defines: ctx.defines ? Object.fromEntries(ctx.defines) : {}, layout: ctx.layout || 'unknown',
   });
 
   // ---------------- balancers (backends)
@@ -615,13 +696,13 @@ function buildModel(ast, ctx = {}) {
         if (/^(permanent|temp|seeother|gone|\d{3})$/i.test(a[0] || '')) { const s = a.shift().toLowerCase(); code = { permanent: '301', temp: '302', seeother: '303', gone: '410' }[s] || s; }
       }
       let p; let to;
-      if (locPath != null && (a.length === 1 || code === '410')) { p = locPath; to = a[0]; } else { p = a[0]; to = a[1]; }
+      if (locPath != null && (a.length === 1 || (!/^3\d\d$/.test(code) && a.length === 0))) { p = locPath; to = a[0]; } else { p = a[0]; to = a[1]; }
       if (!p) return;
       const isRe = n.lname === 'redirectmatch' || (locRe && locPath === p);
       const pathM = { field: 'Path', op: isRe ? 'matches' : 'begins with', values: [p], negated: false };
       const label = `${n.name} ${n.args.join(' ')}`;
       routes.push(mk({ terminal: true, matchers: [pathM], paths: [p], condition: label, rawCondition: label, line: n.line, file: n.file, directive: n.name,
-        transforms: [...pending, code === '410' ? { action: 'return', args: ['410'], line: n.line, text: 'Gone (410)' } : { action: 'redirect', args: [code, to || ''], line: n.line, text: `Redirect ${code} ${to || ''}`.trim() }] }));
+        transforms: [...pending, !/^3\d\d$/.test(code) ? { action: 'return', args: [code], line: n.line, text: `${n.name} → ${code}` } : { action: 'redirect', args: [code, to || ''], line: n.line, text: `Redirect ${code} ${to || ''}`.trim() }] }));
     };
     redirs.forEach((n) => redirRoute(n));
     for (const { n, rw } of locs) for (const r of rw) redirRoute(r, n.args[0] === '~' ? n.args[1] : n.args[0], n.lname === 'locationmatch' || n.args[0] === '~');
@@ -690,7 +771,7 @@ function redactLine(line) {
   if (m && /^\s*AuthLDAPBindPassword/i.test(line)) return `${m[1]}"***"`;
   if (m && /^\s*MDExternalAccountBinding/i.test(line) && !/^none$/i.test(m[2].trim())) return `${m[1]}"***"`;
   m = /^(\s*(?:Request)?Header\s+(?:always\s+|onsuccess\s+)?(?:set|append|add|setifempty|merge)\s+("?)([^\s"]+)\2\s+)("(?:[^"\\]|\\.)*"|'[^']*'|\S+)(.*)$/i.exec(line);
-  if (m && SECRET_NAME.test(m[3]) && !/^"?%\{/.test(m[4])) return `${m[1]}"***"${m[5]}`;
+  if (m && SECRET_NAME.test(m[3]) && !/%\{|^"?\$/.test(m[4])) return `${m[1]}"***"${m[5]}`;
   m = /^(\s*(?:SetEnv|Define|PassEnv|SetEnvIf\S*\s+\S+\s+\S+)\s+("?)([^\s"=]+)\2\s+)("(?:[^"\\]|\\.)*"|'[^']*'|\S+)(.*)$/i.exec(line);
   if (m && SECRET_NAME.test(m[3])) return `${m[1]}"***"${m[5]}`;
   m = /^(\s*SetEnvIf\S*\s+.*?\s)([A-Za-z_]*(?:TOKEN|SECRET|PASSW|API_?KEY)[A-Za-z_]*=)(\S+)(.*)$/i.exec(line);
@@ -709,7 +790,7 @@ function normFiles(input) {
   if (norm.length > 1 && norm.every((f) => f.name.includes('/')) && tops.size === 1) norm.forEach((f) => { f.name = f.name.split('/').slice(1).join('/'); });
   return norm;
 }
-const looksMain = (c) => /^\s*(LoadModule|ServerRoot|Listen|ServerTokens|User|Group)\b/im.test(c);
+const looksMain = (c) => /^\s*(LoadModule|ServerRoot|Listen|ServerTokens|User|Group|IncludeOptional\s+mods-enabled)\b/im.test(c);
 function pickMain(norm) {
   const included = new Set();
   norm.forEach((f) => { for (const m of f.content.matchAll(/^\s*Include(?:Optional)?\s+"?([^"\s]+)/gim)) included.add(path.posix.basename(m[1])); });
@@ -725,13 +806,23 @@ function astFromFiles(input) {
   const main = pickMain(norm);
   const loader = new Loader(`/${path.posix.normalize(main.name)}`, '/', vfs);
   const r = loader.load();
+  // A set of fragments (conf.d / sites-available files) whose main file includes nothing: read every file, in name
+  // order, as httpd would after `IncludeOptional conf.d/*.conf`.
+  const includes = /^\s*Include(Optional)?\s/im.test(main.content);
+  if (!includes && norm.length > 1) {
+    const done = new Set(r.files.map((f) => f.abs));
+    const rest = norm.filter((f) => !done.has(`/${path.posix.normalize(f.name)}`) && !/(^|\/)envvars$/.test(f.name) && /\.(conf|load|htaccess)$|(^|\/)\.htaccess$/.test(f.name)).sort((a, b) => a.name.localeCompare(b.name));
+    for (const f of rest) r.ast.push(...loader.parseFile(`/${path.posix.normalize(f.name)}`, 1, []));
+    if (rest.length) r.notes.push({ file: main.name, msg: `${rest.length + 1} configuration fragments without a main file including them; analysed together in name order (as IncludeOptional conf.d/*.conf would read them)`, kind: 'fragments' });
+    r.files = [...loader.files.values()];
+  }
   return { ...r, main, norm };
 }
 
 function finish(r, extraFiles = []) {
   const red = (raw) => redact(raw);
   // the model is built from the redacted text, so no secret reaches sections / routes / directives
-  const sections = buildModel(r.redactedAst || r.ast, { defines: r.defines });
+  const sections = buildModel(r.redactedAst || r.ast, { defines: r.defines, layout: r.layout });
   return { sections, notes: r.notes, files: [...r.files.map((f) => ({ name: f.name, raw: red(f.raw), mtimeMs: f.mtimeMs || 0 })), ...extraFiles] };
 }
 
@@ -741,7 +832,7 @@ function parseFiles(input) {
   const r = astFromFiles(redacted);
   const loaded = new Set(r.files.map((f) => f.name));
   const extra = norm.filter((f) => !loaded.has(path.posix.normalize(f.name))).map((f) => ({ name: f.name, raw: redact(f.content), mtimeMs: 0, unused: true }));
-  if (!r.ast.some((n) => n.lname === 'virtualhost') && !r.ast.some((n) => /^(listen|loadmodule|serverroot)$/.test(n.lname))) r.notes.push({ file: r.main.name, msg: 'No <VirtualHost> and no Listen / LoadModule found — analysed as a fragment of the main server config.' });
+  if (!flat(r.ast).some((n) => n.lname === 'virtualhost') && !flat(r.ast).some((n) => /^(listen|loadmodule|serverroot)$/.test(n.lname))) r.notes.push({ file: r.main.name, msg: 'No <VirtualHost> and no Listen / LoadModule found — analysed as a fragment of the main server config.' });
   const out = finish(r, extra);
   out.mainFile = r.main.name;
   return out;
@@ -759,4 +850,4 @@ function loadPath(mainPath, rootDir) {
   return out;
 }
 
-module.exports = { lex, splitArgs, Loader, astFromFiles, normFiles, pickMain, buildModel, parseFiles, loadPath, redact, redactLine, flat, walk, sectionLabel, parseUrl, kvParams, statusFlags, defaultPort, maskUrl, rewriteFlags, DOCS, COND_SECTIONS, CONFIG_CONDS, DIR_SECTIONS };
+module.exports = { detectLayout, parseEnvvars, LAYOUT, DEBIAN_ENV, STATIC_MODULES, lex, splitArgs, Loader, astFromFiles, normFiles, pickMain, buildModel, parseFiles, loadPath, redact, redactLine, flat, walk, sectionLabel, parseUrl, kvParams, statusFlags, defaultPort, maskUrl, rewriteFlags, DOCS, COND_SECTIONS, CONFIG_CONDS, DIR_SECTIONS };

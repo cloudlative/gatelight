@@ -1,0 +1,53 @@
+{
+  "admin": { "listen": "localhost:2019" },
+  "apps": {
+    "http": {
+      "servers": {
+        "srv0": {
+          "listen": [":443"],
+          "routes": [
+            {
+              "match": [{ "host": ["shop.example.com"] }],
+              "handle": [
+                {
+                  "handler": "subroute",
+                  "routes": [
+                    {
+                      "match": [{ "path": ["/api/*"] }],
+                      "handle": [
+                        { "handler": "rewrite", "strip_path_prefix": "/api" },
+                        {
+                          "handler": "reverse_proxy",
+                          "upstreams": [{ "dial": "10.0.2.21:9000" }, { "dial": "10.0.2.22:9000" }],
+                          "load_balancing": { "selection_policy": { "policy": "least_conn" }, "try_duration": "5s" },
+                          "health_checks": { "active": { "uri": "/health", "interval": "10s" }, "passive": { "fail_duration": "30s" } },
+                          "headers": { "request": { "set": { "Authorization": ["Bearer not-a-real-token"] } } }
+                        }
+                      ]
+                    },
+                    {
+                      "match": [{ "path": ["/old"] }],
+                      "handle": [{ "handler": "static_response", "status_code": 301, "headers": { "Location": ["/new"] } }]
+                    },
+                    {
+                      "handle": [
+                        { "handler": "encode", "encodings": { "gzip": {}, "zstd": {} } },
+                        { "handler": "reverse_proxy", "upstreams": [{ "dial": "10.0.1.11:8080" }] }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ]
+        }
+      }
+    },
+    "tls": {
+      "automation": {
+        "policies": [{ "subjects": ["shop.example.com"], "issuers": [{ "module": "acme", "email": "ops@example.com", "challenges": { "dns": { "provider": { "name": "cloudflare", "api_token": "not-a-real-token" } } } }] }]
+      }
+    }
+  }
+}

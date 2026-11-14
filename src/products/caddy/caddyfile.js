@@ -166,6 +166,14 @@ function substituteArgs(nodes, args, block) {
   return out;
 }
 
+/** Tag a node and its block with where it was imported from (inner imports keep their own, closer origin). */
+function mark(nd, props) {
+  const out = { ...nd };
+  for (const [k, v] of Object.entries(props)) if (out[k] === undefined) out[k] = v;
+  if (nd.block) out.block = nd.block.map((c) => mark(c, props));
+  return out;
+}
+
 // ------------------------------------------------------------------------------------------------ loader
 class Loader {
   /** @param vfs optional Map(posix abs path -> content) for uploaded files. */
@@ -250,7 +258,7 @@ class Loader {
         if (stack.includes(`snippet:${pattern}`)) { this.notes.push({ file: nd.file, msg: `import "${pattern}": snippet imports itself` }); continue; }
         this.snippetUse.set(pattern, (this.snippetUse.get(pattern) || 0) + 1);
         const body = substituteArgs(clone(this.snippets.get(pattern).block), args, nd.block);
-        out.push(...this.expand(body, file, depth + 1, [...stack, `snippet:${pattern}`]).map((x) => ({ ...x, importedFrom: x.importedFrom || from, snippet: x.snippet || pattern })));
+        out.push(...this.expand(body, file, depth + 1, [...stack, `snippet:${pattern}`]).map((x) => mark(x, { importedFrom: from, snippet: pattern })));
         continue;
       }
       const P = this.vfs ? path.posix : path;
@@ -268,7 +276,7 @@ class Loader {
         try { parsed = this.parseFile(f, depth + 1); } catch (e) { this.notes.push({ file: nd.file, msg: `import "${pattern}": ${e.message}` }); continue; }
         parsed = this.collectDefs(parsed);
         const body = substituteArgs(parsed, args, nd.block);
-        out.push(...this.expand(body, f, depth + 1, [...stack, f]).map((x) => ({ ...x, importedFrom: x.importedFrom || from })));
+        out.push(...this.expand(body, f, depth + 1, [...stack, f]).map((x) => mark(x, { importedFrom: from })));
       }
     }
     return out;

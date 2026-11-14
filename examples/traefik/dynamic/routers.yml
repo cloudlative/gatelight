@@ -1,0 +1,136 @@
+# Routers: which requests go where (file provider, dynamic configuration)
+http:
+  routers:
+    shop:
+      rule: "Host(`shop.example.com`) || Host(`www.shop.example.com`)"
+      entryPoints:
+        - websecure
+      service: shop-web
+      middlewares:
+        - secure-chain
+      tls:
+        certResolver: letsencrypt
+
+    shop-api:
+      rule: "Host(`shop.example.com`) && PathPrefix(`/api`)"
+      entryPoints: [websecure]
+      service: api-canary
+      middlewares: [api-ratelimit, strip-api]
+      tls:
+        certResolver: letsencrypt
+
+    shop-api-beta:
+      # canary clients opt in with a header; explicit priority beats the longer /api rule
+      rule: "Host(`shop.example.com`) && PathPrefix(`/api`) && Header(`X-Canary`, `always`)"
+      priority: 200
+      entryPoints: [websecure]
+      service: api-mirror
+      middlewares: [strip-api]
+      tls: {}
+
+    shop-legacy:
+      rule: "Host(`shop.example.com`) && (PathPrefix(`/old-shop`) || Path(`/index.php`))"
+      entryPoints: [websecure]
+      service: legacy-billing
+      middlewares:
+        - legacy-rewrite
+        - legacy-prefix
+      tls:
+        options: legacy-clients
+
+    docs:
+      rule: "Host(`docs.example.com`) && Method(`GET`)"
+      entryPoints: [websecure]
+      service: docs@docker
+      middlewares: [secure-chain, docs-path]
+      tls:
+        certResolver: letsencrypt
+
+    dashboard:
+      rule: "Host(`traefik.example.com`)"
+      entryPoints: [websecure]
+      service: api@internal
+      middlewares: [office-only, dashboard-auth]
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    shop-web:
+      loadBalancer:
+        servers:
+          - url: "http://10.0.1.11:8080"
+          - url: "http://10.0.1.12:8080"
+        healthCheck:
+          path: /healthz
+          interval: 10s
+          timeout: 3s
+        sticky:
+          cookie:
+            name: shop_lb
+            secure: true
+            httpOnly: true
+
+    api-v2:
+      loadBalancer:
+        servers:
+          - url: "http://10.0.2.21:9000"
+          - url: "http://10.0.2.22:9000"
+          - url: "http://10.0.2.23:9000"
+        healthCheck:
+          path: /health
+          interval: 5s
+        passHostHeader: true
+
+    api-v3:
+      loadBalancer:
+        # two servers but no healthCheck: a dead one keeps receiving traffic
+        servers:
+          - url: "http://10.0.3.31:9000"
+          - url: "http://10.0.3.32:9000"
+
+    api-canary:
+      weighted:
+        services:
+          - name: api-v2
+            weight: 9
+          - name: api-v3
+            weight: 1
+
+    api-mirror:
+      mirroring:
+        service: api-v3
+        mirrors:
+          - name: api-v2
+            percent: 10
+
+    legacy-billing:
+      loadBalancer:
+        serversTransport: legacy-tls
+        servers:
+          - url: "https://billing.internal.example.com:8443"
+
+  serversTransports:
+    legacy-tls:
+      insecureSkipVerify: true
+      forwardingTimeouts:
+        dialTimeout: 5s
+        responseHeaderTimeout: 30s
+
+tcp:
+  routers:
+    postgres:
+      rule: "HostSNI(`*`)"
+      entryPoints: [postgres]
+      service: pg-primary
+    postgres-tls:
+      rule: "HostSNI(`db.example.com`)"
+      entryPoints: [websecure]
+      service: pg-primary
+      tls:
+        passthrough: true
+
+  services:
+    pg-primary:
+      loadBalancer:
+        servers:
+          - address: "10.0.5.10:5432"

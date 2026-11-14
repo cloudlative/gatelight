@@ -1,0 +1,8 @@
+# Imported from the main Caddyfile with "import sites/*.caddy".
+blog.example.com {
+	import security_headers
+	encode gzip
+	reverse_proxy 10.0.5.20:2368 {
+		health_uri /ghost/api/admin/site/
+	}
+}
