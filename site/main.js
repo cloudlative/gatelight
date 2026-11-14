@@ -39,6 +39,11 @@
     ['Details', 'Click anything for its own page: health, metrics, relationships, trend, configuration, events and findings.'],
     ['Events', 'What is down right now and for how long, graphs of server health, downtime and flapping, and the history of changes.'],
     ['NGINX traffic', 'Upload an NGINX access log and get status codes, URLs, clients and errors; response times appear when the log has them.'],
+    ['Config Builder', 'Describe sites, routes and pools once; get the configuration for the product and version you pick, validated against its docs and audited before you see it.'],
+    ['Config Builder · Compare all', 'The same description built for HAProxy, NGINX, Apache, Caddy and Traefik, with each one\'s checks and what it cannot do.'],
+    ['Traefik', 'Traefik entryPoints, routers and services as a map, from static and dynamic files or Docker labels.'],
+    ['Caddy', 'Caddy routing by domain, in the order Caddy really evaluates its directives, with automatic HTTPS shown.'],
+    ['Apache', 'Apache virtual hosts, balancers and members with live status from server-status and balancer-manager. apache2 and httpd layouts.'],
   ];
   const tabs = $$('.tabs button'); const shots = $$('.shot');
   let timer = null;

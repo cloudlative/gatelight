@@ -249,3 +249,12 @@ p { margin: 0; }
 .cmd code { overflow-wrap: break-word; }
 .cmd code { min-width: 0; } .cmd .copy { flex: none; }
 .foot-grid b a { color: inherit; text-decoration: none; } .foot-grid b a:hover { color: var(--cyan); }
+
+/* never scroll sideways on phones: decorative glows are clipped, wide tables scroll inside their box */
+html, body { overflow-x: clip; }
+.table-wrap { overflow-x: auto; max-width: 100%; }
+.step > div { min-width: 0; } .steps { min-width: 0; }
+.cmd { min-width: 0; max-width: 100%; }
+.steps > .step { min-width: 0; max-width: 100%; box-sizing: border-box; }
+@media (max-width: 560px) { .step { padding: 18px; } }
+.step code { overflow-wrap: anywhere; }

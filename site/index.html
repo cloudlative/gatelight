@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GateLight: see your HAProxy and NGINX as a map</title>
-  <meta name="description" content="GateLight is a free, open-source portal for HAProxy and NGINX: relationship maps, live health, charts with history and config audit. One docker compose file.">
+  <title>GateLight: see your HAProxy, NGINX, Apache, Caddy and Traefik as a map</title>
+  <meta name="description" content="GateLight is a free, open-source portal for HAProxy, NGINX, Apache (httpd / apache2), Caddy and Traefik: relationship maps, live health, charts with history, version-aware config validation and a Config Builder. One docker compose file.">
   <meta name="color-scheme" content="dark light">
   <meta property="og:title" content="GateLight: Light up your gateways.">
-  <meta property="og:description" content="See your HAProxy and NGINX the way you think about them: as a map. Live health, history, config audit. Free and open source.">
+  <meta property="og:description" content="See your HAProxy, NGINX, Apache, Caddy and Traefik the way you think about them: as a map. Live health, history, config audit and a Config Builder. Free and open source.">
   <meta property="og:image" content="img/social-preview.png">
   <meta property="og:type" content="website">
   <meta name="twitter:card" content="summary_large_image">
@@ -39,7 +39,7 @@
     <div class="hero-copy reveal">
       <span class="pill"><i class="dot"></i> Free · open source · MIT</span>
       <h1><span class="ln">Light up</span> <span class="ln">your <span class="grad">gateways.</span></span></h1>
-      <p class="lead">See your <b>HAProxy</b> and <b>NGINX</b> the way you think about them: <b>as a map</b>. Live health, charts with history and a config audit in one portal, with a single <code>docker compose</code> file.</p>
+      <p class="lead">See your <b>HAProxy</b>, <b>NGINX</b>, <b>Apache</b>, <b>Caddy</b> and <b>Traefik</b> the way you think about them: <b>as a map</b>. Live health, charts with history, a version-aware config check and a <b>Config Builder</b> in one portal, with a single <code>docker compose</code> file.</p>
       <div class="cta-row">
         <a class="btn primary" href="#start">Get started in 2 minutes</a>
         <a class="btn ghost" href="#tour">Take the tour</a>
@@ -73,7 +73,7 @@
   <div class="wrap">
     <p>Reads what you already run</p>
     <ul>
-      <li>HAProxy</li><li>NGINX</li><li>NGINX Plus</li><li>stub_status</li><li>Runtime API</li><li>Prometheus</li><li>Docker</li><li>Slack · Teams webhooks</li>
+      <li>HAProxy</li><li>NGINX</li><li>NGINX Plus</li><li>Apache httpd / apache2</li><li>Caddy</li><li>Traefik</li><li>Docker labels</li><li>stub_status</li><li>Runtime API</li><li>Prometheus</li><li>Docker</li><li>Slack · Teams webhooks</li>
     </ul>
   </div>
 </section>
@@ -144,13 +144,14 @@
       <article class="feat reveal d1"><div class="ico c2"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="7" rx="2"/><path d="M7 6.5h.01M7 17.5h.01"/></svg></div><h3>Infrastructure view</h3><p>Networks → hosts → services behind the load balancer, with aliveness for every one and an "only what is down" filter.</p></article>
       <article class="feat reveal d2"><div class="ico c3"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div><h3>Charts with history</h3><p>Grafana-style: zoom, pan, shared crosshair, 5 minutes to 7 days, kept in SQLite across restarts. Donut charts for HTTP errors.</p></article>
       <article class="feat reveal"><div class="ico c4"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div><h3>Config audit, 39 rules</h3><p>Undefined backends, orphaned pools, missing health checks, weak credentials, exposed stats, config drift. Every finding has a line and a fix.</p></article>
-      <article class="feat reveal"><div class="ico c2"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><h3>Validate against any version</h3><p>Config Doctor checks a config against the official docs of the exact release you run: HAProxy 1.7 to 3.4 and NGINX. See what is unknown, too new, removed or deprecated there, with a fix and version-aware recommendations.</p></article>
+      <article class="feat reveal"><div class="ico c2"><svg viewBox="0 0 24 24"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div><h3>Validate against any version</h3><p>Config Doctor checks a config against the official docs of the exact release you run: HAProxy 1.7 to 3.4, NGINX, Apache 2.4.0 to 2.4.71, Caddy 2.0 to 2.11 and Traefik 2.0 to 3.7. See what is unknown, too new, removed or deprecated there, with a fix and version-aware recommendations.</p></article>
       <article class="feat reveal d2"><div class="ico c3"><svg viewBox="0 0 24 24"><path d="M3 7h9a4 4 0 0 1 4 4v6"/><path d="M13 14l3 3 3-3"/><path d="M3 17h5"/></svg></div><h3>Port-to-port and URI mapping</h3><p>Domain to listener to server: which backend address and port each domain reaches, where TLS ends, and the exact path your backend receives after rewrites. Every relationship is marked active, idle, down or never used, and you can filter to what is alive, not alive or unused. Try any URL against the config.</p></article>
       <article class="feat reveal"><div class="ico c4"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2" stroke-dasharray="3 3"/></svg></div><h3>L7 and L4 at a glance</h3><p>Every frontend and pool is labelled HTTP (L7) or TCP (L4), with a layer filter and tooltips on what each layer can and cannot see.</p></article>
-      <article class="feat reveal d2"><div class="ico c5"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16V11M12 16V7M17 16v-3"/></svg></div><h3>Traffic statistics from your log</h3><p>Upload one or more HAProxy or NGINX logs (plain or gzipped, size-limited, shown combined) and see requests, response times, errors, status codes, servers, URLs and clients, with filters. NGINX: combined, common or JSON lines, with or without timings. Only aggregates are kept. Instructions for splitting big logs are built in.</p></article>
-      <article class="feat reveal"><div class="ico c3"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></div><h3>Config Doctor: rewrite to best practice</h3><p>Paste a HAProxy or NGINX config and get a score, every issue explained, and a rewritten version for your exact release. Each change can be switched off, and nothing touches your servers.</p></article>
+      <article class="feat reveal d2"><div class="ico c5"><svg viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M7 16V11M12 16V7M17 16v-3"/></svg></div><h3>Traffic statistics from your log</h3><p>Upload one or more access logs (plain or gzipped, size-limited, shown combined) and see requests, response times, errors, status codes, servers, URLs and clients, with filters. HAProxy, NGINX (combined, common, JSON), Apache (combined, vhost_combined, JSON), Caddy (JSON) and Traefik (CLF, JSON), detected automatically. Only aggregates are kept.</p></article>
+      <article class="feat reveal"><div class="ico c3"><svg viewBox="0 0 24 24"><path d="M12 3l1.8 4.6L18.5 9l-4.7 1.4L12 15l-1.8-4.6L5.5 9l4.7-1.4z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></svg></div><h3>Config Doctor: rewrite to best practice</h3><p>Paste a HAProxy, NGINX, Apache, Caddy or Traefik config and get a score, every issue explained, and a rewritten version for your exact release. Each change can be switched off, comments are kept, and nothing touches your servers.</p></article>
       <article class="feat reveal d1"><div class="ico c6"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg></div><h3>Refresh from the server</h3><p>Point GateLight at where your config is served and pull the current version with one click, with a summary of what changed. Read-only.</p></article>
-      <article class="feat reveal d1"><div class="ico c5"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div><h3>Live health for both</h3><p>HAProxy via CSV or the Runtime API. NGINX via stub_status, the Plus API and an active TCP probe, so even open-source NGINX gets per-server health.</p></article>
+      <article class="feat reveal d1"><div class="ico c5"><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></div><h3>Live health for all five</h3><p>HAProxy via CSV or the Runtime API. NGINX via stub_status, the Plus API and a TCP probe. Apache via server-status and balancer-manager, Caddy via its admin API, Traefik via its API, plus Prometheus metrics. Read-only, always.</p></article>
+      <article class="feat reveal d1"><div class="ico c1"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></div><h3>Config Builder</h3><p>Describe your sites, routes and server pools once and get the configuration for HAProxy, NGINX, Apache (apache2, httpd or a single file), Caddy or Traefik, for the version you run. Every result is validated against that version&#39;s docs and audited; anything a product cannot do is listed, never faked. Compare all five side by side.</p></article>
       <article class="feat reveal d2"><div class="ico c6"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/></svg></div><h3>Review a config offline</h3><p>Drop a <code>haproxy.cfg</code>, an <code>nginx.conf</code> or a whole folder. Nothing is saved. Keep several as named instances and update them when files change.</p></article>
       <article class="feat reveal"><div class="ico c7"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg></div><h3>Alerts and metrics</h3><p>Slack, Mattermost and Teams-compatible webhooks on down and recovery. Prometheus <code>/metrics</code> out of the box.</p></article>
       <article class="feat reveal d1"><div class="ico c8"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div><h3>Built to be trusted</h3><p>Read-only toward your servers (enforced in code and tests), sign-in, secret redaction, strict CSP. Runs non-root with a read-only filesystem and no CDN calls.</p></article>
@@ -181,6 +182,11 @@
         <button role="tab" aria-selected="false" data-tab="10">Details</button>
         <button role="tab" aria-selected="false" data-tab="11">Health Events</button>
         <button role="tab" aria-selected="false" data-tab="12">NGINX traffic</button>
+        <button role="tab" aria-selected="false" data-tab="13">Config Builder</button>
+        <button role="tab" aria-selected="false" data-tab="14">Compare all</button>
+        <button role="tab" aria-selected="false" data-tab="15">Traefik</button>
+        <button role="tab" aria-selected="false" data-tab="16">Caddy</button>
+        <button role="tab" aria-selected="false" data-tab="17">Apache</button>
       </div>
       <div class="window big">
         <div class="win-bar"><i></i><i></i><i></i><span id="tour-title">GateLight · Overview</span></div>
@@ -198,6 +204,11 @@
           <img class="shot" src="img/details.png" alt="A details page for one backend" width="1440" height="900" loading="lazy">
           <img class="shot" src="img/events.png" alt="Health Events: what is down right now, graphs and the change history" width="1440" height="900" loading="lazy">
           <img class="shot" src="img/traffic-nginx.png" alt="Traffic statistics from an NGINX access log" width="1440" height="1500" loading="lazy">
+          <img class="shot" src="img/config-builder.png" alt="Config Builder: sites, routes and pools on the left, the generated and validated Traefik configuration on the right" width="1440" height="900" loading="lazy">
+          <img class="shot" src="img/config-builder-compare.png" alt="Config Builder: the same description built for all five products with their checks" width="1440" height="900" loading="lazy">
+          <img class="shot" src="img/topology-traefik.png" alt="Traefik topology: entryPoints, services and servers" width="1440" height="900" loading="lazy">
+          <img class="shot" src="img/routing-caddy.png" alt="Caddy request routing by domain" width="1440" height="900" loading="lazy">
+          <img class="shot" src="img/services-apache.png" alt="Apache service status: virtual hosts, balancers and members" width="1440" height="900" loading="lazy">
         </div>
       </div>
       <p class="caption" id="tour-caption">Clickable, explained health cards, a traffic chart and what needs attention. Everything links to the detail behind it.</p>
@@ -221,6 +232,8 @@
           <tr><td>Health</td><td>Tables of status text</td><td class="us">Colour-coded, with reason and time in state</td></tr>
           <tr><td>History</td><td>None</td><td class="us">Zoom and pan, 5 min to 7 days, kept in SQLite</td></tr>
           <tr><td>NGINX upstream health</td><td>None (open source)</td><td class="us">Per server via Plus API or TCP probe</td></tr>
+          <tr><td>Proxies</td><td>One built-in page each, all different</td><td class="us">HAProxy, NGINX, Apache, Caddy and Traefik in one portal</td></tr>
+          <tr><td>New configs</td><td>Written by hand, checked in production</td><td class="us">Config Builder, validated for your version</td></tr>
           <tr><td>Config problems</td><td>None</td><td class="us">39 audit rules with line numbers and fixes</td></tr>
           <tr><td>Changes</td><td>None</td><td class="us">Event timeline and webhook alerts</td></tr>
           <tr><td>Setup</td><td>Built in</td><td class="us"><code>docker compose up -d</code></td></tr>
@@ -262,7 +275,7 @@
         <span class="num">3</span>
         <div>
           <h3>Add an instance</h3>
-          <p>Overview → <b>Add an instance</b>. Pick HAProxy or NGINX, enter the stats URL, press <b>Test connection</b>, then <b>Save &amp; connect</b>. On the same machine as Docker, use <code>http://host.docker.internal:PORT/stats</code>.</p>
+          <p>Overview → <b>Add an instance</b>. Pick HAProxy, NGINX, Apache, Caddy or Traefik, enter its stats, status or API URL, press <b>Test connection</b>, then <b>Save &amp; connect</b>. On the same machine as Docker, use <code>http://host.docker.internal:PORT/stats</code>.</p>
           <p class="muted">Just curious? <code>DEMO_MODE=true docker compose up -d</code> serves synthetic traffic on a sample shop. Only want the map of a file? Use <b>Review a config</b> and nothing is saved.</p>
         </div>
       </li>
@@ -308,7 +321,9 @@
   <div class="wrap narrow">
     <div class="sec-head reveal"><span class="eyebrow">Questions</span><h2>Good to <span class="grad">know</span>.</h2></div>
     <div class="faq reveal">
-      <details><summary>Does it need agents or changes to my load balancers?</summary><p>No. For HAProxy it reads the stats page (CSV) or the Runtime API. For NGINX it reads <code>stub_status</code>, the Plus API, and can probe your upstreams over TCP. Use a read-only stats user.</p></details>
+      <details><summary>Does it need agents or changes to my load balancers?</summary><p>No. For HAProxy it reads the stats page (CSV) or the Runtime API. For NGINX it reads <code>stub_status</code>, the Plus API, and can probe your upstreams over TCP. For Apache it reads <code>server-status</code> and <code>balancer-manager</code>, for Caddy its admin API, for Traefik its API, and Prometheus metrics where enabled. Only reads, never writes. Use a read-only user.</p></details>
+      <details><summary>Which Apache layouts are supported?</summary><p>Both: Debian and Ubuntu <code>apache2</code> (<code>apache2.conf</code>, <code>mods-enabled</code>, <code>sites-enabled</code>, <code>envvars</code>) and RHEL, Fedora or source-built <code>httpd</code> (<code>httpd.conf</code>, <code>conf.modules.d</code>, <code>conf.d</code>). Advice uses the right commands for each, like <code>a2enmod</code> or <code>httpd -t</code>, and the Config Builder writes files for either layout.</p></details>
+      <details><summary>Where does the version knowledge come from?</summary><p>From the official documentation of each project, read at its release tags: the HAProxy manual, nginx.org, the Apache httpd docs, Caddy&#39;s source and docs, and Traefik&#39;s reference configuration. So a check says exactly which release added, changed or removed something.</p></details>
       <details><summary>Can I use it without a running server?</summary><p>Yes. Drop a <code>haproxy.cfg</code>, an <code>nginx.conf</code> or a whole folder (with <code>conf.d/</code> includes) into <b>Review a config</b>. You get the map, the URL table and the audit. Nothing is saved unless you choose to keep it as a named instance.</p></details>
       <details><summary>Where is my data stored?</summary><p>In a Docker volume: saved connections (private to the browser that added them), chart history and events in SQLite. Credentials are stored with file mode 0600 and never sent back to the browser.</p></details>
       <details><summary>How is NGINX per-server health possible without Plus?</summary><p>GateLight can TCP-probe every upstream server from its own host. That shows reachability from GateLight's point of view. With NGINX Plus, it reads real per-peer health and traffic from the API.</p></details>
@@ -335,7 +350,7 @@
   <div class="wrap foot-grid">
     <div>
       <a class="brand" href="#top"><img src="favicon.svg" alt="" width="30" height="30"><span>GateLight</span></a>
-      <p>Free, open-source portal for HAProxy and NGINX.<br>MIT licensed. Built by <a href="https://cloudlative.com" target="_blank" rel="noopener noreferrer">Cloudlative</a>.</p>
+      <p>Free, open-source portal for HAProxy, NGINX, Apache, Caddy and Traefik.<br>MIT licensed. Built by <a href="https://cloudlative.com" target="_blank" rel="noopener noreferrer">Cloudlative</a>.</p>
     </div>
     <div>
       <b>Project</b>
@@ -351,7 +366,7 @@
       <a href="https://invisibly.dev" target="_blank" rel="noopener noreferrer">Invisibly Inc</a>
     </div>
   </div>
-  <div class="wrap foot-base"><span>© <span id="year">2026</span> Cloudlative · GateLight is not affiliated with HAProxy Technologies or F5/NGINX.</span></div>
+  <div class="wrap foot-base"><span>© <span id="year">2026</span> Cloudlative · GateLight is not affiliated with HAProxy Technologies, F5/NGINX, the Apache Software Foundation, the Caddy project or Traefik Labs.</span></div>
 </footer>
 
 <script src="main.js"></script>
