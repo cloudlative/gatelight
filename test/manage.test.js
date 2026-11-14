@@ -234,3 +234,32 @@ test('re-uploading a config replaces the old one on an existing instance and rep
     assert.ok((await get(t.base, `/api/instances/${r.json.id}/snapshot`)).json.config.sections.some((x) => x.name === 'later'), 'persisted');
   } finally { await t.close(); }
 });
+
+test('saved credentials and uploaded configs are encrypted at rest, and old plain-text files are migrated', () => {
+  const fs2 = require('fs'); const os2 = require('os'); const path2 = require('path');
+  const { InstanceStore, SecretBox } = require('../src/store');
+  const { loadSettings } = require('../src/settings');
+  const dir = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'gl-enc-'));
+  const def = { id: 'a', type: 'haproxy', name: 'edge', statsUrl: 'http://10.0.0.1:8404/stats', username: 'viewer', password: 's3cret-PW', configFiles: [{ name: 'haproxy.cfg', content: 'userlist u\n  user admin insecure-password hunter2\n' }] };
+  // an old, plain-text file
+  fs2.writeFileSync(path2.join(dir, 'ui-instances.json'), JSON.stringify({ instances: [def] }));
+  fs2.writeFileSync(path2.join(dir, 'none.json'), '[]');
+  const s = loadSettings({ HISTORY_DB: 'off', ALLOW_UI_INSTANCES: 'true', DATA_DIR: dir, INSTANCES_FILE: path2.join(dir, 'none.json') });
+  assert.equal(s.instances.find((i) => i.id === 'a').password, 's3cret-PW', 'still readable after migration');
+  const raw = fs2.readFileSync(path2.join(dir, 'ui-instances.json'), 'utf8');
+  for (const secret of ['s3cret-PW', 'viewer', 'hunter2']) assert.ok(!raw.includes(secret), `${secret} must not be in the file`);
+  assert.match(raw, /enc:v1:/);
+  assert.equal((fs2.statSync(path2.join(dir, '.store-key')).mode & 0o777).toString(8), '600');
+  // round trip, and a wrong key is a clear error, not garbage
+  const back = new InstanceStore(dir).load();
+  assert.equal(back[0].configFiles[0].content, def.configFiles[0].content);
+  assert.equal(new InstanceStore(dir).legacy, false);
+  const other = new InstanceStore(dir, new SecretBox(dir, 'a different key'));
+  assert.throws(() => other.load(), /different key/);
+  // GATELIGHT_SECRET_KEY: no key file is written at all
+  const dir2 = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'gl-enc2-'));
+  const st = new InstanceStore(dir2, new SecretBox(dir2, 'k-from-env'));
+  st.save([def]);
+  assert.ok(!fs2.existsSync(path2.join(dir2, '.store-key')));
+  assert.equal(new InstanceStore(dir2, new SecretBox(dir2, 'k-from-env')).load()[0].password, 's3cret-PW');
+});

@@ -330,7 +330,7 @@ server {
 ## Connect a server from the UI
 
 The **Add instance** page is on by default in the Docker setup (`ALLOW_UI_INSTANCES=true`). Saved connections live in the `gatelight-data` volume
-(`/app/data/ui-instances.json`, mode 0600), survive restarts, and can be edited or removed under *Settings*. Passwords are
+(`/app/data/ui-instances.json`, mode 0600), survive restarts, and can be edited or removed under *Settings*. Passwords, user names and uploaded config files are **encrypted** in that file (AES-256-GCM) with the key in `GATELIGHT_SECRET_KEY`, or, without it, a key generated once in the data volume (`.store-key`, 0600). Set `GATELIGHT_SECRET_KEY` and keep it outside the volume so a copy of the volume alone reveals nothing; files from older versions are encrypted at the next start. Passwords are
 never returned by the API. Upload a config (files, a whole folder with `conf.d/` includes, or paste) to get the relationship map and audit as well. With no URL it is saved as a **config-only instance**, which is how you keep several HAProxy / NGINX configs side by side under unique names. Nothing is read from the server's disk: GateLight does not look for `haproxy.cfg` / `nginx.conf` on its own.
 
 **Connections are private to the browser that added them.** Each browser gets a random `gl_sid` cookie (HttpOnly, SameSite=Strict);
@@ -395,6 +395,7 @@ Put these in a `.env` file next to `docker-compose.yml` (see [`.env.example`](.e
 | `ALERT_5XX_PCT` / `ALERT_LATENCY_MS` | `5` / `1000` | Threshold alerts: 5xx share of requests (judged from 1 req/s up), average server response time. `0` turns a rule off |
 | `ALERT_SATURATION_PCT` / `ALERT_QUEUE` / `ALERT_DOWN_MINUTES` | `90` / `10` / `5` | Sessions as % of a frontend's or server's limit, requests waiting in a backend or server queue, a server down longer than this |
 | `ALERT_FOR_SECONDS` | `60` | How long a condition must hold before it fires (the down rule uses its own minutes). Per instance: `"alertRules": {"errorPct": 2, "latencyMs": 500, "forSeconds": 120}` |
+| `GATELIGHT_SECRET_KEY` | generated key in `DATA_DIR/.store-key` | Encrypts saved passwords, user names and uploaded configs at rest. Keep it outside the data volume; changing it makes saved connections unreadable |
 | `CONFIG_HISTORY_KEEP` | `50` | Configuration versions kept per instance (in the history database, redacted) |
 | `POLL_INTERVAL` | `5000` | ms between polls (min 1000) |
 | `HISTORY_POINTS` / `EVENT_LIMIT` | `360` / `500` | In-memory history per entity / events kept |

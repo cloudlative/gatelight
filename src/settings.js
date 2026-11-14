@@ -144,7 +144,10 @@ function loadSettings(env = process.env) {
     allowedHosts: String(env.UI_ALLOWED_HOSTS || '').split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
   };
   if (ui.enabled) {
-    const stored = new InstanceStore(ui.dir).load();
+    const st = new InstanceStore(ui.dir);
+    const stored = st.load();
+    // connections saved by older versions in plain text: write them back encrypted now
+    if (st.legacy) { try { st.save(stored); } catch { /* read-only data dir: keep working, encryption happens on the next save */ } }
     stored.forEach((r, i) => all.push(normalizeInstance({ ...r, managed: true }, i, null, defaults, seen)));
   }
   const instances = all.filter((i) => i.enabled && features[i.type]);

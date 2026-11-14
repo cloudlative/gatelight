@@ -1,29 +1,94 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 /**
- * Persists instances added from the UI (ALLOW_UI_INSTANCES=true) as JSON in DATA_DIR.
- * The file is written 0600 because it holds the stats credentials the operator typed in.
+ * Secrets at rest: saved passwords, user names and uploaded config files (which can contain credentials) are
+ * encrypted with AES-256-GCM. The key is GATELIGHT_SECRET_KEY when set (keep it outside the data volume, so a copy
+ * of the volume or a backup alone does not reveal the credentials), otherwise a random key generated once in the
+ * data directory (.store-key, mode 0600), which still keeps them out of plain-text exports and backups of the file.
+ */
+const SEALED = ['password', 'username', 'configFiles'];
+const PREFIX = 'enc:v1:';
+class SecretBox {
+  constructor(dir, envKey = process.env.GATELIGHT_SECRET_KEY) { this.dir = dir; this.envKey = envKey || null; this.key = null; }
+
+  get source() { return this.envKey ? 'GATELIGHT_SECRET_KEY' : path.join(this.dir, '.store-key'); }
+
+  _key(create) {
+    if (this.key) return this.key;
+    if (this.envKey) { this.key = crypto.scryptSync(this.envKey, 'gatelight-store-v1', 32); return this.key; }
+    const file = path.join(this.dir, '.store-key');
+    try { this.key = Buffer.from(fs.readFileSync(file, 'utf8').trim(), 'base64'); } catch (e) {
+      if (e.code !== 'ENOENT' || !create) return null;
+      fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+      const k = crypto.randomBytes(32);
+      fs.writeFileSync(file, k.toString('base64'), { mode: 0o600, flag: 'wx' });
+      this.key = k;
+    }
+    if (this.key.length !== 32) throw new Error(`${file} is not a valid key (32 bytes, base64)`);
+    return this.key;
+  }
+
+  seal(value) {
+    const iv = crypto.randomBytes(12);
+    const c = crypto.createCipheriv('aes-256-gcm', this._key(true), iv);
+    const ct = Buffer.concat([c.update(JSON.stringify(value), 'utf8'), c.final()]);
+    return `${PREFIX}${iv.toString('base64')}:${c.getAuthTag().toString('base64')}:${ct.toString('base64')}`;
+  }
+
+  open(text) {
+    const [iv, tag, ct] = text.slice(PREFIX.length).split(':');
+    const key = this._key(false);
+    if (!key) throw new Error(`Saved connections are encrypted, but the key is missing (${this.source}). Restore it, or set GATELIGHT_SECRET_KEY to the key used before.`);
+    try {
+      const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(iv, 'base64'));
+      d.setAuthTag(Buffer.from(tag, 'base64'));
+      return JSON.parse(Buffer.concat([d.update(Buffer.from(ct, 'base64')), d.final()]).toString('utf8'));
+    } catch { throw new Error(`Saved connections were encrypted with a different key than ${this.source}. Set GATELIGHT_SECRET_KEY to the key used before, or remove ui-instances.json to start over.`); }
+  }
+}
+const isSealed = (v) => typeof v === 'string' && v.startsWith(PREFIX);
+
+/**
+ * Persists instances added from the UI (ALLOW_UI_INSTANCES=true) as JSON in DATA_DIR (file mode 0600), with the
+ * secret fields encrypted (see SecretBox). Files written by older versions in plain text are still read; `legacy`
+ * tells the caller to save them again, which encrypts them.
  */
 class InstanceStore {
-  constructor(dir) { this.dir = dir; this.file = path.join(dir, 'ui-instances.json'); }
+  constructor(dir, box = new SecretBox(dir)) { this.dir = dir; this.file = path.join(dir, 'ui-instances.json'); this.box = box; this.legacy = false; }
 
   load() {
-    try {
-      const j = JSON.parse(fs.readFileSync(this.file, 'utf8'));
-      return Array.isArray(j.instances) ? j.instances : [];
-    } catch (e) {
+    let j;
+    try { j = JSON.parse(fs.readFileSync(this.file, 'utf8')); } catch (e) {
       if (e.code === 'ENOENT') return [];
       throw new Error(`Cannot read ${this.file}: ${e.message}`);
     }
+    const list = Array.isArray(j.instances) ? j.instances : [];
+    this.legacy = false;
+    return list.map((inst) => {
+      const out = { ...inst };
+      for (const k of SEALED) {
+        if (out[k] == null) continue;
+        if (isSealed(out[k])) out[k] = this.box.open(out[k]);
+        else this.legacy = true; // written before encryption existed
+      }
+      return out;
+    });
   }
 
   save(list) {
     fs.mkdirSync(this.dir, { recursive: true, mode: 0o700 });
+    const sealed = list.map((inst) => {
+      const out = { ...inst };
+      for (const k of SEALED) if (out[k] != null && out[k] !== '') out[k] = this.box.seal(out[k]);
+      return out;
+    });
     const tmp = `${this.file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ instances: list }, null, 2), { mode: 0o600 });
+    fs.writeFileSync(tmp, JSON.stringify({ format: 2, instances: sealed }, null, 2), { mode: 0o600 });
     fs.renameSync(tmp, this.file);
+    this.legacy = false;
   }
 }
 
@@ -125,4 +190,4 @@ function validateInput(body, ctx, existing) {
   return def;
 }
 
-module.exports = { InstanceStore, validateInput, checkUrl, cleanFiles };
+module.exports = { InstanceStore, SecretBox, validateInput, checkUrl, cleanFiles };
